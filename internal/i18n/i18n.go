@@ -19,11 +19,11 @@ var VerdictZH = map[string]string{
 
 // VerdictEN 中文 → 标准 verdict（兼容教师手填中文）。
 var VerdictEN = map[string]string{
-	"答案正确": "accepted",
-	"答案错误": "wrong_answer",
-	"运行超时": "time_limit",
+	"答案正确":  "accepted",
+	"答案错误":  "wrong_answer",
+	"运行超时":  "time_limit",
 	"运行时错误": "runtime_error",
-	"编译错误": "compile_error",
+	"编译错误":  "compile_error",
 }
 
 // Negotiate 解析 Accept-Language，缺省 zh-CN。

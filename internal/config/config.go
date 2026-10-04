@@ -13,6 +13,8 @@ type Config struct {
 	// Store 持久化后端：sqlite（默认，文件）或 memory（纯内存，测试/临时）。
 	Store  string
 	DBPath string
+	// AutoJudge 是否启用本地自动评测 worker（默认开；FORGE_AUTOJUDGE=0 关）。
+	AutoJudge bool
 }
 
 func Load() Config {
@@ -32,8 +34,12 @@ func Load() Config {
 	if store != "memory" {
 		store = "sqlite"
 	}
+	auto := true
+	if strings.TrimSpace(os.Getenv("FORGE_AUTOJUDGE")) == "0" {
+		auto = false
+	}
 	return Config{
 		Addr: addr, DataDir: dataDir, Locale: strings.TrimSpace(locale),
-		Store: store, DBPath: dataDir + "/forge.db",
+		Store: store, DBPath: dataDir + "/forge.db", AutoJudge: auto,
 	}
 }

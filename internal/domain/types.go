@@ -69,13 +69,13 @@ type ProblemLocale struct {
 }
 
 type TestCase struct {
-	ID           string `json:"id"`
-	InputFile    string `json:"inputFile"`
-	OutputFile   string `json:"outputFile"`
-	Score        int    `json:"score"`
-	Subtask      int    `json:"subtask"`
-	TimeLimitMs  int    `json:"timeLimitMs,omitempty"`
-	MemoryMiB    int    `json:"memoryMib,omitempty"`
+	ID          string `json:"id"`
+	InputFile   string `json:"inputFile"`
+	OutputFile  string `json:"outputFile"`
+	Score       int    `json:"score"`
+	Subtask     int    `json:"subtask"`
+	TimeLimitMs int    `json:"timeLimitMs,omitempty"`
+	MemoryMiB   int    `json:"memoryMib,omitempty"`
 }
 
 type Problem struct {

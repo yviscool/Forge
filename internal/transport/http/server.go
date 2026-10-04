@@ -19,9 +19,18 @@ import (
 type Server struct {
 	svc *app.Service
 	log *slog.Logger
+	// OnSubmit 提交成功后的钩子（自动评测入队；nil 则仅记录手动判题）。
+	OnSubmit func(domain.Submission)
+
+	handler http.Handler
 }
 
-func NewServer(svc *app.Service, log *slog.Logger) http.Handler {
+// ServeHTTP 让 *Server 本身就是 http.Handler（钩子可在启动后挂载）。
+func (h *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	h.handler.ServeHTTP(w, r)
+}
+
+func NewServer(svc *app.Service, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
@@ -33,7 +42,8 @@ func NewServer(svc *app.Service, log *slog.Logger) http.Handler {
 	mux.HandleFunc("/app", h.spa)
 	mux.HandleFunc("/app/", h.spa)
 	mux.HandleFunc("/", h.root)
-	return WithMiddleware(mux, log)
+	h.handler = WithMiddleware(mux, log)
+	return h
 }
 
 func (h *Server) root(w http.ResponseWriter, r *http.Request) {
@@ -199,7 +209,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 3 && parts[0] == "submissions" && parts[2] == "cases" && r.Method == "POST" {
 		var v struct {
 			Cases    []domain.CaseResult `json:"cases"`
-			Subtasks map[int]int        `json:"subtasks"`
+			Subtasks map[int]int         `json:"subtasks"`
 		}
 		if decode(r, &v) != nil {
 			h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -374,6 +384,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
+			}
+			if h.OnSubmit != nil {
+				h.OnSubmit(x)
 			}
 			writeOut(w, x, 202)
 		default:

@@ -165,7 +165,7 @@ func (s *Service) Judge(id, verdict string, score int) (domain.Submission, error
 		return domain.Submission{}, err
 	}
 	s.emit("submission.judged", x.ContestID, x)
-	s.emit("ranking.updated", x.ContestID, s.Ranking(x.ContestID), )
+	s.emit("ranking.updated", x.ContestID, s.Ranking(x.ContestID))
 	return x, nil
 }
 

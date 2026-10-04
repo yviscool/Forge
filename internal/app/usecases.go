@@ -151,8 +151,12 @@ func (s *Service) ListSubmissions(cid string) []domain.Submission {
 	return s.store.ListSubmissions(cid)
 }
 
+func (s *Service) GetSubmission(id string) (domain.Submission, error) {
+	return s.store.GetSubmission(id)
+}
+
 // JudgeCases 按点回写：聚合子任务分（LemonLime dependence 语义）后落总分，
- // verdict 取最差点结论映射。
+// verdict 取最差点结论映射。
 func (s *Service) JudgeCases(subID string, cases []domain.CaseResult, subtaskOf func(int) int, fullOf func(int) int) (domain.Submission, error) {
 	x, err := s.store.GetSubmission(subID)
 	if err != nil {

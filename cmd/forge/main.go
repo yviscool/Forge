@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
 	"syscall"
 	"time"
 
@@ -13,6 +14,8 @@ import (
 	"github.com/yviscool/forge/internal/adapters/store/sqlite"
 	"github.com/yviscool/forge/internal/app"
 	"github.com/yviscool/forge/internal/config"
+	"github.com/yviscool/forge/internal/domain"
+	"github.com/yviscool/forge/internal/judge"
 	"github.com/yviscool/forge/internal/ports"
 	"github.com/yviscool/forge/internal/realtime"
 	httpapi "github.com/yviscool/forge/internal/transport/http"
@@ -36,13 +39,36 @@ func main() {
 	log.Info("store ready", "backend", cfg.Store)
 
 	svc := app.NewService(store, realtime.NewHub(), nil, log)
-	handler := httpapi.NewServer(svc, log)
+	srv := httpapi.NewServer(svc, log)
 
-	srv := &http.Server{Addr: cfg.Addr, Handler: handler}
+	// 自动评测 worker：Submit → 入队 → JudgeOne → JudgeCases 回写。
+	// 无测试点的题目跳过自动评测（保留教师手动判题）。
+	workerCtx, stopWorkers := context.WithCancel(context.Background())
+	if cfg.AutoJudge {
+		pool := judge.AutoJudgePool(svc, runtime.NumCPU())
+		pool.Start(workerCtx, runtime.NumCPU())
+		defer pool.Wait()
+		srv.OnSubmit = func(x domain.Submission) {
+			p, err := svc.GetProblem(x.ContestID, x.ProblemID)
+			if err != nil {
+				return
+			}
+			req, ok := judge.BuildRequest(x, p)
+			if !ok {
+				return
+			}
+			if !pool.Submit(judge.Job{SubID: x.ID, Req: req}) {
+				log.Warn("judge queue full, left for manual judging", "sub", x.ID)
+			}
+		}
+		log.Info("autojudge ready", "workers", runtime.NumCPU())
+	}
+
+	httpSrv := &http.Server{Addr: cfg.Addr, Handler: srv}
 	go func() {
 		log.Info("forge starting", "addr", cfg.Addr)
 		log.Info("app", "url", "http://localhost"+cfg.Addr+"/app")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := httpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("listen failed", "err", err)
 			os.Exit(1)
 		}
@@ -51,8 +77,9 @@ func main() {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	stopWorkers()
+	ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_ = srv.Shutdown(ctx)
+	_ = httpSrv.Shutdown(ctx2)
 	log.Info("forge stopped")
 }

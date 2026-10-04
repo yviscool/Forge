@@ -12,9 +12,9 @@ import (
 type ComparisonMode string
 
 const (
-	CompareLineByLine  ComparisonMode = "line_by_line"
-	CompareIgnoreSpace ComparisonMode = "ignore_space"
-	CompareRealNumber  ComparisonMode = "real_number"
+	CompareLineByLine   ComparisonMode = "line_by_line"
+	CompareIgnoreSpace  ComparisonMode = "ignore_space"
+	CompareRealNumber   ComparisonMode = "real_number"
 	CompareSpecialJudge ComparisonMode = "special_judge"
 )
 
@@ -22,8 +22,8 @@ const (
 type CaseVerdict string
 
 const (
-	CaseAC CaseVerdict = "AC"
-	CaseWA CaseVerdict = "WA"
+	CaseAC  CaseVerdict = "AC"
+	CaseWA  CaseVerdict = "WA"
 	CaseTLE CaseVerdict = "TLE"
 	CaseMLE CaseVerdict = "MLE"
 	CaseRE  CaseVerdict = "RE"

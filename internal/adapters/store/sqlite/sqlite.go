@@ -149,11 +149,11 @@ func scanAll(rows *sql.Rows, v any) error {
 }
 
 const (
-	tUsers = "users"
-	tGroups = "groups"
+	tUsers    = "users"
+	tGroups   = "groups"
 	tContests = "contests"
 	tProblems = "problems"
-	tSubs = "submissions"
+	tSubs     = "submissions"
 )
 
 func (s *Store) NextID(prefix string) string {

@@ -2,13 +2,18 @@ package httpapi
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"testing"
+	"time"
 
 	"github.com/yviscool/forge/internal/adapters/store/memory"
 	"github.com/yviscool/forge/internal/app"
+	"github.com/yviscool/forge/internal/domain"
+	"github.com/yviscool/forge/internal/judge"
 	"github.com/yviscool/forge/internal/realtime"
 )
 
@@ -139,5 +144,87 @@ func TestV1ContestLifecycle(t *testing.T) {
 			`{"problemID":"`+pid2+`","userId":"`+uid2+`","language":"cpp","code":"x"}`); sc3 != 202 {
 			t.Fatalf("bound user should submit, got %d", sc3)
 		}
+	}
+}
+
+const pipelineCode = `#include <bits/stdc++.h>
+using namespace std;
+int main(){long long a,b;if(!(cin>>a>>b))return 0;cout<<a+b;return 0;}
+`
+
+// TestAutoJudgePipeline 提交→worker→JudgeCases 全链路（需 g++）。
+func TestAutoJudgePipeline(t *testing.T) {
+	if _, err := exec.LookPath("g++"); err != nil {
+		t.Skip("g++ not found")
+	}
+	store := memory.New()
+	svc := app.NewService(store, realtime.NewHub(), nil, nil)
+	srv := NewServer(svc, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := judge.AutoJudgePool(svc, 1)
+	// 先 cancel 再 Wait（顺序反了 worker 永等）。
+	defer func() { cancel(); pool.Wait() }()
+	pool.Start(ctx, 1)
+	srv.OnSubmit = func(x domain.Submission) {
+		p, err := svc.GetProblem(x.ContestID, x.ProblemID)
+		if err != nil {
+			return
+		}
+		if req, ok := judge.BuildRequest(x, p); ok {
+			pool.Submit(judge.Job{SubID: x.ID, Req: req})
+		}
+	}
+	ts := httptest.NewServer(srv)
+	defer ts.Close()
+
+	_, u := post(t, ts.URL+"/api/v1/users", `{"name":"Auto"}`)
+	_, c := post(t, ts.URL+"/api/v1/contests", `{"name":"Pipe"}`)
+	cid := c["id"].(string)
+	probBody, _ := json.Marshal(map[string]any{
+		"code": "A", "title": "plus", "statement": "s", "input": "i",
+		"output": "o", "constraints": "k", "timeLimitMs": 2000, "memoryLimitMib": 256,
+		"testCases": []map[string]any{
+			{"id": "t1", "inputFile": "3 4", "outputFile": "7", "score": 50, "subtask": 0},
+			{"id": "t2", "inputFile": "0 0", "outputFile": "0", "score": 50, "subtask": 1},
+		},
+	})
+	r, err := http.Post(ts.URL+"/api/v1/contests/"+cid+"/problems", "application/json", bytes.NewReader(probBody))
+	if err != nil || r.StatusCode != 201 {
+		t.Fatalf("create problem: %v %v", r, err)
+	}
+	var p map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&p)
+	r.Body.Close()
+	post(t, ts.URL+"/api/v1/contests/"+cid+"/start", ``)
+
+	codeBody, _ := json.Marshal(map[string]any{
+		"problemID": p["id"], "userId": u["id"], "language": "cpp", "code": pipelineCode,
+	})
+	rr, err := http.Post(ts.URL+"/api/v1/contests/"+cid+"/submissions", "application/json", bytes.NewReader(codeBody))
+	if err != nil || rr.StatusCode != 202 {
+		t.Fatalf("submit: %v %v", rr, err)
+	}
+	var sub map[string]any
+	_ = json.NewDecoder(rr.Body).Decode(&sub)
+	rr.Body.Close()
+	sid := sub["id"].(string)
+
+	deadline := time.Now().Add(60 * time.Second)
+	for {
+		x, err := svc.GetSubmission(sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if x.Verdict == "accepted" && x.Score == 100 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("autojudge timed out: %+v", x)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	if r := svc.Ranking(cid); len(r) != 1 || r[0].Score != 100 {
+		t.Fatalf("ranking: %+v", r)
 	}
 }
