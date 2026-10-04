@@ -1,0 +1,58 @@
+openapi: 3.0.3
+info:
+  title: Forge Contest API
+  version: 1.0.0
+  description: v1 唯一契约（未上线，大刀阔斧，不做兼容）。
+paths:
+  /healthz:
+    get: { responses: { '200': { description: ok } } }
+  /readyz:
+    get: { responses: { '200': { description: ready } } }
+  /app:
+    get: { responses: { '200': { description: SPA } } }
+  /api/v1/contests:
+    get: { responses: { '200': { description: list } } }
+    post: { responses: { '201': { description: create } } }
+  /api/v1/contests/{cid}:
+    get: { responses: { '200': { description: detail } } }
+  /api/v1/contests/{cid}/start:
+    post: { responses: { '200': { description: start } } }
+  /api/v1/contests/{cid}/finish:
+    post: { responses: { '200': { description: finish } } }
+  /api/v1/contests/{cid}/problems:
+    get: { responses: { '200': { description: list } } }
+    post: { responses: { '201': { description: create } } }
+  /api/v1/contests/{cid}/problems/{pid}:
+    get: { responses: { '200': { description: detail } } }
+  /api/v1/contests/{cid}/problems/{pid}/validate:
+    post: { responses: { '200': { description: validate } } }
+  /api/v1/contests/{cid}/problems/{pid}/export:
+    get: { responses: { '200': { description: CCF print HTML } } }
+  /api/v1/contests/{cid}/problems/{pid}/pdf:
+    get: { responses: { '200': { description: A4 PDF }, '503': { description: no browser } } }
+  /api/v1/users:
+    get: { responses: { '200': { description: list } } }
+    post: { responses: { '201': { description: create } } }
+  /api/v1/groups:
+    get: { responses: { '200': { description: list } } }
+    post: { responses: { '201': { description: create } } }
+  /api/v1/groups/{gid}/members:
+    post: { responses: { '200': { description: add } } }
+    delete: { responses: { '200': { description: remove } } }
+  /api/v1/contests/{cid}/groups:
+    post: { responses: { '200': { description: bind group } } }
+  /api/v1/contests/{cid}/participants:
+    post: { responses: { '200': { description: bind user } } }
+  /api/v1/contests/{cid}/ranking:
+    get: { responses: { '200': { description: ranking } } }
+  /api/v1/contests/{cid}/submissions:
+    get: { responses: { '200': { description: list } } }
+    post: { responses: { '202': { description: submit } } }
+  /api/v1/submissions/{id}/judge:
+    post: { responses: { '200': { description: judge } } }
+  /api/v1/submissions/{id}/cases:
+    post: { responses: { '200': { description: judge per-case with subtask aggregation } } }
+  /api/v1/events:
+    get: { responses: { '200': { description: SSE, supports ?contestId } } }
+  /api/v1/i18n:
+    get: { responses: { '200': { description: dictionaries } } }

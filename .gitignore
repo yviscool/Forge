@@ -3,3 +3,7 @@
 *.test
 coverage.out
 .DS_Store
+# frontend dev/build artifacts (rebuild via `npm run build` in frontend/)
+frontend/node_modules/
+internal/web/dist/*
+!internal/web/dist/placeholder.txt
