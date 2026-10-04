@@ -1,1 +1,161 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LemonLime Arena · Teacher</title><link rel="stylesheet" href="/web/styles.css"></head><body><main><header><span class="mark">LL</span><div><h1 data-i18n="teacher">教师控制台</h1><p data-i18n="manage">配置比赛、题面与实时评测</p></div><a href="/">学生端 →</a></header><section class="panel"><h2 data-i18n="create">创建比赛</h2><form id="create"><input name="name" placeholder="比赛名称" required><input name="description" placeholder="描述"><button>创建</button></form></section><section id="contests" class="grid"></section></main><script src="/web/app.js"></script><script>window.teacher=true</script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forge · 教师控制台</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <div class="layout">
+    <header class="app-header">
+      <div class="brand">
+        <span class="logo">⚡</span>
+        <div>
+          <h1>Forge 竞赛工坊</h1>
+          <p class="subtitle" data-i18n="manage">教师控制台 · 多比赛、独立用户体系与实时评测</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="toggleLocale" class="btn-secondary">English</button>
+        <a href="/" class="btn-primary" data-i18n="to_student">前往学生端 →</a>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Contest Switcher Bar -->
+      <section class="card bar-card">
+        <div class="contest-bar">
+          <label for="contestSelect" class="bold" data-i18n="switch_contest">当前比赛：</label>
+          <select id="contestSelect" class="select-input"></select>
+          <div id="contestActions" class="inline-actions">
+            <button id="startContestBtn" class="btn-success" data-i18n="start_contest">启动比赛</button>
+            <button id="finishContestBtn" class="btn-danger" data-i18n="finish_contest">结束比赛</button>
+            <span id="contestStatusBadge" class="badge">草稿</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tabs Navigation -->
+      <nav class="nav-tabs">
+        <button class="tab-btn active" data-tab="tab-contests">比赛管理</button>
+        <button class="tab-btn" data-tab="tab-problems">试题配置 & 校验导出</button>
+        <button class="tab-btn" data-tab="tab-users">独立用户与编组</button>
+        <button class="tab-btn" data-tab="tab-submissions">提交流与评测</button>
+        <button class="tab-btn" data-tab="tab-ranking">实时排行榜</button>
+      </nav>
+
+      <!-- Tab 1: Contest Management -->
+      <section id="tab-contests" class="tab-panel active">
+        <div class="grid-2">
+          <div class="card">
+            <h3>创建新比赛</h3>
+            <form id="createContestForm" class="form-stack">
+              <input name="name" placeholder="比赛名称 (例如: 2026 CSP-S 冲刺模拟赛)" required>
+              <textarea name="description" placeholder="比赛说明 / 注意事项" rows="3"></textarea>
+              <button type="submit" class="btn-primary">创建比赛</button>
+            </form>
+          </div>
+          <div class="card">
+            <h3>比赛参赛授权 (组别 / 个人)</h3>
+            <p class="muted">指定哪些全局组别或独立学生可参加当前比赛：</p>
+            <div class="form-row">
+              <select id="assignGroupSelect" class="select-input"></select>
+              <button id="assignGroupBtn" class="btn-secondary">添加组到比赛</button>
+            </div>
+            <div class="form-row mt-2">
+              <select id="assignUserSelect" class="select-input"></select>
+              <button id="assignUserBtn" class="btn-secondary">添加个人到比赛</button>
+            </div>
+            <div id="contestBindings" class="mt-4"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 2: Problem Management & CCF Export -->
+      <section id="tab-problems" class="tab-panel">
+        <div class="grid-2">
+          <div class="card">
+            <h3>添加 / 编辑试题</h3>
+            <form id="problemForm" class="form-stack">
+              <div class="form-row">
+                <input name="code" placeholder="代号 (如 A, reverse)" required style="width: 120px;">
+                <input name="title" placeholder="题目名称 (如 二进制反转)" required style="flex: 1;">
+              </div>
+              <div class="form-row">
+                <input name="timeLimitMs" type="number" placeholder="时间限制(ms)" value="1000" style="flex: 1;">
+                <input name="memoryLimitMib" type="number" placeholder="内存限制(MiB)" value="512" style="flex: 1;">
+              </div>
+              <textarea name="statement" placeholder="【题目描述】" rows="4" required></textarea>
+              <textarea name="input" placeholder="【输入格式】" rows="2" required></textarea>
+              <textarea name="output" placeholder="【输出格式】" rows="2" required></textarea>
+              <textarea name="examples" placeholder="【样例输入与输出】" rows="3"></textarea>
+              <textarea name="constraints" placeholder="【数据范围与约束】" rows="2" required></textarea>
+              <div class="form-row">
+                <button type="submit" class="btn-primary">保存试题</button>
+              </div>
+            </form>
+          </div>
+          <div class="card">
+            <h3>当前比赛试题列表</h3>
+            <div id="problemList" class="problem-list-box"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 3: Global Users & Groups -->
+      <section id="tab-users" class="tab-panel">
+        <div class="grid-2">
+          <div class="card">
+            <h3>用户管理 (独立于比赛)</h3>
+            <form id="createUserForm" class="form-row mb-4">
+              <input name="name" placeholder="学员姓名 / 账号" required style="flex: 1;">
+              <select name="role" style="width: 110px;">
+                <option value="student">学生</option>
+                <option value="teacher">教师</option>
+                <option value="admin">管理员</option>
+              </select>
+              <button type="submit" class="btn-primary">创建用户</button>
+            </form>
+            <div id="userList" class="compact-table-box"></div>
+          </div>
+
+          <div class="card">
+            <h3>编组管理 (班级 / 集训队)</h3>
+            <form id="createGroupForm" class="form-row mb-4">
+              <input name="name" placeholder="组名称 (如 2026 CSP 提高组集训A班)" required style="flex: 1;">
+              <button type="submit" class="btn-primary">创建分组</button>
+            </form>
+            <div id="groupList" class="compact-table-box"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Tab 4: Submissions & Manual Judging -->
+      <section id="tab-submissions" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <h3>实时提交流 (当前比赛)</h3>
+            <span class="live-dot" title="实时连接正常">● 实时</span>
+          </div>
+          <div id="submissionTableBox" class="table-box"></div>
+        </div>
+      </section>
+
+      <!-- Tab 5: Live Ranking -->
+      <section id="tab-ranking" class="tab-panel">
+        <div class="card">
+          <div class="card-header">
+            <h3>实时排行榜 (OI 模式)</h3>
+            <span class="live-dot">● 实时同步</span>
+          </div>
+          <div id="rankingTableBox" class="table-box"></div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="/web/app.js"></script>
+  <script>window.teacherMode = true;</script>
+</body>
+</html>

@@ -1,3 +1,3 @@
-module github.com/Project-LemonLime/lemonlime-arena
+module github.com/yviscool/forge
 
 go 1.26

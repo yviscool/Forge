@@ -1,9 +1,9 @@
-- [x] Create capability map and phase-1 specification
-- [x] Implement in-memory contest/user/group/problem/submission service
-- [x] Implement REST and SSE host
-- [x] Implement teacher/student browser UI with i18n toggle
-- [x] Add unit and HTTP tests
-- [x] Add README, AGENTS.md, and PDF workflow documentation
-- [ ] Add SQLite persistence adapter
-- [ ] Add isolated judge workers and sandbox policy
-- [ ] Package the web host with Wails v3
+- [x] Rename and rebrand project to Forge
+- [x] Update SPEC.md, README.md, AGENTS.md, docs/pdf.md
+- [x] Refactor domain service to support independent Users, Groups, and multi-contest concurrency
+- [x] Implement problem schema validation and bilingual locale structure
+- [x] Enhance HTTP router with user/group/contest binding and validation routes
+- [x] Update embedded web UI for teacher console and student lobby
+- [x] Write comprehensive unit and HTTP integration tests
+- [x] Verify `go test ./...` and `go build ./...` pass
+- [ ] Initialize GitHub repository `yviscool/Forge` via `gh` CLI

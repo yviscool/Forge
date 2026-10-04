@@ -1,1 +1,84 @@
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>LemonLime Arena</title><link rel="stylesheet" href="/web/styles.css"></head><body><main><header><span class="mark">LL</span><div><h1 data-i18n="title">比赛大厅</h1><p data-i18n="subtitle">实时竞赛与排名</p></div><a href="/teacher">教师端 →</a></header><section id="contests" class="grid"></section></main><script src="/web/app.js"></script></body></html>
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Forge · 比赛大厅</title>
+  <link rel="stylesheet" href="/web/styles.css">
+</head>
+<body>
+  <div class="layout">
+    <header class="app-header">
+      <div class="brand">
+        <span class="logo">⚡</span>
+        <div>
+          <h1>Forge 竞赛工坊</h1>
+          <p class="subtitle" data-i18n="subtitle">实时竞赛与评测排名系统</p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <button id="toggleLocale" class="btn-secondary">English</button>
+        <a href="/teacher" class="btn-primary" data-i18n="teacher">教师端控制台 →</a>
+      </div>
+    </header>
+
+    <main class="main-content">
+      <!-- Active Contests Grid -->
+      <section class="card">
+        <div class="card-header">
+          <h2>可用比赛</h2>
+          <span class="muted">选择一场正在进行或报名的比赛进入</span>
+        </div>
+        <div id="studentContestList" class="grid-cards"></div>
+      </section>
+
+      <!-- Active Contest Workspace (Shows when contest is selected) -->
+      <div id="contestWorkspace" style="display: none;">
+        <div class="grid-2">
+          <!-- Problem & Submission Panel -->
+          <div class="card">
+            <div class="card-header">
+              <h3 id="currentProblemTitle">题目详情</h3>
+              <div id="problemPills" class="pill-group"></div>
+            </div>
+            <div id="problemDetailView" class="problem-content-box"></div>
+
+            <hr class="divider">
+
+            <h3>代码提交</h3>
+            <form id="studentSubmitForm" class="form-stack">
+              <div class="form-row">
+                <select name="userId" id="submitUserSelect" class="select-input" required></select>
+                <select name="language" class="select-input" style="width: 140px;">
+                  <option value="cpp">C++ (g++ 14)</option>
+                  <option value="python">Python 3</option>
+                  <option value="go">Go 1.26</option>
+                  <option value="rust">Rust</option>
+                </select>
+              </div>
+              <textarea name="code" placeholder="// 在此粘贴你的源代码..." rows="8" required class="code-editor"></textarea>
+              <button type="submit" class="btn-primary">提交评测</button>
+            </form>
+          </div>
+
+          <!-- Live Scoreboard & Submissions Panel -->
+          <div class="card">
+            <div class="card-header">
+              <h3>比赛实时榜单</h3>
+              <span class="live-dot">● 实时同步</span>
+            </div>
+            <div id="studentRankingBox" class="table-box mb-4"></div>
+
+            <hr class="divider">
+
+            <h3>我的 / 最新提交流</h3>
+            <div id="studentSubmissionsBox" class="table-box"></div>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/web/app.js"></script>
+</body>
+</html>
