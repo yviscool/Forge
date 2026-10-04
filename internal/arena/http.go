@@ -4,7 +4,6 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
-	"html/template"
 	"net/http"
 	"strings"
 )
@@ -282,150 +281,35 @@ func (h *Server) contestSubroutes(w http.ResponseWriter, r *http.Request) {
 		c, _ := h.svc.GetContest(cid)
 
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		tmplStr := `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<title>{{.Problem.Title}} - CCF CSP 试题规范</title>
-<style>
-@page {
-  size: A4;
-  margin: 16mm 20mm 17mm;
-}
-body {
-  font-family: "SimSun", "Songti SC", "STSong", serif;
-  font-size: 10.5pt;
-  line-height: 1.6;
-  color: #111827;
-  margin: 0;
-}
-.header {
-  border-bottom: 0.8px solid #111;
-  padding-bottom: 4px;
-  margin-bottom: 16px;
-  display: flex;
-  justify-content: space-between;
-  font-size: 9pt;
-  color: #4b5563;
-}
-h1 {
-  font-size: 16pt;
-  font-weight: bold;
-  text-align: center;
-  margin-top: 0;
-  margin-bottom: 8px;
-}
-.meta-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 12px 0 20px;
-  font-size: 9.5pt;
-}
-.meta-table th, .meta-table td {
-  border: 1px solid #374151;
-  padding: 6px 10px;
-  text-align: center;
-}
-.meta-table th {
-  background: #f3f4f6;
-  font-weight: 600;
-}
-.section-title {
-  font-size: 11pt;
-  font-weight: bold;
-  margin-top: 14px;
-  margin-bottom: 4px;
-}
-p {
-  margin: 4px 0 8px;
-  text-indent: 2em;
-}
-.sample-box {
-  border: 0.8px solid #405dff;
-  border-radius: 4px;
-  background: #fafafa;
-  margin: 8px 0 14px;
-  overflow: hidden;
-}
-.sample-header {
-  background: #eef2ff;
-  color: #312e81;
-  font-weight: 600;
-  font-size: 9pt;
-  padding: 4px 10px;
-  border-bottom: 0.6px solid #405dff;
-}
-pre {
-  margin: 0;
-  padding: 8px 12px;
-  font-family: "Consolas", monospace;
-  font-size: 9.5pt;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-all;
-}
-.tip {
-  font-family: "KaiTi", "STKaiti", serif;
-  color: #374151;
-}
-@media print {
-  .no-print { display: none; }
-}
-</style>
-</head>
-<body>
-<div class="header">
-  <span>{{.Contest.Name}}</span>
-  <span>入门级 / 提高级 · {{.Problem.Title}}（{{.Problem.Code}}）</span>
-</div>
+		htmlBytes, err := RenderProblemHTML(c, p)
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
+		_, _ = w.Write(htmlBytes)
+		return
+	}
 
-<h1>{{.Problem.Title}} ({{.Problem.Code}})</h1>
-
-<table class="meta-table">
-  <tr>
-    <th>题目名称</th>
-    <th>题目目录</th>
-    <th>源程序文件名</th>
-    <th>输入文件名</th>
-    <th>输出文件名</th>
-    <th>时间限制</th>
-    <th>内存限制</th>
-  </tr>
-  <tr>
-    <td>{{.Problem.Title}}</td>
-    <td>{{.Problem.Code}}</td>
-    <td>{{.Problem.Code}}.cpp</td>
-    <td>{{.Problem.Code}}.in</td>
-    <td>{{.Problem.Code}}.out</td>
-    <td>{{.Problem.TimeLimitMs}} ms</td>
-    <td>{{.Problem.MemoryLimitMiB}} MiB</td>
-  </tr>
-</table>
-
-<div class="section-title">【题目描述】</div>
-<p>{{.Problem.Statement}}</p>
-
-<div class="section-title">【输入格式】</div>
-<p>{{.Problem.Input}}</p>
-
-<div class="section-title">【输出格式】</div>
-<p>{{.Problem.Output}}</p>
-
-<div class="sample-box">
-  <div class="sample-header">样例 1 输入 / 输出</div>
-  <pre>{{.Problem.Examples}}</pre>
-</div>
-
-<div class="section-title">【数据范围与约束】</div>
-<p class="tip">{{.Problem.Constraints}}</p>
-
-</body>
-</html>`
-		t := template.Must(template.New("ccf_pdf").Parse(tmplStr))
-		_ = t.Execute(w, map[string]any{
-			"Contest": c,
-			"Problem": p,
-		})
+	// GET /api/contests/{cid}/problems/{pid}/pdf (Direct A4 PDF via headless browser)
+	if len(parts) == 6 && parts[3] == "problems" && parts[5] == "pdf" && r.Method == "GET" {
+		pid := parts[4]
+		p, err := h.svc.GetProblem(cid, pid)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		c, _ := h.svc.GetContest(cid)
+		pdfBytes, err := GenerateProblemPDF(c, p)
+		if err != nil {
+			jsonOut(w, map[string]string{
+				"error":    err.Error(),
+				"fallback": fmt.Sprintf("/api/contests/%s/problems/%s/export", cid, pid),
+			}, 503)
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s.pdf", p.Code))
+		_, _ = w.Write(pdfBytes)
 		return
 	}
 
