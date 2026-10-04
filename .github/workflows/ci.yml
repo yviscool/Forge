@@ -17,6 +17,15 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: stable
+      - name: judge doctor (toolchain facts for fixture debugging)
+        shell: bash
+        run: |
+          g++ --version | head -1
+          which prlimit && prlimit --version | head -1 || echo "NO prlimit"
+          nproc; free -m | head -2
+          g++ -O2 -std=c++14 -o /tmp/par.exe internal/judge/testdata/csp-day1/solutions/parallel.cpp
+          echo "--- direct run:"; /tmp/par.exe; echo "exit=$?"
+          if command -v prlimit >/dev/null; then echo "--- under prlimit:"; prlimit --as=536870912 --cpu=3 --nproc=64 -- /tmp/par.exe; echo "exit=$?"; fi
       - name: gofmt
         shell: bash
         run: test -z "$(gofmt -l internal cmd)"
