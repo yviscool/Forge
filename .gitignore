@@ -1,4 +1,5 @@
 /upstream/
+.agents/
 *.exe
 *.test
 coverage.out
