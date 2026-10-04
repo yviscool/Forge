@@ -10,6 +10,9 @@ type Config struct {
 	Addr    string
 	DataDir string
 	Locale  string
+	// Store 持久化后端：sqlite（默认，文件）或 memory（纯内存，测试/临时）。
+	Store  string
+	DBPath string
 }
 
 func Load() Config {
@@ -25,5 +28,12 @@ func Load() Config {
 	if locale == "" {
 		locale = "zh-CN"
 	}
-	return Config{Addr: addr, DataDir: dataDir, Locale: strings.TrimSpace(locale)}
+	store := strings.ToLower(strings.TrimSpace(os.Getenv("FORGE_STORE")))
+	if store != "memory" {
+		store = "sqlite"
+	}
+	return Config{
+		Addr: addr, DataDir: dataDir, Locale: strings.TrimSpace(locale),
+		Store: store, DBPath: dataDir + "/forge.db",
+	}
 }

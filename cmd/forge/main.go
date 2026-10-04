@@ -10,8 +10,10 @@ import (
 	"time"
 
 	"github.com/yviscool/forge/internal/adapters/store/memory"
+	"github.com/yviscool/forge/internal/adapters/store/sqlite"
 	"github.com/yviscool/forge/internal/app"
 	"github.com/yviscool/forge/internal/config"
+	"github.com/yviscool/forge/internal/ports"
 	"github.com/yviscool/forge/internal/realtime"
 	httpapi "github.com/yviscool/forge/internal/transport/http"
 )
@@ -20,8 +22,20 @@ func main() {
 	cfg := config.Load()
 	log := slog.New(slog.NewTextHandler(os.Stdout, nil))
 
-	// 新栈直驱：memory store + hub，明示装配（手动 DI）。
-	svc := app.NewService(memory.New(), realtime.NewHub(), nil, log)
+	// 手动 DI：按配置选择持久化后端（sqlite 文件默认，memory 按需）。
+	var store ports.Store = memory.New()
+	if cfg.Store == "sqlite" {
+		db, err := sqlite.Open(cfg.DBPath)
+		if err != nil {
+			log.Error("open sqlite failed", "path", cfg.DBPath, "err", err)
+			os.Exit(1)
+		}
+		defer db.Close()
+		store = db
+	}
+	log.Info("store ready", "backend", cfg.Store)
+
+	svc := app.NewService(store, realtime.NewHub(), nil, log)
 	handler := httpapi.NewServer(svc, log)
 
 	srv := &http.Server{Addr: cfg.Addr, Handler: handler}
