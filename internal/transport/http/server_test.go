@@ -240,17 +240,19 @@ func TestAuthFlows(t *testing.T) {
 	}
 
 	// 重新登录：改密（错旧密码/成功）与教师重置。
-	_, e.student = e.mkUserFull(t, "Alice", "student", "pw-alice")
+	// 注：用户名必须全局唯一（登录按 username 精确匹配），这里用独立用户名
+	// 避免与环境预置的 Alice 冲突（map 遍历顺序随机，曾导致 CI 偶发 401）。
+	_, e.student = e.mkUserFull(t, "Alicia", "student", "pw-alicia")
 	if code, _ := postAuth(t, e.url+"/api/v1/auth/password", e.student,
 		`{"oldPassword":"nope","newPassword":"newpw12"}`); code != 400 {
 		t.Fatalf("wrong old password should 400, got %d", code)
 	}
 	if code, _ := postAuth(t, e.url+"/api/v1/auth/password", e.student,
-		`{"oldPassword":"pw-alice","newPassword":"newpw12"}`); code != 200 {
+		`{"oldPassword":"pw-alicia","newPassword":"newpw12"}`); code != 200 {
 		t.Fatalf("change password %d", code)
 	}
 	if code, _ := post(t, e.url+"/api/v1/auth/login",
-		`{"login":"Alice","password":"newpw12"}`); code != 200 {
+		`{"login":"Alicia","password":"newpw12"}`); code != 200 {
 		t.Fatalf("login with new password %d", code)
 	}
 	// 改密后旧 token 失效。
