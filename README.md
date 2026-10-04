@@ -1,48 +1,104 @@
-# Forge
+# Forge 竞赛工坊
 
-Cross-platform competitive programming contest hosting, training workbench, and live evaluation platform.
+<p align="center">
+  <strong>现代化、跨平台的信息学竞赛与教学评测工作台</strong><br>
+  Modern, Cross-Platform Competitive Programming Contest Hosting & Evaluation Platform
+</p>
 
-Inspired by the evaluation model of [Project LemonLime](https://github.com/Project-LemonLime/Project_LemonLime) and the modern Go architecture of [yetone/magpie](https://github.com/yetone/magpie).
-
----
-
-## Highlights
-
-- **Multi-Contest Concurrency:** Create, configure, run, and evaluate multiple independent contests in parallel.
-- **Independent Identity & Grouping:** Global users and reusable groups (classes, training camps). Assign entire groups or individual students to contests.
-- **Modern Web Interfaces:**
-  - **Teacher Console (`/teacher`):** Contest management, rich problem editor, statement schema validator, group assignment, submission monitoring, and live scoreboard.
-  - **Student Lobby (`/`):** View accessible contests, bilingual problem statements, submit code in multiple languages, and follow live rankings.
-- **Zero-Dependency Distribution:** Core web assets are embedded into a single Go binary via `//go:embed`. No Node.js runtime needed by end users.
-- **Full-Stack i18n:** Built-in bilingual support (`zh-CN` / `en-US`) across frontend interfaces, API messages, verdicts, and problem statement locales.
-- **CCF CSP-Compliant PDF Export:** Generate standard A4 contest papers (cover page, compiler parameters, instructions, sample formatting, testcase specifications) with clean print styles and headless browser automation.
+<p align="center">
+  <a href="SPEC.md">系统规格 (SPEC)</a> •
+  <a href="docs/architecture.md">系统架构</a> •
+  <a href="docs/pdf.md">CCF 试卷排版规范</a> •
+  <a href="AGENTS.md">开发守则</a>
+</p>
 
 ---
 
-## Quick Start
+## 🌟 核心特性 (Key Features)
+
+- **多比赛并发调度 (Multi-Contest Concurrency)**：同时独立配置、启动、管理多场比赛，比赛生命周期（草稿/进行中/已结束）、提交流与实时排行榜相互隔离。
+- **全局独立用户与灵活编组 (Independent Users & Grouping)**：
+  - 用户体系与比赛解耦，一次录入长期有效；
+  - 支持创建全局分组（如“提高组集训A班”、“高一初赛组”），学生可加入多个组；
+  - 比赛支持按「整组批量授权」或「单独添加个人」，支持非授权拦截。
+- **结构化题面校验与多语言版本 (Problem Validation & Multilingual)**：
+  - 强制检验试题必要字段（题目描述、输入格式、输出格式、数据范围与样例成对匹配）；
+  - 支持试题多语言版本（`Problem.Locales`）。
+- **零依赖 CCF CSP 官方规范 A4 PDF 导出 (Zero-Dependency CCF PDF Engine)**：
+  - 自动探测系统原生 Edge / Chrome / Chromium 浏览器（Windows 10/11 开箱即用）；
+  - 一键无头导出标准 CCF A4 试卷（含封面表格、编译选项 `-O2 -std=c++14 -static`、考生守则、跑头、带行号与蓝边框的样例框、数据范围表格）；
+  - **教师机器完全不需要安装 Node.js，也不需要安装 Python！**
+- **全栈五维 i18n (Full-Stack Internationalization)**：
+  - 前端 UI 双语字典 (`zh-CN` / `en-US`)；
+  - 后端 API 响应基于 `Accept-Language` 自动本地化；
+  - 评测专业术语 Verdict 中英映射；
+  - 试题内容双语版与 PDF 模版多语言。
+- **单二进制便携分发 (Zero-Dependency Distribution)**：
+  - 前端网页完全内嵌于 Go 单可执行文件中（`//go:embed`），终端用户无需配置任何前端环境。
+- **实时事件推送 (Real-Time SSE Streaming)**：
+  - 基于 Server-Sent Events，提交流、判题结果与排行榜变动毫秒级向全网广播。
+
+---
+
+## 🚀 快速启动 (Quick Start)
+
+### 方式一：直接运行服务
 
 ```powershell
-# Run the Forge host
-go run ./cmd/arena
+# 启动 Forge 核心服务
+go run ./cmd/forge
 ```
 
-- Open `http://localhost:8080/` for the Student Lobby.
-- Open `http://localhost:8080/teacher` for the Teacher Console.
-- Real-time events are streamed via Server-Sent Events at `http://localhost:8080/api/events`.
+服务就绪后，访问对应端点：
+- **学生比赛大厅**：`http://localhost:8080/`
+- **教师管理控制台**：`http://localhost:8080/teacher`
+- **实时事件流**：`http://localhost:8080/api/events`
+
+*(说明：`go run ./cmd/arena` 作为历史入口同样保持兼容)*
 
 ---
 
-## Test & Build
+## 📡 核心 API 端点概览 (REST API)
+
+| 模块 | 方法 | 端点 | 描述 |
+|---|---|---|---|
+| **比赛** | `GET` / `POST` | `/api/contests` | 获取比赛列表 / 创建比赛 |
+| **比赛** | `GET` | `/api/contests/{cid}` | 获取单场比赛详情 |
+| **比赛** | `POST` | `/api/contests/{cid}/start` | 启动比赛 |
+| **比赛** | `POST` | `/api/contests/{cid}/finish` | 结束比赛 |
+| **试题** | `GET` / `POST` | `/api/contests/{cid}/problems` | 试题列表 / 新增试题 |
+| **试题** | `POST` | `/api/contests/{cid}/problems/{pid}/validate` | 题面结构合法性校验 |
+| **试题** | `GET` | `/api/contests/{cid}/problems/{pid}/export` | 浏览器标准 CCF 打印视图 |
+| **试题** | `GET` | `/api/contests/{cid}/problems/{pid}/pdf` | 直接下载标准 CCF A4 PDF |
+| **用户** | `GET` / `POST` | `/api/users` | 用户查询 / 创建 |
+| **编组** | `GET` / `POST` | `/api/groups` | 全局分组查询 / 创建 |
+| **编组** | `POST` / `DELETE`| `/api/groups/{gid}/members` | 添加 / 移除组成员 |
+| **授权** | `POST` | `/api/contests/{cid}/groups` | 绑定参赛组到比赛 |
+| **授权** | `POST` | `/api/contests/{cid}/participants` | 绑定个人到比赛 |
+| **提交流**| `POST` | `/api/contests/{cid}/submissions` | 选手提交代码 |
+| **提交流**| `GET` | `/api/contests/{cid}/submissions` | 查看当前比赛提交流 |
+| **判题** | `POST` | `/api/submissions/{id}/judge` | 回写评测结果与分数 |
+| **榜单** | `GET` | `/api/contests/{cid}/ranking` | 获取当前比赛实时排行榜 |
+| **事件** | `GET` | `/api/events` | 实时 Server-Sent Events 流 |
+| **语言** | `GET` | `/api/i18n` | 获取双语标准字典 |
+
+---
+
+## 🛠️ 测试与构建 (Test & Build)
 
 ```powershell
-go test ./...
+# 运行全部单元与集成测试（含 PDF 无头引擎测试）
+go test -v ./...
+
+# 编译全部包为单一独立二进制
 go build ./...
 ```
 
 ---
 
-## Architecture & Documents
+## 📚 详细文档导航 (Documentation)
 
-- [SPEC.md](SPEC.md) - Architectural specification and capability map.
-- [docs/pdf.md](docs/pdf.md) - CCF CSP PDF specification and generation pipeline.
-- [AGENTS.md](AGENTS.md) - Agent guidelines and safety boundaries.
+- [SPEC.md](SPEC.md) - 单源真理技术规格书 (V2 定稿版)
+- [docs/architecture.md](docs/architecture.md) - 系统分层架构与数据流蓝图
+- [docs/pdf.md](docs/pdf.md) - CCF CSP 试卷标准与排版规范
+- [AGENTS.md](AGENTS.md) - 智能助手开发守则与安全边界
