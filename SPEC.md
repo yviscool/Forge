@@ -1,18 +1,42 @@
-# Spec: Forge
+# Spec: Forge (V2 Architecture Specification)
 
 ## 1. Objective
 
-Forge is a cross-platform competitive programming contest host and training workbench, inspired by the offline judging workflow of Project_LemonLime and the Go/Wails desktop architecture of magpie.
+Forge is a cross-platform competitive programming contest hosting, training workbench, and live evaluation platform. It fuses the offline judging workflow of [Project LemonLime](https://github.com/Project-LemonLime/Project_LemonLime) with the modern Go/Wails desktop architecture of [yetone/magpie](https://github.com/yetone/magpie).
 
-Teachers can run Forge as a desktop application (with system tray and auto-discovered local network IP/QR code) or in headless server mode. Through the teacher console, they can configure multiple concurrent contests, edit and validate problem statements, manage independent users and groups, bind participant groups or individual contestants, monitor real-time submissions, and view live scoreboards.
+Teachers run Forge with one click as a desktop application (with system tray and auto-discovered local network IP/QR code) or in headless server mode. Through the teacher console, they configure multiple concurrent contests, edit and validate problem statements, manage independent users and groups, bind participant groups or individual contestants, monitor real-time submissions, and view live scoreboards.
 
 Students access Forge via standard web browsers across the local network or internet to view problem statements in their preferred language, submit code, and track their personal evaluation status and public leaderboard updates in real time.
 
-Both Chinese (`zh-CN`) and English (`en-US`) are first-class locales across frontend UI, backend API messages, judging verdicts, problem statements, and exported documents. Problem statements can be validated for structural completeness and exported as CCF CSP-compliant print-ready A4 PDFs.
+Both Chinese (`zh-CN`) and English (`en-US`) are first-class locales across frontend UI, backend API messages, judging verdicts, problem statements, and exported documents. Problem statements are strictly validated for structural completeness and exported as CCF CSP-compliant print-ready A4 PDFs.
 
 ---
 
-## 2. Capability Map
+## 2. Architecture Stratification & Review Alignment
+
+### 2.1 Frontend Build vs Runtime Decoupling
+- **Development Mode (`frontend/`):** Built with modern frontend tooling (Vite + Vue 3 / React + Tailwind CSS + Monaco Editor + KaTeX). Provides rich Markdown live preview, syntax highlighting, split-pane editing, and responsive tables.
+- **Runtime Distribution (`internal/arena/web/`):** Pre-compiled production bundles are embedded directly into the Go executable via `//go:embed`. End users and teachers require **zero Node.js or npm dependencies** to run Forge.
+
+### 2.2 Desktop GUI vs Headless Mode
+- **Teacher Desktop Mode (Default):** Runs with a native system tray, auto-detects the local IP/port, shows a QR code/URL for students to join, and automatically opens the teacher console.
+- **Headless Server Mode:** Supports `forge serve --port 8080` for continuous daemon operation on Linux servers or lab hosts.
+
+### 2.3 Full-Stack i18n
+1. **Frontend UI i18n:** Navigation, action buttons, table headers, toasts, and localized date/time.
+2. **Backend API i18n:** REST error messages and notices localized via `Accept-Language` headers.
+3. **Verdict Terminology i18n:** Canonical mapping between standard verdicts (`Accepted`, `Wrong Answer`, `Time Limit Exceeded`) and Chinese equivalents (`答案正确`, `答案错误`, `运行超时`).
+4. **Problem Statement Locales:** Multi-language problem definitions (`Problem.Locales`) supporting seamless language switching.
+5. **PDF Paper i18n:** Localized CCF cover notices, candidate instructions, and headers.
+
+### 2.4 PDF Export Pipeline
+- **Tier 1 (Default / Zero-Dependency):** Pure Go Chrome DevTools Protocol (CDP) controls the pre-installed system Edge or Chrome browser to output CCF-compliant A4 PDFs with TOC outline injection via pure Go PDF tooling.
+- **Tier 2 (Print Fallback):** Web-based `@media print` layout allows direct `Ctrl+P` export.
+- **Tier 3 (Advanced Integration):** External Playwright + PyMuPDF pipeline for batch CLI rendering.
+
+---
+
+## 3. Capability Map
 
 | Module ID | Responsibility | Depends On |
 |---|---|---|
@@ -24,23 +48,6 @@ Both Chinese (`zh-CN`) and English (`en-US`) are first-class locales across fron
 | `i18n` | Full-stack internationalization: UI dictionaries, localized API error responses, verdict mappings, problem locales | — |
 | `pdf` | CCF CSP-standardized A4 HTML template generation, Chromium/Edge CDP headless PDF rendering, bookmark injection | `problems` |
 | `web` | Embedded modern responsive web applications for both Teacher Console and Student Contest Lobby | all |
-
-Build order: `identity` → `contests` / `problems` → `judging` → `realtime` / `i18n` → `pdf` → `web`.
-
----
-
-## 3. Tech Stack
-
-- **Backend Runtime:** Go 1.26 standard library (`net/http`, `embed`, `sync`, `encoding/json`).
-- **Data Persistence:** In-memory repository boundary designed for SQLite pluggability.
-- **Frontend Architecture:**
-  - *Runtime Distribution:* Embedded semantic HTML5, CSS3, and modern ES modules in `internal/arena/web` bundled via `//go:embed`. Runs zero-dependency with no Node.js required at runtime.
-  - *Dev Pipeline (Optional):* Vite-compatible directory layout for future component pre-compilation into `dist/`.
-- **Real-Time Communication:** Server-Sent Events (SSE) via `/api/events` with contest-filtering support.
-- **PDF Generation Pipeline:**
-  - Standard CCF CSP-compliant HTML/CSS print template (A4, 16mm/20mm/17mm margins, SimSun/Consolas typography, cover page, compiler flags, sample boxes, testcase tables).
-  - Headless Chromium/Edge via Chrome DevTools Protocol or standard browser Print-to-PDF (`@media print`).
-- **Desktop Packaging:** Wails v3 / native system tray compatibility seams for one-click desktop launching.
 
 ---
 
@@ -54,7 +61,7 @@ go test ./...
 go build ./...
 
 # Run the Forge contest server
-go run ./cmd/arena
+go run ./cmd/forge
 ```
 
 Default access points:
@@ -86,15 +93,7 @@ Default access points:
 
 ---
 
-## 6. Testing Strategy
-
-1. **Service Layer**: Table-driven tests covering user creation, group membership, multi-contest isolation, participant access verification, problem validation rules, submission lifecycle, and ranking calculations.
-2. **HTTP Layer**: Endpoint tests verifying REST routes, query parameter handling, JSON request/response formats, static web asset serving, and SSE event streaming.
-3. Every increment must cleanly pass `go test ./...` and `go build ./...`.
-
----
-
-## 7. Boundaries & Rules
+## 6. Boundaries & Rules
 
 - **Always:** Validate inputs, keep user identity independent of contests, broadcast state changes via SSE, run tests and build before claiming completion.
 - **Ask First:** Modifying persistence schema, adding heavyweight runtime dependencies, altering PDF layout contracts.
