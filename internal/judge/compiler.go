@@ -97,12 +97,10 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 			return CompileResult{OK: true, Executable: hit}, nil
 		}
 		var out bytes.Buffer
-		args := append([]string{}, sp.Args...)
+		// 缺省即 CCF 复赛口径：-O2 -std=c++14（可在工具链配置覆盖）。
+		args := append([]string{"-O2"}, sp.Args...)
 		if lang != "c" && sp.Std != "" {
 			args = append(args, "-std="+sp.Std)
-		}
-		if len(args) == 0 {
-			args = []string{"-O2"}
 		}
 		args = append(args, "-o", exePath, srcPath)
 		cmd := exec.CommandContext(ctx, cc, args...)

@@ -14,15 +14,18 @@
 
 namespace forge_checker {
 
-inline std::string read_all(const char *path) {
+// 注：函数一律 static（不用 inline）——MinGW 13.2 -O2 对本头 inline
+// 版本误编译（返回的 string 损坏，TestSpecialJudge 回归覆盖）。
+// read_all 亦避开 ss << rdbuf() 写法，同环境下同样不可靠。
+static std::string read_all(const char *path) {
     std::ifstream f(path, std::ios::binary);
-    std::ostringstream ss;
-    ss << f.rdbuf();
-    return ss.str();
+    if (!f) return std::string();
+    return std::string((std::istreambuf_iterator<char>(f)),
+                       std::istreambuf_iterator<char>());
 }
 
 // argc 必须为 4：checker <input> <output> <answer>。
-inline void check_argc(int argc) {
+static void check_argc(int argc) {
     if (argc != 4) {
         std::fprintf(stderr, "usage: checker <input> <output> <answer>\n");
         std::exit(3);
@@ -30,14 +33,14 @@ inline void check_argc(int argc) {
 }
 
 // 0=AC, 1=WA, 2=PE(按 WA 计), 其他=RE。
-inline void quit(int code, const std::string &msg) {
+static void quit(int code, const std::string &msg) {
     std::cout << msg << std::endl;
     std::exit(code);
 }
 
-inline void ok(const std::string &msg = "ok") { quit(0, msg); }
-inline void wa(const std::string &msg = "wrong answer") { quit(1, msg); }
-inline void pe(const std::string &msg = "presentation error") { quit(2, msg); }
+static void ok(const std::string &msg = "ok") { quit(0, msg); }
+static void wa(const std::string &msg = "wrong answer") { quit(1, msg); }
+static void pe(const std::string &msg = "presentation error") { quit(2, msg); }
 
 } // namespace forge_checker
 

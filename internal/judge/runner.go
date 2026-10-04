@@ -11,8 +11,16 @@ import (
 	"github.com/yviscool/forge/internal/domain"
 )
 
-// OutputCap 单点 stdout 上限（防爆输出拖死 worker）。
+// OutputCap 缺省单点 stdout 上限（防爆输出拖死 worker），可被 Limits 覆盖。
 const OutputCap = 16 << 20
+
+// outputCapOf 取有效输出上限（字节）。
+func outputCapOf(lim Limits) int {
+	if lim.OutputLimitKiB > 0 {
+		return lim.OutputLimitKiB << 10
+	}
+	return OutputCap
+}
 
 // RunResult 单点运行结果。
 type RunResult struct {
@@ -76,7 +84,7 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	if err != nil {
 		return res, err
 	}
-	outCap := &cappedWriter{cap: OutputCap}
+	outCap := &cappedWriter{cap: outputCapOf(lim)}
 	errCap := &cappedWriter{cap: 1 << 20}
 	cmd.Stdout, cmd.Stderr = outCap, errCap
 

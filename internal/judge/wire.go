@@ -56,9 +56,11 @@ func BuildRequest(x domain.Submission, p domain.Problem) (Request, bool) {
 	req := Request{
 		Language: x.Language, Code: x.Code, Cases: cases,
 		Compare: cmpOf(p), RealEps: p.RealEps, TaskType: p.TaskType,
+		CompileTimeoutSec: p.CompileTimeoutSec,
 		Limits: Limits{
 			TimeMs: p.TimeLimitMs, MemoryMiB: p.MemoryLimitMiB,
 			IOMode: ioOf(p), InFile: p.InFile, OutFile: p.OutFile,
+			OutputLimitKiB: p.OutputLimitKiB,
 		},
 	}
 	if req.Limits.InFile == "" {

@@ -97,31 +97,35 @@ const (
 )
 
 type Problem struct {
-	ID             string                   `json:"id"`
-	ContestID      string                   `json:"contestId"`
-	Code           string                   `json:"code"`
-	Title          string                   `json:"title"`
-	Statement      string                   `json:"statement"`
-	Constraints    string                   `json:"constraints"`
-	Input          string                   `json:"input"`
-	Output         string                   `json:"output"`
-	Examples       string                   `json:"examples"`
-	Locale         string                   `json:"locale"`
-	TimeLimitMs    int                      `json:"timeLimitMs"`
-	MemoryLimitMiB int                      `json:"memoryLimitMib"`
-	CompareMode    ComparisonMode           `json:"compareMode,omitempty"`
-	RealEps        float64                  `json:"realEps,omitempty"`
-	TaskType       TaskType                 `json:"taskType,omitempty"`
-	IOMode         IOMode                   `json:"ioMode,omitempty"`
-	InFile         string                   `json:"inFile,omitempty"`
-	OutFile        string                   `json:"outFile,omitempty"`
-	CheckerLang    string                   `json:"checkerLang,omitempty"`
-	CheckerCode    string                   `json:"checkerCode,omitempty"`
-	InteractorLang string                   `json:"interactorLang,omitempty"`
-	InteractorCode string                   `json:"interactorCode,omitempty"`
-	Locales        map[string]ProblemLocale `json:"locales,omitempty"`
-	TestCases      []TestCase               `json:"testCases,omitempty"`
-	UpdatedAt      time.Time                `json:"updatedAt"`
+	ID             string         `json:"id"`
+	ContestID      string         `json:"contestId"`
+	Code           string         `json:"code"`
+	Title          string         `json:"title"`
+	Statement      string         `json:"statement"`
+	Constraints    string         `json:"constraints"`
+	Input          string         `json:"input"`
+	Output         string         `json:"output"`
+	Examples       string         `json:"examples"`
+	Locale         string         `json:"locale"`
+	TimeLimitMs    int            `json:"timeLimitMs"`
+	MemoryLimitMiB int            `json:"memoryLimitMib"`
+	CompareMode    ComparisonMode `json:"compareMode,omitempty"`
+	RealEps        float64        `json:"realEps,omitempty"`
+	// OutputLimitKiB 单点 stdout 上限（KB），0 则默认；超限判 OLE。
+	OutputLimitKiB int `json:"outputLimitKib,omitempty"`
+	// CompileTimeoutSec 单次编译上限（秒），0 则默认。
+	CompileTimeoutSec int                      `json:"compileTimeoutSec,omitempty"`
+	TaskType          TaskType                 `json:"taskType,omitempty"`
+	IOMode            IOMode                   `json:"ioMode,omitempty"`
+	InFile            string                   `json:"inFile,omitempty"`
+	OutFile           string                   `json:"outFile,omitempty"`
+	CheckerLang       string                   `json:"checkerLang,omitempty"`
+	CheckerCode       string                   `json:"checkerCode,omitempty"`
+	InteractorLang    string                   `json:"interactorLang,omitempty"`
+	InteractorCode    string                   `json:"interactorCode,omitempty"`
+	Locales           map[string]ProblemLocale `json:"locales,omitempty"`
+	TestCases         []TestCase               `json:"testCases,omitempty"`
+	UpdatedAt         time.Time                `json:"updatedAt"`
 }
 
 type Submission struct {

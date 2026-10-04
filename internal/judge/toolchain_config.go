@@ -21,10 +21,10 @@ type ToolchainConfig struct {
 	Python ToolSpec `json:"python"`
 }
 
-// DefaultToolchainConfig 开箱默认值（与旧硬编码行为一致）。
+// DefaultToolchainConfig 开箱默认值：CCF 复赛口径（-O2 -std=c++14）。
 func DefaultToolchainConfig() ToolchainConfig {
 	return ToolchainConfig{
-		CPP:    ToolSpec{Command: "g++", Std: "c++17"},
+		CPP:    ToolSpec{Command: "g++", Std: "c++14"},
 		C:      ToolSpec{Command: "gcc"},
 		Go:     ToolSpec{Command: "go"},
 		Python: ToolSpec{Command: "python"},

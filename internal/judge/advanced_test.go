@@ -210,3 +210,64 @@ func TestToolchainConfig(t *testing.T) {
 		t.Fatalf("merge broken: %+v", got)
 	}
 }
+
+func TestOutputLimitConfigurable(t *testing.T) {
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	// 20MB 输出在 64KB 上限下必 OLE（默认 16MB 反而要跑完才截断）。
+	got, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: loadCode(t, "ole_big.cpp"),
+		Cases:   []CaseInput{{Input: "", Expected: "x"}},
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 10000, MemoryMiB: 512, OutputLimitKiB: 64},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got[0].Verdict != domain.CaseOLE {
+		t.Fatalf("64KB limit must OLE, got %+v", got[0])
+	}
+}
+
+type sleepCompiler struct{ d time.Duration }
+
+func (s sleepCompiler) Compile(ctx context.Context, _ string, _ []byte, _ string) (CompileResult, error) {
+	select {
+	case <-time.After(s.d):
+		return CompileResult{OK: true, Executable: "x"}, nil
+	case <-ctx.Done():
+		return CompileResult{}, ctx.Err()
+	}
+}
+
+func TestCompileTimeoutConfigurable(t *testing.T) {
+	// 3s 编译被 1s 上限掐断（ wiring 本身，与 g++ 速度无关）。
+	o := &Orchestrator{Compiler: sleepCompiler{d: 3 * time.Second}, Runner: LocalRunner{}}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	_, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: "x",
+		Cases:             []CaseInput{{Input: "1", Expected: "1"}},
+		Compare:           domain.CompareIgnoreSpace,
+		Limits:            Limits{TimeMs: 5000, MemoryMiB: 256},
+		CompileTimeoutSec: 1,
+	})
+	if err == nil {
+		t.Fatal("1s compile timeout must interrupt 3s compile")
+	}
+	// 不设上限时不断（用例 ctx 足够长）。
+	o2 := &Orchestrator{
+		Compiler: sleepCompiler{d: 10 * time.Millisecond},
+		Runner:   fakeRunner{out: RunResult{Stdout: "1"}},
+	}
+	got, err := o2.JudgeOne(ctx, Request{
+		Language: "cpp", Code: "x",
+		Cases:   []CaseInput{{Input: "1", Expected: "1"}},
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 5000, MemoryMiB: 256},
+	})
+	if err != nil || got[0].Verdict != domain.CaseAC {
+		t.Fatalf("default must not interrupt: %v %+v", err, got)
+	}
+}

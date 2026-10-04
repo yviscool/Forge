@@ -10,19 +10,25 @@ import (
 	"context"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/yviscool/forge/internal/domain"
 )
 
 // Limits 单点资源限制（LemonLime TestCase.timeLimit/memoryLimit 的运行态）。
 // IOMode=file 时程序通过文件交互（OI 文件 IO 题）。
+// OutputLimitKiB=0 时取 DefaultOutputCap。
 type Limits struct {
-	TimeMs    int
-	MemoryMiB int
-	IOMode    domain.IOMode
-	InFile    string
-	OutFile   string
+	TimeMs         int
+	MemoryMiB      int
+	IOMode         domain.IOMode
+	InFile         string
+	OutFile        string
+	OutputLimitKiB int
 }
+
+// DefaultOutputCap 缺省 stdout 上限 16MB。
+const DefaultOutputCap = 16 << 20
 
 // CaseInput 单测试点输入输出。Input/Expected 既可是内联文本，
 // 也可是磁盘路径（存在即读文件——兼容 LemonLime 数据文件式管理）。
@@ -45,6 +51,8 @@ type Request struct {
 	TaskType TaskType
 	// Checker 非空时启用特判（input/output/answer 三参协议）。
 	Checker *CheckerSpec
+	// CompileTimeoutSec 本次编译上限（秒），0 则用工具链默认。
+	CompileTimeoutSec int
 	// Interactor 非空且 TaskType=interaction 时启用交互式评测。
 	Interactor *InteractorSpec
 }
@@ -121,7 +129,14 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 	}
 	defer os.RemoveAll(workdir)
 
-	compile, err := o.Compiler.Compile(ctx, req.Language, []byte(req.Code), workdir)
+	// 编译超时独立于运行 ctx：调用方传短 ctx 也不得掐编译（交互题修过的坑）。
+	cctx := ctx
+	if req.CompileTimeoutSec > 0 {
+		var cancel context.CancelFunc
+		cctx, cancel = context.WithTimeout(ctx, time.Duration(req.CompileTimeoutSec)*time.Second)
+		defer cancel()
+	}
+	compile, err := o.Compiler.Compile(cctx, req.Language, []byte(req.Code), workdir)
 	if err != nil {
 		return nil, err
 	}
@@ -201,6 +216,9 @@ func mergeLimits(base, over Limits) Limits {
 	}
 	if over.MemoryMiB > 0 {
 		base.MemoryMiB = over.MemoryMiB
+	}
+	if over.OutputLimitKiB > 0 {
+		base.OutputLimitKiB = over.OutputLimitKiB
 	}
 	if over.IOMode != "" {
 		base.IOMode = over.IOMode
