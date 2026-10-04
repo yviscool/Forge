@@ -1,0 +1,17 @@
+# Go 源码强制 LF：否则 Windows 检出 CRLF 会挂 gofmt 门禁。
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+
+# 判题数据字节冻结：任何换行转换都会改判题输入，禁止碰。
+internal/judge/testdata/** -text
+
+# 前端源码统一 LF。
+*.ts text eol=lf
+*.vue text eol=lf
+*.js text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+*.json text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
