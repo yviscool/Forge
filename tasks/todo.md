@@ -1,0 +1,9 @@
+- [x] Create capability map and phase-1 specification
+- [x] Implement in-memory contest/user/group/problem/submission service
+- [x] Implement REST and SSE host
+- [x] Implement teacher/student browser UI with i18n toggle
+- [x] Add unit and HTTP tests
+- [x] Add README, AGENTS.md, and PDF workflow documentation
+- [ ] Add SQLite persistence adapter
+- [ ] Add isolated judge workers and sandbox policy
+- [ ] Package the web host with Wails v3
