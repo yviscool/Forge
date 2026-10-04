@@ -27,14 +27,16 @@ func TestSpecialJudge(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, mkReq(loadCode(t, "spj_even_ok.cpp")))
+	oc, err := o.JudgeOne(ctx, mkReq(loadCode(t, "spj_even_ok.cpp")))
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got[0].Verdict != domain.CaseAC || got[1].Verdict != domain.CaseAC {
 		t.Fatalf("spj ok: %+v", got)
 	}
-	got, err = o.JudgeOne(ctx, mkReq(loadCode(t, "spj_even_bad.cpp")))
+	oc, err = o.JudgeOne(ctx, mkReq(loadCode(t, "spj_even_bad.cpp")))
+	got = oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,22 +51,24 @@ func TestFileIOMode(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	lim := Limits{TimeMs: 2000, MemoryMiB: 256, IOMode: domain.IOFile, InFile: "p.in", OutFile: "p.out"}
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "fileio_ok.cpp"),
 		Cases:   []CaseInput{{Input: "3 4", Expected: "7"}},
 		Compare: domain.CompareIgnoreSpace, Limits: lim,
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got[0].Verdict != domain.CaseAC {
 		t.Fatalf("fileio ok: %+v", got[0])
 	}
-	got, err = o.JudgeOne(ctx, Request{
+	oc, err = o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "fileio_nowrite.cpp"),
 		Cases:   []CaseInput{{Input: "3 4", Expected: "7"}},
 		Compare: domain.CompareIgnoreSpace, Limits: lim,
 	})
+	got = oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +81,7 @@ func TestPerCaseLimits(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "case_lim.cpp"),
 		Cases: []CaseInput{
 			{Input: "5", Expected: "5"},
@@ -86,6 +90,7 @@ func TestPerCaseLimits(t *testing.T) {
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 5000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,12 +135,13 @@ func TestOutputLimit(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "ole_big.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: "x"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 5000, MemoryMiB: 512},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,11 +154,12 @@ func TestAnswersOnly(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		TaskType: domain.TaskAnswersOnly, Code: "42",
 		Cases:   []CaseInput{{Expected: "42"}, {Expected: "43"}},
 		Compare: domain.CompareIgnoreSpace,
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,14 +181,16 @@ func TestInteraction(t *testing.T) {
 			Limits: Limits{TimeMs: 3000, MemoryMiB: 256},
 		}
 	}
-	got, err := o.JudgeOne(ctx, mkReq("inter_sol_ok.cpp"))
+	oc, err := o.JudgeOne(ctx, mkReq("inter_sol_ok.cpp"))
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
 	if got[0].Verdict != domain.CaseAC {
 		t.Fatalf("interact ok: %+v", got[0])
 	}
-	got, err = o.JudgeOne(ctx, mkReq("inter_sol_bad.cpp"))
+	oc, err = o.JudgeOne(ctx, mkReq("inter_sol_bad.cpp"))
+	got = oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,12 +225,13 @@ func TestOutputLimitConfigurable(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	// 20MB 输出在 64KB 上限下必 OLE（默认 16MB 反而要跑完才截断）。
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "ole_big.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: "x"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 10000, MemoryMiB: 512, OutputLimitKiB: 64},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -261,12 +271,13 @@ func TestCompileTimeoutConfigurable(t *testing.T) {
 		Compiler: sleepCompiler{d: 10 * time.Millisecond},
 		Runner:   fakeRunner{out: RunResult{Stdout: "1"}},
 	}
-	got, err := o2.JudgeOne(ctx, Request{
+	oc, err := o2.JudgeOne(ctx, Request{
 		Language: "cpp", Code: "x",
 		Cases:   []CaseInput{{Input: "1", Expected: "1"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 5000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil || got[0].Verdict != domain.CaseAC {
 		t.Fatalf("default must not interrupt: %v %+v", err, got)
 	}

@@ -50,6 +50,10 @@ paths:
     delete: { responses: { '200': { description: remove } } }
   /api/v1/contests/{cid}/statistics:
     get: { responses: { '200': { description: per-problem stats } } }
+  /api/v1/contests/{cid}/statistics/export:
+    get: { responses: { '200': { description: CSV report card } } }
+  /api/v1/contests/{cid}/settings:
+    put: { responses: { '200': { description: rankingMode and allowedLanguages } } }
   /api/v1/users/import:
     post: { responses: { '200': { description: CSV bulk import } } }
   /api/v1/users/export:

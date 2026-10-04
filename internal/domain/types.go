@@ -47,11 +47,13 @@ type Group struct {
 }
 
 type Contest struct {
-	ID                 string    `json:"id"`
-	Name               string    `json:"name"`
-	Description        string    `json:"description"`
-	Status             string    `json:"status"`
-	RankingMode        string    `json:"rankingMode,omitempty"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	RankingMode string `json:"rankingMode,omitempty"`
+	// AllowedLanguages 允许提交的语言白名单（空=不限；复赛填 ["cpp"]）。
+	AllowedLanguages   []string  `json:"allowedLanguages,omitempty"`
 	ProblemIDs         []string  `json:"problemIds"`
 	GroupIDs           []string  `json:"groupIds"`
 	ParticipantUserIDs []string  `json:"participantUserIds"`
@@ -129,18 +131,20 @@ type Problem struct {
 }
 
 type Submission struct {
-	ID          string       `json:"id"`
-	ContestID   string       `json:"contestId"`
-	ProblemID   string       `json:"problemID"`
-	UserID      string       `json:"userId"`
-	UserName    string       `json:"userName,omitempty"`
-	Language    string       `json:"language"`
-	Code        string       `json:"code"`
-	Verdict     string       `json:"verdict"`
-	Score       int          `json:"score"`
-	Cases       []CaseResult `json:"cases,omitempty"`
-	SubmittedAt time.Time    `json:"submittedAt"`
-	JudgedAt    time.Time    `json:"judgedAt,omitempty"`
+	ID        string `json:"id"`
+	ContestID string `json:"contestId"`
+	ProblemID string `json:"problemID"`
+	UserID    string `json:"userId"`
+	UserName  string `json:"userName,omitempty"`
+	Language  string `json:"language"`
+	Code      string `json:"code"`
+	Verdict   string `json:"verdict"`
+	Score     int    `json:"score"`
+	// CompileMessage 编译错误原文（CE 申诉/教学用， peer 脱敏）。
+	CompileMessage string       `json:"compileMessage,omitempty"`
+	Cases          []CaseResult `json:"cases,omitempty"`
+	SubmittedAt    time.Time    `json:"submittedAt"`
+	JudgedAt       time.Time    `json:"judgedAt,omitempty"`
 }
 
 type RankEntry struct {

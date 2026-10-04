@@ -108,8 +108,8 @@ type Orchestrator struct {
 	Runner   Runner
 }
 
-// JudgeOne 执行完整评测，返回与 Cases 一一对应的 CaseResult。
-func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.CaseResult, error) {
+// JudgeOne 执行完整评测，返回分点明细 + 编译信息。
+func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeOutcome, error) {
 	// AnswersOnly：答案文本直比，不编译不运行。
 	if req.TaskType == domain.TaskAnswersOnly {
 		out := make([]domain.CaseResult, len(req.Cases))
@@ -120,12 +120,12 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA}
 			}
 		}
-		return out, nil
+		return domain.JudgeOutcome{Cases: out}, nil
 	}
 
 	workdir, err := os.MkdirTemp("", "forge_judge_*")
 	if err != nil {
-		return nil, err
+		return domain.JudgeOutcome{}, err
 	}
 	defer os.RemoveAll(workdir)
 
@@ -138,14 +138,14 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 	}
 	compile, err := o.Compiler.Compile(cctx, req.Language, []byte(req.Code), workdir)
 	if err != nil {
-		return nil, err
+		return domain.JudgeOutcome{}, err
 	}
 	if !compile.OK {
 		out := make([]domain.CaseResult, len(req.Cases))
 		for i := range out {
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseCE}
 		}
-		return out, nil
+		return domain.JudgeOutcome{Cases: out, CompileMessage: compile.Message}, nil
 	}
 
 	// 特判程序随单编译一次。
@@ -153,7 +153,7 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 	if req.Checker != nil {
 		checker, err = compileChecker(ctx, o.Compiler, *req.Checker, workdir)
 		if err != nil {
-			return nil, err
+			return domain.JudgeOutcome{}, err
 		}
 		if !checker.ok {
 			// 特判自身编译失败：判题事故，整单按 RE 处理并透出信息。
@@ -161,7 +161,7 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 			for i := range out {
 				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
 			}
-			return out, nil
+			return domain.JudgeOutcome{Cases: out}, nil
 		}
 	}
 
@@ -206,7 +206,7 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 			out[i].CaseIndex = i
 		}
 	}
-	return out, nil
+	return domain.JudgeOutcome{Cases: out}, nil
 }
 
 // mergeLimits 分点非零项覆盖题目级。

@@ -41,6 +41,12 @@ type CaseResult struct {
 	MemoryKiB int         `json:"memoryKib"`
 }
 
+// JudgeOutcome 一次评测的完整产出：分点明细 + 编译信息（CE 原文落库用）。
+type JudgeOutcome struct {
+	Cases          []CaseResult `json:"cases"`
+	CompileMessage string       `json:"compileMessage,omitempty"`
+}
+
 // normalize 按模式归一化输出文本。
 func normalize(s string, mode ComparisonMode) string {
 	if mode == CompareIgnoreSpace {

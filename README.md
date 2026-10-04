@@ -65,10 +65,12 @@ go run ./cmd/forge
 | **认证** | `POST` | `/api/v1/auth/login` | 登录签发 Bearer token |
 | **认证** | `POST` / `GET` | `/api/v1/auth/logout` `/api/v1/auth/me` | 注销 / 当前用户 |
 | **认证** | `POST` | `/api/v1/auth/password` | 本人改密 |
-| **比赛** | `GET` / `POST` | `/api/v1/contests` | 列表 / 创建（`rankingMode: oi/acm`） |
+| **比赛** | `GET` / `POST` | `/api/v1/contests` | 列表 / 创建（`rankingMode: oi/acm`，`allowedLanguages`） |
 | **比赛** | `GET` | `/api/v1/contests/{cid}` | 详情 |
 | **比赛** | `POST` | `/api/v1/contests/{cid}/start` `/finish` | 启动 / 结束 |
 | **比赛** | `GET` | `/api/v1/contests/{cid}/statistics` | 每题通过率/首 AC 统计 |
+| **比赛** | `GET` | `/api/v1/contests/{cid}/statistics/export` | 成绩单 CSV 下载 |
+| **比赛** | `PUT` | `/api/v1/contests/{cid}/settings` | 榜单模式 / 语言白名单 |
 | **试题** | `GET` / `POST` | `/api/v1/contests/{cid}/problems` | 列表 / 新增（含特判/交互/文件 IO/测试点） |
 | **试题** | `POST` | `/api/v1/contests/{cid}/problems/{pid}/validate` | 题面结构校验 |
 | **试题** | `POST` | `/api/v1/contests/{cid}/problems/{pid}/rejudge` | 全量重判 |

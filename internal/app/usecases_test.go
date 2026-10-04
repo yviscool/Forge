@@ -46,11 +46,11 @@ func TestJudgeCasesSubtaskAggregation(t *testing.T) {
 	}
 	subtasks := map[int]int{0: 40, 1: 60}
 	j, err := svc.JudgeCases(sub.ID,
-		[]domain.CaseResult{
+		domain.JudgeOutcome{Cases: []domain.CaseResult{
 			{CaseIndex: 0, Verdict: domain.CaseAC},
 			{CaseIndex: 1, Verdict: domain.CaseWA},
 			{CaseIndex: 2, Verdict: domain.CaseAC},
-		},
+		}},
 		func(i int) int {
 			if i < 2 {
 				return 0

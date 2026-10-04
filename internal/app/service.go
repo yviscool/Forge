@@ -132,6 +132,18 @@ func (s *Service) Submit(contestID, problemID, userID, lang, code string) (domai
 	if c.Status != string(domain.Running) {
 		return domain.Submission{}, errors.New("contest is not running")
 	}
+	if len(c.AllowedLanguages) > 0 {
+		ok := false
+		for _, l := range c.AllowedLanguages {
+			if l == lang {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return domain.Submission{}, errors.New("language not allowed in this contest")
+		}
+	}
 	u, err := s.store.GetUser(userID)
 	if err != nil {
 		return domain.Submission{}, err

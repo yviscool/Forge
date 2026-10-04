@@ -57,10 +57,11 @@ func runVariant(t *testing.T, lang, code string, cases []CaseInput, lim Limits) 
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: lang, Code: code, Cases: cases,
 		Compare: domain.CompareIgnoreSpace, Limits: lim,
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}

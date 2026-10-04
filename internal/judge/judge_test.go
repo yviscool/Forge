@@ -49,12 +49,13 @@ func TestJudgeOneVerdictMapping(t *testing.T) {
 	}
 	for _, tc := range cases {
 		o := &Orchestrator{Compiler: fakeCompiler{ok: true}, Runner: fakeRunner{out: tc.out}}
-		got, err := o.JudgeOne(context.Background(), Request{
+		oc, err := o.JudgeOne(context.Background(), Request{
 			Language: "cpp",
 			Cases:    []CaseInput{{Input: "3 4", Expected: "7"}},
 			Compare:  domain.CompareIgnoreSpace,
 			Limits:   Limits{TimeMs: 1000, MemoryMiB: 256},
 		})
+		got := oc.Cases
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -66,9 +67,10 @@ func TestJudgeOneVerdictMapping(t *testing.T) {
 
 func TestJudgeOneCompileError(t *testing.T) {
 	o := &Orchestrator{Compiler: fakeCompiler{ok: false, msg: "boom"}, Runner: fakeRunner{}}
-	got, _ := o.JudgeOne(context.Background(), Request{
+	oc, _ := o.JudgeOne(context.Background(), Request{
 		Cases: []CaseInput{{}, {}}, Compare: domain.CompareIgnoreSpace,
 	})
+	got := oc.Cases
 	if len(got) != 2 || got[0].Verdict != domain.CaseCE || got[1].Verdict != domain.CaseCE {
 		t.Fatalf("CE fan-out broken: %+v", got)
 	}
@@ -108,12 +110,13 @@ func TestIntegrationAC_CPP(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: fixture(t, "aplusb.cpp"),
 		Cases:   []CaseInput{{Input: "3 4\n", Expected: "7"}, {Input: "0 0", Expected: "0"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 2000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,12 +132,13 @@ func TestIntegrationWA_CPP(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: fixture(t, "wrong.cpp"),
 		Cases:   []CaseInput{{Input: "3 4", Expected: "7"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 2000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,12 +153,13 @@ func TestIntegrationTLE_CPP(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
 	start := time.Now()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: fixture(t, "tle.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: ""}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 500, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,12 +176,13 @@ func TestIntegrationRE_CPP(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: fixture(t, "re.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: ""}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 2000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,12 +196,13 @@ func TestIntegrationCE_CPP(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: fixture(t, "ce.cpp"),
 		Cases:   []CaseInput{{Input: "x", Expected: "x"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 2000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,12 +219,13 @@ func TestIntegrationMLE_CPP(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: fixture(t, "mle.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: "alive"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 10000, MemoryMiB: 64},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -231,12 +239,13 @@ func TestIntegrationAC_Python(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "python", Code: fixture(t, "aplusb.py"),
 		Cases:   []CaseInput{{Input: "3 4", Expected: "7"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 5000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,12 +259,13 @@ func TestIntegrationCE_Python(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "python", Code: "def broken(:\n",
 		Cases:   []CaseInput{{Input: "", Expected: ""}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 5000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,10 +280,10 @@ func TestPoolReportsAll(t *testing.T) {
 	var mu sync.Mutex
 	reported := map[string]int{}
 	pool := NewPool(16,
-		func(_ context.Context, r Request) ([]domain.CaseResult, error) {
-			return []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseAC}}, nil
+		func(_ context.Context, r Request) (domain.JudgeOutcome, error) {
+			return domain.JudgeOutcome{Cases: []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseAC}}}, nil
 		},
-		func(subID string, _ []domain.CaseResult) {
+		func(subID string, _ domain.JudgeOutcome) {
 			mu.Lock()
 			reported[subID]++
 			mu.Unlock()

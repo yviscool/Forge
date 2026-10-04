@@ -8,7 +8,7 @@ import (
 )
 
 // ReportFunc worker 完成一单后的回写（通常落到 app.Service.JudgeCases）。
-type ReportFunc func(subID string, cases []domain.CaseResult)
+type ReportFunc func(subID string, oc domain.JudgeOutcome)
 
 // Job 一次评测任务。
 type Job struct {
@@ -19,7 +19,7 @@ type Job struct {
 // Pool 有界 worker 池：Submit 入队，N 个 worker 串行 JudgeOne 后 Report。
 // 对标 LemonLime JudgingController 的任务分发。
 type Pool struct {
-	judge  func(context.Context, Request) ([]domain.CaseResult, error)
+	judge  func(context.Context, Request) (domain.JudgeOutcome, error)
 	report ReportFunc
 
 	mu      sync.Mutex
@@ -29,7 +29,7 @@ type Pool struct {
 }
 
 // NewPool 创建评测池。queueLen 为等待队列长度；worker 数由 Start 指定。
-func NewPool(queueLen int, judge func(context.Context, Request) ([]domain.CaseResult, error), report ReportFunc) *Pool {
+func NewPool(queueLen int, judge func(context.Context, Request) (domain.JudgeOutcome, error), report ReportFunc) *Pool {
 	if queueLen <= 0 {
 		queueLen = 64
 	}
@@ -86,14 +86,15 @@ func (p *Pool) loop(ctx context.Context) {
 }
 
 func (p *Pool) do(ctx context.Context, j Job) {
-	cases, err := p.judge(ctx, j.Req)
+	oc, err := p.judge(ctx, j.Req)
 	if err != nil {
-		cases = make([]domain.CaseResult, len(j.Req.Cases))
+		cases := make([]domain.CaseResult, len(j.Req.Cases))
 		for i := range cases {
 			cases[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
 		}
+		oc = domain.JudgeOutcome{Cases: cases}
 	}
 	if p.report != nil {
-		p.report(j.SubID, cases)
+		p.report(j.SubID, oc)
 	}
 }

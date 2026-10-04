@@ -48,12 +48,13 @@ func TestDispatchMatrix(t *testing.T) {
 	defer cancel()
 	code := loadCode(t, "dispatch.cpp")
 	mk := func(in string) CaseInput { return CaseInput{Input: in, Expected: "AC"} }
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: code,
 		Cases:   []CaseInput{mk("1"), mk("2"), mk("4"), mk("5"), mk("6")},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 2000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,12 +73,13 @@ func TestDispatchMLE(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "dispatch.cpp"),
 		Cases:   []CaseInput{{Input: "3", Expected: "AC"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 10000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,12 +92,13 @@ func TestSlowStartGuard(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "slowstart.cpp"),
 		Cases:   []CaseInput{{Input: "3 4", Expected: "7"}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 3000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,12 +115,13 @@ func TestForkbombContained(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	start := time.Now()
-	got, err := o.JudgeOne(ctx, Request{
+	oc, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "forkbomb.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: ""}},
 		Compare: domain.CompareIgnoreSpace,
 		Limits:  Limits{TimeMs: 10000, MemoryMiB: 256},
 	})
+	got := oc.Cases
 	if err != nil {
 		t.Fatal(err)
 	}

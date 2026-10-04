@@ -9,7 +9,7 @@ import (
 // 无测试点的题目跳过自动评测（保留人工判题入口）。
 func AutoJudgePool(svc *app.Service, tc Toolchain) *Pool {
 	o := &Orchestrator{Compiler: tc, Runner: LocalRunner{}}
-	return NewPool(128, o.JudgeOne, func(subID string, cases []domain.CaseResult) {
+	return NewPool(128, o.JudgeOne, func(subID string, oc domain.JudgeOutcome) {
 		x, err := svc.GetSubmission(subID)
 		if err != nil {
 			return
@@ -22,7 +22,7 @@ func AutoJudgePool(svc *app.Service, tc Toolchain) *Pool {
 		if so == nil {
 			return
 		}
-		_, _ = svc.JudgeCases(subID, cases, so, fo)
+		_, _ = svc.JudgeCases(subID, oc, so, fo)
 	})
 }
 

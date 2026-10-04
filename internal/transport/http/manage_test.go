@@ -173,3 +173,66 @@ func TestACMRankingEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestLanguagesAndExport(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+
+	// 建赛即锁 C++。
+	_, c := postAuth(t, e.url+"/api/v1/contests", e.teacher, `{"name":"CSP","allowedLanguages":["cpp"]}`)
+	if len(c["allowedLanguages"].([]any)) != 1 {
+		t.Fatalf("langs: %v", c)
+	}
+	cid := c["id"].(string)
+	_, p := postAuth(t, e.url+"/api/v1/contests/"+cid+"/problems", e.teacher,
+		`{"code":"A","title":"T","statement":"s","input":"i","output":"o","constraints":"k"}`)
+	pid := p["id"].(string)
+	postAuth(t, e.url+"/api/v1/contests/"+cid+"/start", e.teacher, ``)
+
+	py := fmt.Sprintf(`{"problemID":%q,"language":"python","code":"x"}`, pid)
+	if code, _ := postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, py); code != 400 {
+		t.Fatalf("python should be rejected, got %d", code)
+	}
+	cpp := fmt.Sprintf(`{"problemID":%q,"language":"cpp","code":"int main(){}"}`, pid)
+	if code, sub := postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, cpp); code != 202 {
+		t.Fatalf("cpp submit %d %v", code, sub)
+	} else {
+		// 教师判 CE 带原文。
+		sid := sub["id"].(string)
+		postAuth(t, e.url+"/api/v1/submissions/"+sid+"/judge", e.teacher, `{"verdict":"compile_error","score":0}`)
+		if _, err := e.svc.Store().GetSubmission(sid); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// settings 放开 python。
+	if code, body := putRaw(t, e.url+"/api/v1/contests/"+cid+"/settings", e.teacher,
+		`{"allowedLanguages":["cpp","python"]}`); code != 200 {
+		t.Fatalf("settings %d %s", code, body)
+	} else {
+		var v map[string]any
+		_ = json.Unmarshal(body, &v)
+		if len(v["allowedLanguages"].([]any)) != 2 {
+			t.Fatalf("settings langs: %s", body)
+		}
+	}
+	if code, _ := postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, py); code != 202 {
+		t.Fatalf("python after open %d", code)
+	}
+	if code, _ := putRaw(t, e.url+"/api/v1/contests/"+cid+"/settings", e.student, `{}`); code != 403 {
+		t.Fatalf("student settings should 403, got %d", code)
+	}
+	if code, _ := putRaw(t, e.url+"/api/v1/contests/"+cid+"/settings", e.teacher, `{"rankingMode":"elo"}`); code != 400 {
+		t.Fatalf("bad mode should 400, got %d", code)
+	}
+
+	// 成绩单导出。
+	if code, data := getAuth(t, e.url+"/api/v1/contests/"+cid+"/statistics/export", e.teacher); code != 200 {
+		t.Fatalf("export %d", code)
+	} else if !strings.Contains(string(data), "Alice") || !strings.Contains(string(data), "name,total,accepted") {
+		t.Fatalf("export content: %s", data)
+	}
+	if code, _ := getAuth(t, e.url+"/api/v1/contests/"+cid+"/statistics/export", e.student); code != 403 {
+		t.Fatalf("student export should 403, got %d", code)
+	}
+}

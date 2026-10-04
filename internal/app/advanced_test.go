@@ -113,7 +113,7 @@ func TestJudgeCasesOLEAndDetail(t *testing.T) {
 	sub, _ := svc.Submit(c.ID, p.ID, u.ID, "cpp", "code")
 	so := func(i int) int { return 0 }
 	fo := func(int) int { return 100 }
-	j, err := svc.JudgeCases(sub.ID, []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseOLE}}, so, fo)
+	j, err := svc.JudgeCases(sub.ID, domain.JudgeOutcome{Cases: []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseOLE}}}, so, fo)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,5 +163,28 @@ func TestContestBundleRoundTrip(t *testing.T) {
 	}
 	if _, err := svc.ExportContest("ghost"); err == nil {
 		t.Fatal("ghost export should error")
+	}
+}
+
+func TestCompileMessagePersisted(t *testing.T) {
+	svc := NewService(memory.New(), realtime.NewHub(), nil, nil)
+	u, _ := svc.CreateUser("A", "student")
+	c, _ := svc.CreateContest("C", "")
+	p, _ := svc.CreateProblem(domain.Problem{
+		ContestID: c.ID, Code: "A", Title: "T", Statement: "s",
+		Input: "i", Output: "o", Constraints: "k",
+	})
+	_, _ = svc.StartContest(c.ID)
+	sub, _ := svc.Submit(c.ID, p.ID, u.ID, "cpp", "broken code")
+	oc := domain.JudgeOutcome{
+		Cases:          []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseCE}},
+		CompileMessage: "main.cpp:1: error: expected ';'",
+	}
+	j, err := svc.JudgeCases(sub.ID, oc, func(int) int { return 0 }, func(int) int { return 100 })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if j.Verdict != "compile_error" || j.CompileMessage == "" {
+		t.Fatalf("CE detail: %+v", j)
 	}
 }

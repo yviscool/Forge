@@ -212,3 +212,41 @@ func (h *Server) subtasksRoute(w http.ResponseWriter, r *http.Request, cid, pid 
 	}
 	writeOut(w, updated, 200)
 }
+
+// exportStatistics 成绩单 CSV：姓名 + 总分/罚时 + 每题最佳。
+func (h *Server) exportStatistics(c domain.Contest) string {
+	var b strings.Builder
+	probs := h.svc.ListProblems(c.ID)
+	subs := h.svc.ListSubmissions(c.ID)
+	best := map[string]map[string]int{} // user -> problem -> best
+	names := map[string]string{}
+	for _, s := range subs {
+		names[s.UserID] = s.UserName
+		if best[s.UserID] == nil {
+			best[s.UserID] = map[string]int{}
+		}
+		if s.Score > best[s.UserID][s.ProblemID] {
+			best[s.UserID][s.ProblemID] = s.Score
+		}
+	}
+	if c.RankingMode == "acm" {
+		b.WriteString("name,solved,penalty\n")
+		for _, r := range h.svc.RankingACM(c.ID) {
+			fmt.Fprintf(&b, "%s,%d,%d\n", r.UserName, r.Solved, r.Penalty)
+		}
+		return b.String()
+	}
+	b.WriteString("name,total,accepted")
+	for _, p := range probs {
+		fmt.Fprintf(&b, ",%s %s", p.Code, p.Title)
+	}
+	b.WriteString("\n")
+	for _, r := range h.svc.Ranking(c.ID) {
+		fmt.Fprintf(&b, "%s,%d,%d", r.UserName, r.Score, r.Accepted)
+		for _, p := range probs {
+			fmt.Fprintf(&b, ",%d", best[r.UserID][p.ID])
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
+}

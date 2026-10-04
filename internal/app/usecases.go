@@ -157,12 +157,13 @@ func (s *Service) GetSubmission(id string) (domain.Submission, error) {
 }
 
 // JudgeCases 按点回写：聚合子任务分（LemonLime dependence 语义）后落总分，
-// verdict 取最差点结论映射。
-func (s *Service) JudgeCases(subID string, cases []domain.CaseResult, subtaskOf func(int) int, fullOf func(int) int) (domain.Submission, error) {
+// verdict 取最差点结论映射；编译信息（CE 原文）一并落库。
+func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf func(int) int, fullOf func(int) int) (domain.Submission, error) {
 	x, err := s.store.GetSubmission(subID)
 	if err != nil {
 		return domain.Submission{}, err
 	}
+	cases := oc.Cases
 	score := domain.AggregateScore(cases, subtaskOf, fullOf)
 	verdict := domain.VerdictAccepted
 	for _, c := range cases {
@@ -190,6 +191,7 @@ func (s *Service) JudgeCases(subID string, cases []domain.CaseResult, subtaskOf 
 	}
 	x.Verdict, x.Score, x.JudgedAt = verdict, score, s.clock.Now()
 	x.Cases = cases
+	x.CompileMessage = oc.CompileMessage
 	if err := s.store.UpdateSubmission(x); err != nil {
 		return domain.Submission{}, err
 	}
@@ -453,4 +455,41 @@ func (s *Service) ImportBundle(b ContestBundle) (domain.Contest, error) {
 		}
 	}
 	return s.store.GetContest(c.ID)
+}
+
+// SetContestLanguages 设置比赛语言白名单（空表示不限；CSP 复赛填 ["cpp"]）。
+func (s *Service) SetContestLanguages(cid string, langs []string) (domain.Contest, error) {
+	c, err := s.store.GetContest(cid)
+	if err != nil {
+		return domain.Contest{}, err
+	}
+	var clean []string
+	for _, l := range langs {
+		if l = strings.TrimSpace(l); l != "" {
+			clean = append(clean, l)
+		}
+	}
+	c.AllowedLanguages = clean
+	if err := s.store.UpdateContest(c); err != nil {
+		return domain.Contest{}, err
+	}
+	s.emit("contest.updated", cid, c)
+	return c, nil
+}
+
+// SetRankingMode 切换榜单模式（oi/acm）。
+func (s *Service) SetRankingMode(cid, mode string) (domain.Contest, error) {
+	if mode != "oi" && mode != "acm" {
+		return domain.Contest{}, errors.New("unknown ranking mode")
+	}
+	c, err := s.store.GetContest(cid)
+	if err != nil {
+		return domain.Contest{}, err
+	}
+	c.RankingMode = mode
+	if err := s.store.UpdateContest(c); err != nil {
+		return domain.Contest{}, err
+	}
+	s.emit("contest.updated", cid, c)
+	return c, nil
 }

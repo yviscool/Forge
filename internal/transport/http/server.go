@@ -90,9 +90,10 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			var v struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				RankingMode string `json:"rankingMode"`
+				Name             string   `json:"name"`
+				Description      string   `json:"description"`
+				RankingMode      string   `json:"rankingMode"`
+				AllowedLanguages []string `json:"allowedLanguages"`
 			}
 			if decode(r, &v) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -102,6 +103,12 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
+			}
+			if len(v.AllowedLanguages) > 0 {
+				if c, err = h.svc.SetContestLanguages(c.ID, v.AllowedLanguages); err != nil {
+					h.err(w, r, 400, err)
+					return
+				}
 			}
 			writeOut(w, c, 201)
 		default:
@@ -273,7 +280,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			h.err(w, r, 400, fmt.Errorf("invalid json"))
 			return
 		}
-		j, err := h.svc.JudgeCases(parts[1], v.Cases,
+		j, err := h.svc.JudgeCases(parts[1], domain.JudgeOutcome{Cases: v.Cases},
 			func(i int) int { return 0 },
 			func(st int) int {
 				if s, ok := v.Subtasks[st]; ok {
@@ -424,6 +431,55 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			return
 		}
 		writeOut(w, st, 200)
+		return
+	}
+
+	// /contests/{cid}/settings（教师：榜单模式/语言白名单）
+	if len(rest) == 2 && rest[1] == "settings" && r.Method == "PUT" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		var v struct {
+			RankingMode      *string   `json:"rankingMode"`
+			AllowedLanguages *[]string `json:"allowedLanguages"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		c, err := h.svc.GetContest(cid)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		if v.RankingMode != nil {
+			if c, err = h.svc.SetRankingMode(cid, *v.RankingMode); err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+		}
+		if v.AllowedLanguages != nil {
+			if c, err = h.svc.SetContestLanguages(cid, *v.AllowedLanguages); err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+		}
+		writeOut(w, c, 200)
+		return
+	}
+
+	if len(rest) == 3 && rest[1] == "statistics" && rest[2] == "export" && r.Method == "GET" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		c, err := h.svc.GetContest(cid)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=statistics-%s.csv", cid))
+		_, _ = w.Write([]byte(h.exportStatistics(c)))
 		return
 	}
 
@@ -722,7 +778,7 @@ func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []strin
 	http.NotFound(w, r)
 }
 
-// redactSubmissions 代码可见性：学生只能看自己的代码，教师全见。
+// redactSubmissions 代码可见性：学生只能看自己的代码与编译信息，教师全见。
 func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []domain.Submission {
 	if isTeacher(r) {
 		return subs
@@ -735,6 +791,7 @@ func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []
 	for i, s := range subs {
 		if s.UserID != sess.UserID {
 			s.Code = ""
+			s.CompileMessage = ""
 		}
 		out[i] = s
 	}

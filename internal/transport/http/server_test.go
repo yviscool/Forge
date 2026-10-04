@@ -272,14 +272,21 @@ func TestSubmissionCodeVisibility(t *testing.T) {
 	submit := fmt.Sprintf(`{"problemID":%q,"language":"cpp","code":"secret-code"}`, p["id"])
 	postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, submit)
 
+	// 挂一条 CE 原文，校验 peer 连编译信息一起脱敏。
+	subs := e.svc.ListSubmissions(cid)
+	_, _ = e.svc.JudgeCases(subs[0].ID, domain.JudgeOutcome{
+		Cases:          []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseCE}},
+		CompileMessage: "main.cpp:1: error",
+	}, func(int) int { return 0 }, func(int) int { return 100 })
+
 	// Bob 看不到 Alice 的代码，教师全见。
 	if code, body := getAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", bobTok); code != 200 {
 		t.Fatalf("list %d", code)
 	} else {
 		var subs []map[string]any
 		_ = json.Unmarshal(body, &subs)
-		if len(subs) != 1 || subs[0]["code"] != "" {
-			t.Fatalf("peer code must be redacted: %s", body)
+		if len(subs) != 1 || subs[0]["code"] != "" || subs[0]["compileMessage"] != nil {
+			t.Fatalf("peer code+ce must be redacted: %s", body)
 		}
 		_ = bobID
 	}
@@ -288,8 +295,8 @@ func TestSubmissionCodeVisibility(t *testing.T) {
 	} else {
 		var subs []map[string]any
 		_ = json.Unmarshal(body, &subs)
-		if len(subs) != 1 || subs[0]["code"] != "secret-code" {
-			t.Fatalf("teacher must see code: %s", body)
+		if len(subs) != 1 || subs[0]["code"] != "secret-code" || subs[0]["compileMessage"] != "main.cpp:1: error" {
+			t.Fatalf("teacher must see code+ce: %s", body)
 		}
 	}
 }
