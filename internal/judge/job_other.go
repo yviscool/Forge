@@ -13,6 +13,11 @@ var prlimitPath string
 
 // Linux 资源墙：prlimit 包裹（AS 地址空间 + CPU 秒 + nproc 防 fork 炸弹）。
 // 缺 prlimit 时降级为仅超时（文档注明），verdict 映射均为 best-effort。
+// Linux 接入点（后续）：cgroup v2 或 RLIMIT_AS 子进程包装替代 prlimit。
+type jobLimiter struct{}
+
+func newJobLimiter(_ int) (*jobLimiter, error) { return &jobLimiter{}, nil }
+
 func confineArgv(argv []string, lim Limits) []string {
 	prlimitOnce.Do(func() {
 		prlimitPath, _ = exec.LookPath("prlimit")
