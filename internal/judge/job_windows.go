@@ -21,7 +21,9 @@ func newJobLimiter(memoryMiB int) (*jobLimiter, error) {
 		info.BasicLimitInformation.LimitFlags =
 			windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
 				windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY |
-				windows.JOB_OBJECT_LIMIT_JOB_MEMORY
+				windows.JOB_OBJECT_LIMIT_JOB_MEMORY |
+				windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+		info.BasicLimitInformation.ActiveProcessLimit = 1
 		info.ProcessMemoryLimit = uintptr(int64(memoryMiB) << 20)
 		info.JobMemoryLimit = uintptr(int64(memoryMiB) << 20)
 		_, err = windows.SetInformationJobObject(
@@ -36,7 +38,9 @@ func newJobLimiter(memoryMiB int) (*jobLimiter, error) {
 		}
 	} else {
 		var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
+			windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+		info.BasicLimitInformation.ActiveProcessLimit = 1
 		_, err = windows.SetInformationJobObject(
 			job,
 			windows.JobObjectExtendedLimitInformation,
@@ -50,6 +54,9 @@ func newJobLimiter(memoryMiB int) (*jobLimiter, error) {
 	}
 	return &jobLimiter{job: job}, nil
 }
+
+// confineArgv Windows 下直通（Job Object 已做内存墙+单进程墙）。
+func confineArgv(argv []string, _ Limits) []string { return argv }
 
 // Attach 将已启动进程纳入 Job（调用方需在 Start 后立刻执行）。
 // 通过 PID 二次打开句柄：os.Process 不暴露 Windows 句柄。

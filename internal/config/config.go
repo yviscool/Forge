@@ -17,6 +17,8 @@ type Config struct {
 	AutoJudge bool
 	// AdminPassword 种子管理员密码（FORGE_ADMIN_PASSWORD；缺省 demo 值，首启即改）。
 	AdminPassword string
+	// Toolchains 工具链配置文件路径（FORGE_TOOLCHAINS；为空用内置默认）。
+	Toolchains string
 }
 
 func Load() Config {
@@ -47,6 +49,6 @@ func Load() Config {
 	return Config{
 		Addr: addr, DataDir: dataDir, Locale: strings.TrimSpace(locale),
 		Store: store, DBPath: dataDir + "/forge.db", AutoJudge: auto,
-		AdminPassword: adminPw,
+		AdminPassword: adminPw, Toolchains: os.Getenv("FORGE_TOOLCHAINS"),
 	}
 }

@@ -81,14 +81,22 @@ func (s *Service) AddUserToGroup(uid, gid string) error {
 	return s.store.UpdateUser(u)
 }
 
-func (s *Service) CreateContest(name, desc string) (domain.Contest, error) {
+func (s *Service) CreateContest(name, desc string, mode ...string) (domain.Contest, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return domain.Contest{}, errors.New("name is required")
 	}
+	ranking := "oi"
+	if len(mode) > 0 && mode[0] != "" {
+		ranking = mode[0]
+	}
+	if ranking != "oi" && ranking != "acm" {
+		return domain.Contest{}, errors.New("unknown ranking mode")
+	}
 	c := domain.Contest{
 		ID: s.store.NextID("cnt"), Name: name, Description: strings.TrimSpace(desc),
-		Status: string(domain.Draft), ProblemIDs: []string{}, GroupIDs: []string{},
+		Status: string(domain.Draft), RankingMode: ranking,
+		ProblemIDs: []string{}, GroupIDs: []string{},
 		ParticipantUserIDs: []string{}, CreatedAt: s.clock.Now(),
 	}
 	created, err := s.store.CreateContest(c)
@@ -175,6 +183,15 @@ func (s *Service) Ranking(contestID string) []domain.RankEntry {
 		return []domain.RankEntry{}
 	}
 	return domain.ComputeRanking(s.store.ListUsers(), c, s.store.ListSubmissions(contestID))
+}
+
+// RankingACM ACM 赛制榜（解题数/罚时），contest.RankingMode=="acm" 时传输层选用。
+func (s *Service) RankingACM(contestID string) []domain.ACMRankEntry {
+	c, err := s.store.GetContest(contestID)
+	if err != nil {
+		return []domain.ACMRankEntry{}
+	}
+	return domain.ComputeRankingACM(s.store.ListUsers(), c, s.store.ListSubmissions(contestID))
 }
 
 func (s *Service) Health() map[string]any {

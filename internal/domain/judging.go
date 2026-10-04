@@ -28,6 +28,8 @@ const (
 	CaseMLE CaseVerdict = "MLE"
 	CaseRE  CaseVerdict = "RE"
 	CaseCE  CaseVerdict = "CE"
+	// CaseOLE 输出超限（stdout 命中上限被截断）。
+	CaseOLE CaseVerdict = "OLE"
 )
 
 // CaseResult 单点评测结果（worker 回写时使用）。

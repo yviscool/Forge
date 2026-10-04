@@ -38,6 +38,22 @@ paths:
     post: { responses: { '200': { description: validate } } }
   /api/v1/contests/{cid}/problems/{pid}/export:
     get: { responses: { '200': { description: CCF print HTML } } }
+  /api/v1/contests/{cid}/problems/{pid}/rejudge:
+    post: { responses: { '202': { description: requeue all submissions } } }
+  /api/v1/contests/{cid}/problems/{pid}/subtasks:
+    put: { responses: { '200': { description: subtask scores and limits } } }
+  /api/v1/contests/{cid}/problems/{pid}/files:
+    get: { responses: { '200': { description: file list plus missing pairs } } }
+  /api/v1/contests/{cid}/problems/{pid}/files/{name}:
+    put: { responses: { '200': { description: upload test file } } }
+    get: { responses: { '200': { description: download } } }
+    delete: { responses: { '200': { description: remove } } }
+  /api/v1/contests/{cid}/statistics:
+    get: { responses: { '200': { description: per-problem stats } } }
+  /api/v1/users/import:
+    post: { responses: { '200': { description: CSV bulk import } } }
+  /api/v1/users/export:
+    get: { responses: { '200': { description: CSV export without passwords } } }
   /api/v1/contests/{cid}/problems/{pid}/pdf:
     get: { responses: { '200': { description: A4 PDF }, '503': { description: no browser } } }
   /api/v1/users:

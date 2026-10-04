@@ -44,6 +44,8 @@ func TestJudgeOneVerdictMapping(t *testing.T) {
 		{"nonzero->RE", RunResult{ExitCode: 1, Stdout: "x"}, domain.CaseRE},
 		{"mismatch->WA", RunResult{Stdout: "8"}, domain.CaseWA},
 		{"match->AC", RunResult{Stdout: "7"}, domain.CaseAC},
+		{"truncated->OLE", RunResult{Stdout: "777...TRUNC", Truncated: true}, domain.CaseOLE},
+		{"no-output-file->WA", RunResult{NoOutput: true}, domain.CaseWA},
 	}
 	for _, tc := range cases {
 		o := &Orchestrator{Compiler: fakeCompiler{ok: true}, Runner: fakeRunner{out: tc.out}}

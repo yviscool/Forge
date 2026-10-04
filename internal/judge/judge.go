@@ -15,16 +15,22 @@ import (
 )
 
 // Limits 单点资源限制（LemonLime TestCase.timeLimit/memoryLimit 的运行态）。
+// IOMode=file 时程序通过文件交互（OI 文件 IO 题）。
 type Limits struct {
 	TimeMs    int
 	MemoryMiB int
+	IOMode    domain.IOMode
+	InFile    string
+	OutFile   string
 }
 
 // CaseInput 单测试点输入输出。Input/Expected 既可是内联文本，
 // 也可是磁盘路径（存在即读文件——兼容 LemonLime 数据文件式管理）。
+// Limits 非零项覆盖题目级限额（分点限额，LemonLime TestCase 语义）。
 type CaseInput struct {
 	Input    string
 	Expected string
+	Limits   Limits
 }
 
 // Request 一次完整评测请求。
@@ -35,6 +41,21 @@ type Request struct {
 	Compare  domain.ComparisonMode
 	RealEps  float64
 	Limits   Limits
+	// TaskType answers_only 时 Code 即答案文本，不编译直接比较。
+	TaskType TaskType
+	// Checker 非空时启用特判（input/output/answer 三参协议）。
+	Checker *CheckerSpec
+	// Interactor 非空且 TaskType=interaction 时启用交互式评测。
+	Interactor *InteractorSpec
+}
+
+// TaskType 即 domain.TaskType（别名，调用方无需多导一包）。
+type TaskType = domain.TaskType
+
+// CheckerSpec 特判程序源码（随题目下发，评测机编译执行）。
+type CheckerSpec struct {
+	Language string
+	Code     string
 }
 
 // resolveIO 路径存在则读文件，否则按内联文本处理。
@@ -81,6 +102,19 @@ type Orchestrator struct {
 
 // JudgeOne 执行完整评测，返回与 Cases 一一对应的 CaseResult。
 func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.CaseResult, error) {
+	// AnswersOnly：答案文本直比，不编译不运行。
+	if req.TaskType == domain.TaskAnswersOnly {
+		out := make([]domain.CaseResult, len(req.Cases))
+		for i, c := range req.Cases {
+			if domain.CompareOutput(req.Code, resolveIO(c.Expected), req.Compare, req.RealEps) {
+				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseAC}
+			} else {
+				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA}
+			}
+		}
+		return out, nil
+	}
+
 	workdir, err := os.MkdirTemp("", "forge_judge_*")
 	if err != nil {
 		return nil, err
@@ -99,6 +133,23 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 		return out, nil
 	}
 
+	// 特判程序随单编译一次。
+	var checker *compiledChecker
+	if req.Checker != nil {
+		checker, err = compileChecker(ctx, o.Compiler, *req.Checker, workdir)
+		if err != nil {
+			return nil, err
+		}
+		if !checker.ok {
+			// 特判自身编译失败：判题事故，整单按 RE 处理并透出信息。
+			out := make([]domain.CaseResult, len(req.Cases))
+			for i := range out {
+				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+			}
+			return out, nil
+		}
+	}
+
 	lim := req.Limits
 	if lim.TimeMs <= 0 {
 		lim.TimeMs = 1000
@@ -108,7 +159,18 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 	}
 	out := make([]domain.CaseResult, len(req.Cases))
 	for i, c := range req.Cases {
-		run, err := o.Runner.Run(ctx, compile.Argv(), resolveIO(c.Input), lim, workdir)
+		cl := mergeLimits(lim, c.Limits)
+		// 交互式：跳过普通运行，走管道对接。
+		if req.TaskType == domain.TaskInteraction && req.Interactor != nil {
+			ir, err := RunInteraction(ctx, o.Compiler, *req.Interactor, compile.Argv(), resolveIO(c.Input), cl, workdir)
+			if err != nil {
+				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+				continue
+			}
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: ir.Verdict, TimeMs: ir.TimeMs}
+			continue
+		}
+		run, err := o.Runner.Run(ctx, compile.Argv(), resolveIO(c.Input), cl, workdir)
 		if err != nil {
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
 			continue
@@ -118,15 +180,59 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) ([]domain.Case
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseTLE, TimeMs: run.TimeMs}
 		case run.OutOfMemory:
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseMLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+		case run.Truncated:
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseOLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+		case run.NoOutput:
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
 		case run.ExitCode != 0:
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: mapRuntimeError(req.Language, run), TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
-		case domain.CompareOutput(run.Stdout, resolveIO(c.Expected), req.Compare, req.RealEps):
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseAC, Score: 0, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
 		default:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+			out[i] = judgeOutput(ctx, o.Runner, checker, compile, c, run, req, cl, workdir)
+			out[i].CaseIndex = i
 		}
 	}
 	return out, nil
+}
+
+// mergeLimits 分点非零项覆盖题目级。
+func mergeLimits(base, over Limits) Limits {
+	if over.TimeMs > 0 {
+		base.TimeMs = over.TimeMs
+	}
+	if over.MemoryMiB > 0 {
+		base.MemoryMiB = over.MemoryMiB
+	}
+	if over.IOMode != "" {
+		base.IOMode = over.IOMode
+	}
+	if over.InFile != "" {
+		base.InFile = over.InFile
+	}
+	if over.OutFile != "" {
+		base.OutFile = over.OutFile
+	}
+	return base
+}
+
+// judgeOutput 默认比较或特判二选一。
+func judgeOutput(ctx context.Context, _ Runner, checker *compiledChecker, _ CompileResult, c CaseInput, run RunResult, req Request, _ Limits, workdir string) domain.CaseResult {
+	res := domain.CaseResult{TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+	if checker != nil {
+		ok, msg := checker.check(ctx, resolveIO(c.Input), run.Stdout, resolveIO(c.Expected), workdir)
+		_ = msg
+		if ok {
+			res.Verdict = domain.CaseAC
+		} else {
+			res.Verdict = domain.CaseWA
+		}
+		return res
+	}
+	if domain.CompareOutput(run.Stdout, resolveIO(c.Expected), req.Compare, req.RealEps) {
+		res.Verdict = domain.CaseAC
+	} else {
+		res.Verdict = domain.CaseWA
+	}
+	return res
 }
 
 // mapRuntimeError 非零退出映射：Python 语法错误归 CE，其余归 RE。

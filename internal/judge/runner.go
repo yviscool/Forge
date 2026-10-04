@@ -3,8 +3,12 @@ package judge
 import (
 	"bytes"
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"time"
+
+	"github.com/yviscool/forge/internal/domain"
 )
 
 // OutputCap 单点 stdout 上限（防爆输出拖死 worker）。
@@ -15,11 +19,13 @@ type RunResult struct {
 	ExitCode    int
 	TimedOut    bool
 	OutOfMemory bool
-	Stdout      string
-	Stderr      string
-	Truncated   bool
-	TimeMs      int
-	PeakKiB     int
+	// NoOutput 文件 IO 题未产出输出文件（计 WA，非 runner 事故）。
+	NoOutput  bool
+	Stdout    string
+	Stderr    string
+	Truncated bool
+	TimeMs    int
+	PeakKiB   int
 }
 
 // Runner 运行器抽象（可 fake 单测）。
@@ -42,9 +48,30 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	argv = confineArgv(argv, lim)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = scrubEnv()
+
+	// 文件 IO 模式（OI 文件读写题）：输入落盘，输出从文件回读。
+	stdinData := input
+	outFromFile := ""
+	if lim.IOMode == domain.IOFile {
+		inName, outName := lim.InFile, lim.OutFile
+		if inName == "" {
+			inName = "input.txt"
+		}
+		if outName == "" {
+			outName = "output.txt"
+		}
+		_ = os.Remove(filepath.Join(workdir, outName))
+		if err := os.WriteFile(filepath.Join(workdir, inName), []byte(input), 0644); err != nil {
+			return res, err
+		}
+		stdinData = ""
+		outFromFile = filepath.Join(workdir, outName)
+	}
+
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return res, err
@@ -69,7 +96,7 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 		_ = cmd.Wait()
 		return res, err
 	}
-	if _, err := stdin.Write([]byte(input)); err != nil {
+	if _, err := stdin.Write([]byte(stdinData)); err != nil {
 		// 程序提前退出导致管道关闭：非致命，继续等退出码。
 		_ = err
 	}
@@ -79,6 +106,14 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 
 	res.TimeMs = int(elapsed / time.Millisecond)
 	res.Stdout, res.Stderr = outCap.String(), errCap.String()
+	if outFromFile != "" {
+		if b, err := os.ReadFile(outFromFile); err == nil {
+			res.Stdout = string(b)
+		} else {
+			res.NoOutput = true
+			res.Stdout = ""
+		}
+	}
 	res.Truncated = outCap.truncated || errCap.truncated
 	res.PeakKiB = int(limiter.PeakBytes() >> 10)
 

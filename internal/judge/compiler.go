@@ -28,6 +28,33 @@ type Compiler interface {
 type Toolchain struct {
 	// CompileTimeout 单次编译上限。
 	CompileTimeout time.Duration
+	// Config 工具链配置；零值等价于 DefaultToolchainConfig。
+	Config ToolchainConfig
+	// Cache 编译缓存（nil 则关闭）。
+	Cache *CompileCache
+}
+
+func (t Toolchain) spec(lang string) ToolSpec {
+	def := DefaultToolchainConfig()
+	base, over := def.CPP, t.Config.CPP
+	switch lang {
+	case "c":
+		base, over = def.C, t.Config.C
+	case "go", "golang":
+		base, over = def.Go, t.Config.Go
+	case "python", "python3", "py":
+		base, over = def.Python, t.Config.Python
+	}
+	if over.Command != "" {
+		base.Command = over.Command
+	}
+	if over.Args != nil {
+		base.Args = over.Args
+	}
+	if over.Std != "" {
+		base.Std = over.Std
+	}
+	return base
 }
 
 func (t Toolchain) timeout() time.Duration {
@@ -59,29 +86,43 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 		if lang == "c" {
 			cc, file = "gcc", "main.c"
 		}
+		sp := t.spec(lang)
+		cc = sp.Command
 		srcPath := filepath.Join(workdir, file)
 		exePath := filepath.Join(workdir, "main.exe")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
 		}
-		var out bytes.Buffer
-		cmd := exec.CommandContext(ctx, cc, "-O2", "-std=c++17", "-o", exePath, srcPath)
-		if lang == "c" {
-			cmd = exec.CommandContext(ctx, cc, "-O2", "-o", exePath, srcPath)
+		if hit, ok := t.Cache.Get(lang, src, t.Config, workdir); ok {
+			return CompileResult{OK: true, Executable: hit}, nil
 		}
+		var out bytes.Buffer
+		args := append([]string{}, sp.Args...)
+		if lang != "c" && sp.Std != "" {
+			args = append(args, "-std="+sp.Std)
+		}
+		if len(args) == 0 {
+			args = []string{"-O2"}
+		}
+		args = append(args, "-o", exePath, srcPath)
+		cmd := exec.CommandContext(ctx, cc, args...)
 		cmd.Stdout, cmd.Stderr = &out, &out
 		if err := cmd.Run(); err != nil {
 			return CompileResult{Message: out.String()}, nil
 		}
+		t.Cache.Put(lang, src, t.Config, exePath)
 		return CompileResult{OK: true, Executable: exePath}, nil
 	case "go", "golang":
+		sp := t.spec(lang)
 		srcPath := filepath.Join(workdir, "main.go")
 		exePath := filepath.Join(workdir, "main.exe")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
 		}
 		var out bytes.Buffer
-		cmd := exec.CommandContext(ctx, "go", "build", "-o", exePath, srcPath)
+		args := append([]string{"build"}, sp.Args...)
+		args = append(args, "-o", exePath, srcPath)
+		cmd := exec.CommandContext(ctx, sp.Command, args...)
 		cmd.Stdout, cmd.Stderr = &out, &out
 		cmd.Dir = workdir
 		if err := cmd.Run(); err != nil {
@@ -89,11 +130,12 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 		}
 		return CompileResult{OK: true, Executable: exePath}, nil
 	case "python", "python3", "py":
+		sp := t.spec(lang)
 		srcPath := filepath.Join(workdir, "main.py")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
 		}
-		return CompileResult{OK: true, Executable: srcPath, Interpreted: true, Interpreter: "python", SourceFile: srcPath}, nil
+		return CompileResult{OK: true, Executable: srcPath, Interpreted: true, Interpreter: sp.Command, SourceFile: srcPath}, nil
 	default:
 		return CompileResult{Message: "unsupported language: " + lang}, nil
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/yviscool/forge/internal/auth"
 	"github.com/yviscool/forge/internal/domain"
 	"github.com/yviscool/forge/internal/pdf"
+	"github.com/yviscool/forge/internal/testdata"
 	webdist "github.com/yviscool/forge/internal/web"
 )
 
@@ -23,6 +24,8 @@ type Server struct {
 	log  *slog.Logger
 	// OnSubmit 提交成功后的钩子（自动评测入队；nil 则仅记录手动判题）。
 	OnSubmit func(domain.Submission)
+	// Files 测试数据文件仓（main 按 DataDir 装配，测试用临时目录）。
+	Files *testdata.Store
 
 	handler http.Handler
 }
@@ -37,6 +40,7 @@ func NewServer(svc *app.Service, log *slog.Logger) *Server {
 		log = slog.Default()
 	}
 	h := &Server{svc: svc, log: log, auth: auth.New(svc.Store(), nil)}
+	h.Files = testdata.New("./data/testdata")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", Healthz)
 	mux.HandleFunc("/readyz", Readyz)
@@ -88,12 +92,13 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			var v struct {
 				Name        string `json:"name"`
 				Description string `json:"description"`
+				RankingMode string `json:"rankingMode"`
 			}
 			if decode(r, &v) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
 				return
 			}
-			c, err := h.svc.CreateContest(v.Name, v.Description)
+			c, err := h.svc.CreateContest(v.Name, v.Description, v.RankingMode)
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
@@ -144,6 +149,32 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		default:
 			h.err(w, r, 405, fmt.Errorf("method not allowed"))
 		}
+		return
+	}
+
+	// /users/import（CSV 批量导入，教师）
+	if len(parts) == 2 && parts[0] == "users" && parts[1] == "import" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		var v struct {
+			CSV string `json:"csv"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		writeOut(w, h.importUsers(v.CSV), 200)
+		return
+	}
+
+	// /users/export（CSV 导出，不含密码，教师）
+	if len(parts) == 2 && parts[0] == "users" && parts[1] == "export" && r.Method == "GET" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		_, _ = w.Write([]byte(h.exportUsers()))
 		return
 	}
 
@@ -337,6 +368,10 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 	if len(rest) == 2 && rest[1] == "ranking" && r.Method == "GET" {
+		if c, err := h.svc.GetContest(cid); err == nil && c.RankingMode == "acm" {
+			writeOut(w, h.svc.RankingACM(cid), 200)
+			return
+		}
 		writeOut(w, h.svc.Ranking(cid), 200)
 		return
 	}
@@ -379,7 +414,36 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 
-	// /contests/{cid}/problems/{pid}/validate|export|pdf
+	if len(rest) == 2 && rest[1] == "statistics" && r.Method == "GET" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		st, err := h.svc.Statistics(cid)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		writeOut(w, st, 200)
+		return
+	}
+
+	// /contests/{cid}/problems/{pid}/files...（测试数据文件仓）
+	if len(rest) >= 4 && rest[1] == "problems" && rest[3] == "files" {
+		h.filesRoutes(w, r, cid, rest[2], rest[3:])
+		return
+	}
+
+	// /contests/{cid}/problems/{pid}/rejudge
+	if len(rest) == 4 && rest[1] == "problems" && rest[3] == "rejudge" && r.Method == "POST" {
+		h.rejudgeRoute(w, r, cid, rest[2])
+		return
+	}
+
+	// /contests/{cid}/problems/{pid}/subtasks
+	if len(rest) == 4 && rest[1] == "problems" && rest[3] == "subtasks" && r.Method == "PUT" {
+		h.subtasksRoute(w, r, cid, rest[2])
+		return
+	}
 	if len(rest) == 4 && rest[1] == "problems" {
 		pid, action := rest[2], rest[3]
 		p, err := h.svc.GetProblem(cid, pid)

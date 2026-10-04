@@ -51,6 +51,7 @@ type Contest struct {
 	Name               string    `json:"name"`
 	Description        string    `json:"description"`
 	Status             string    `json:"status"`
+	RankingMode        string    `json:"rankingMode,omitempty"`
 	ProblemIDs         []string  `json:"problemIds"`
 	GroupIDs           []string  `json:"groupIds"`
 	ParticipantUserIDs []string  `json:"participantUserIds"`
@@ -78,6 +79,23 @@ type TestCase struct {
 	MemoryMiB   int    `json:"memoryMib,omitempty"`
 }
 
+// TaskType 题目类型（对标 LemonLime TaskType 子集）。
+type TaskType string
+
+const (
+	TaskTraditional TaskType = "traditional"
+	TaskAnswersOnly TaskType = "answers_only"
+	TaskInteraction TaskType = "interaction"
+)
+
+// IOMode 程序 IO 方式。
+type IOMode string
+
+const (
+	IOStdio IOMode = "stdio"
+	IOFile  IOMode = "file"
+)
+
 type Problem struct {
 	ID             string                   `json:"id"`
 	ContestID      string                   `json:"contestId"`
@@ -93,23 +111,32 @@ type Problem struct {
 	MemoryLimitMiB int                      `json:"memoryLimitMib"`
 	CompareMode    ComparisonMode           `json:"compareMode,omitempty"`
 	RealEps        float64                  `json:"realEps,omitempty"`
+	TaskType       TaskType                 `json:"taskType,omitempty"`
+	IOMode         IOMode                   `json:"ioMode,omitempty"`
+	InFile         string                   `json:"inFile,omitempty"`
+	OutFile        string                   `json:"outFile,omitempty"`
+	CheckerLang    string                   `json:"checkerLang,omitempty"`
+	CheckerCode    string                   `json:"checkerCode,omitempty"`
+	InteractorLang string                   `json:"interactorLang,omitempty"`
+	InteractorCode string                   `json:"interactorCode,omitempty"`
 	Locales        map[string]ProblemLocale `json:"locales,omitempty"`
 	TestCases      []TestCase               `json:"testCases,omitempty"`
 	UpdatedAt      time.Time                `json:"updatedAt"`
 }
 
 type Submission struct {
-	ID          string    `json:"id"`
-	ContestID   string    `json:"contestId"`
-	ProblemID   string    `json:"problemID"`
-	UserID      string    `json:"userId"`
-	UserName    string    `json:"userName,omitempty"`
-	Language    string    `json:"language"`
-	Code        string    `json:"code"`
-	Verdict     string    `json:"verdict"`
-	Score       int       `json:"score"`
-	SubmittedAt time.Time `json:"submittedAt"`
-	JudgedAt    time.Time `json:"judgedAt,omitempty"`
+	ID          string       `json:"id"`
+	ContestID   string       `json:"contestId"`
+	ProblemID   string       `json:"problemID"`
+	UserID      string       `json:"userId"`
+	UserName    string       `json:"userName,omitempty"`
+	Language    string       `json:"language"`
+	Code        string       `json:"code"`
+	Verdict     string       `json:"verdict"`
+	Score       int          `json:"score"`
+	Cases       []CaseResult `json:"cases,omitempty"`
+	SubmittedAt time.Time    `json:"submittedAt"`
+	JudgedAt    time.Time    `json:"judgedAt,omitempty"`
 }
 
 type RankEntry struct {

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"runtime"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/yviscool/forge/internal/judge"
 	"github.com/yviscool/forge/internal/ports"
 	"github.com/yviscool/forge/internal/realtime"
+	"github.com/yviscool/forge/internal/testdata"
 	httpapi "github.com/yviscool/forge/internal/transport/http"
 )
 
@@ -41,6 +43,7 @@ func main() {
 
 	svc := app.NewService(store, realtime.NewHub(), nil, log)
 	srv := httpapi.NewServer(svc, log)
+	srv.Files = testdata.New(cfg.DataDir + "/testdata")
 
 	// 种子管理员（幂等；默认口令仅演示，生产必须改）。
 	if _, err := auth.New(store, nil).EnsureAdmin(cfg.AdminPassword); err != nil {
@@ -55,7 +58,11 @@ func main() {
 	// 无测试点的题目跳过自动评测（保留教师手动判题）。
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	if cfg.AutoJudge {
-		pool := judge.AutoJudgePool(svc, runtime.NumCPU())
+		tc := judge.Toolchain{Config: judge.LoadToolchainConfig(cfg.Toolchains)}
+		if cc, err := judge.NewCompileCache(filepath.Join(os.TempDir(), "forge-ccache")); err == nil {
+			tc.Cache = cc
+		}
+		pool := judge.AutoJudgePool(svc, runtime.NumCPU(), tc)
 		pool.Start(workerCtx, runtime.NumCPU())
 		defer pool.Wait()
 		srv.OnSubmit = func(x domain.Submission) {

@@ -58,29 +58,47 @@ go run ./cmd/forge
 
 ---
 
-## 📡 核心 API 端点概览 (REST API)
+## 📡 核心 API 端点概览 (REST API, `/api/v1`)
 
 | 模块 | 方法 | 端点 | 描述 |
 |---|---|---|---|
-| **比赛** | `GET` / `POST` | `/api/contests` | 获取比赛列表 / 创建比赛 |
-| **比赛** | `GET` | `/api/contests/{cid}` | 获取单场比赛详情 |
-| **比赛** | `POST` | `/api/contests/{cid}/start` | 启动比赛 |
-| **比赛** | `POST` | `/api/contests/{cid}/finish` | 结束比赛 |
-| **试题** | `GET` / `POST` | `/api/contests/{cid}/problems` | 试题列表 / 新增试题 |
-| **试题** | `POST` | `/api/contests/{cid}/problems/{pid}/validate` | 题面结构合法性校验 |
-| **试题** | `GET` | `/api/contests/{cid}/problems/{pid}/export` | 浏览器标准 CCF 打印视图 |
-| **试题** | `GET` | `/api/contests/{cid}/problems/{pid}/pdf` | 直接下载标准 CCF A4 PDF |
-| **用户** | `GET` / `POST` | `/api/users` | 用户查询 / 创建 |
-| **编组** | `GET` / `POST` | `/api/groups` | 全局分组查询 / 创建 |
-| **编组** | `POST` / `DELETE`| `/api/groups/{gid}/members` | 添加 / 移除组成员 |
-| **授权** | `POST` | `/api/contests/{cid}/groups` | 绑定参赛组到比赛 |
-| **授权** | `POST` | `/api/contests/{cid}/participants` | 绑定个人到比赛 |
-| **提交流**| `POST` | `/api/contests/{cid}/submissions` | 选手提交代码 |
-| **提交流**| `GET` | `/api/contests/{cid}/submissions` | 查看当前比赛提交流 |
-| **判题** | `POST` | `/api/submissions/{id}/judge` | 回写评测结果与分数 |
-| **榜单** | `GET` | `/api/contests/{cid}/ranking` | 获取当前比赛实时排行榜 |
-| **事件** | `GET` | `/api/events` | 实时 Server-Sent Events 流 |
-| **语言** | `GET` | `/api/i18n` | 获取双语标准字典 |
+| **认证** | `POST` | `/api/v1/auth/login` | 登录签发 Bearer token |
+| **认证** | `POST` / `GET` | `/api/v1/auth/logout` `/api/v1/auth/me` | 注销 / 当前用户 |
+| **认证** | `POST` | `/api/v1/auth/password` | 本人改密 |
+| **比赛** | `GET` / `POST` | `/api/v1/contests` | 列表 / 创建（`rankingMode: oi/acm`） |
+| **比赛** | `GET` | `/api/v1/contests/{cid}` | 详情 |
+| **比赛** | `POST` | `/api/v1/contests/{cid}/start` `/finish` | 启动 / 结束 |
+| **比赛** | `GET` | `/api/v1/contests/{cid}/statistics` | 每题通过率/首 AC 统计 |
+| **试题** | `GET` / `POST` | `/api/v1/contests/{cid}/problems` | 列表 / 新增（含特判/交互/文件 IO/测试点） |
+| **试题** | `POST` | `/api/v1/contests/{cid}/problems/{pid}/validate` | 题面结构校验 |
+| **试题** | `POST` | `/api/v1/contests/{cid}/problems/{pid}/rejudge` | 全量重判 |
+| **试题** | `PUT` | `/api/v1/contests/{cid}/problems/{pid}/subtasks` | 子任务分数与限额 |
+| **数据** | `PUT/GET/DELETE` | `/api/v1/contests/{cid}/problems/{pid}/files[/{name}]` | 测试数据文件仓 |
+| **试题** | `GET` | `/api/v1/contests/{cid}/problems/{pid}/export` | CCF 打印视图 |
+| **试题** | `GET` | `/api/v1/contests/{cid}/problems/{pid}/pdf` | CCF A4 PDF |
+| **用户** | `GET` / `POST` | `/api/v1/users` | 查询 / 创建（教师） |
+| **用户** | `POST` / `GET` | `/api/v1/users/import` `/export` | CSV 批量导入 / 导出 |
+| **编组** | `GET` / `POST` | `/api/v1/groups` | 查询 / 创建 |
+| **编组** | `POST` / `DELETE`| `/api/v1/groups/{gid}/members` | 添加 / 移除成员 |
+| **授权** | `POST` | `/api/v1/contests/{cid}/groups` `/participants` | 绑定组 / 个人 |
+| **提交** | `POST` / `GET` | `/api/v1/contests/{cid}/submissions` | 提交（身份即归属）/ 提交流（脱敏） |
+| **判题** | `POST` | `/api/v1/submissions/{id}/judge` `/cases` | 总分回写 / 按点回写 |
+| **榜单** | `GET` | `/api/v1/contests/{cid}/ranking` | OI 或 ACM 实时榜 |
+| **事件** | `GET` | `/api/v1/events?contestId=` | SSE 实时流 |
+| **语言** | `GET` | `/api/v1/i18n` | 双语字典 |
+
+## 🔌 环境变量
+
+| 变量 | 缺省 | 说明 |
+|---|---|---|
+| `FORGE_ADDR` | `:8080` | 监听地址 |
+| `FORGE_DATA_DIR` | `./data` | sqlite 文件 + 测试数据仓 |
+| `FORGE_STORE` | `sqlite` | `sqlite` / `memory` |
+| `FORGE_ADMIN_PASSWORD` | `admin123` | 种子管理员（首启即改） |
+| `FORGE_AUTOJUDGE` | `1` | `0` 关闭本地自动评测 |
+| `FORGE_TOOLCHAINS` | 空 | 工具链 JSON 配置路径 |
+
+> 沙箱说明：Windows 用 Job Object（内存墙+单进程+关闭即杀树），Linux 用 prlimit 包裹（地址空间/CPU/进程数）；网络隔离请用教室网关控制，判题机勿直连外网。
 
 ---
 
