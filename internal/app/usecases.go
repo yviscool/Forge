@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/yviscool/forge/internal/domain"
+	"github.com/yviscool/forge/internal/ports"
 )
 
 // 补全用例：查询 / 结束 / 绑定 / 题目 CRUD / 名单 / 提交流 / 按点判题。
@@ -202,3 +203,6 @@ func (s *Service) Subscribe(contestID string) (<-chan domain.Event, func()) {
 	}
 	return s.bus.Subscribe(contestID)
 }
+
+// Store 暴露底层存储（auth 会话等端口用；业务仍走用例方法）。
+func (s *Service) Store() ports.Store { return s.store }

@@ -19,6 +19,8 @@ type Store struct {
 	contests    map[string]domain.Contest
 	problems    map[string]domain.Problem
 	submissions map[string]domain.Submission
+	passwords   map[string]string
+	sessions    map[string]domain.Session
 }
 
 func New() *Store {
@@ -28,6 +30,8 @@ func New() *Store {
 		contests:    map[string]domain.Contest{},
 		problems:    map[string]domain.Problem{},
 		submissions: map[string]domain.Submission{},
+		passwords:   map[string]string{},
+		sessions:    map[string]domain.Session{},
 	}
 }
 
@@ -253,5 +257,59 @@ func (s *Store) UpdateSubmission(x domain.Submission) error {
 		return errors.New("submission not found")
 	}
 	s.submissions[x.ID] = x
+	return nil
+}
+
+func (s *Store) SetPasswordHash(userID, hash string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[userID]; !ok {
+		return errors.New("user not found")
+	}
+	s.passwords[userID] = hash
+	return nil
+}
+
+func (s *Store) GetPasswordHash(userID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.users[userID]; !ok {
+		return "", errors.New("user not found")
+	}
+	return s.passwords[userID], nil
+}
+
+func (s *Store) SaveSession(sess domain.Session) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.sessions[sess.Token] = sess
+	return nil
+}
+
+func (s *Store) GetSession(token string) (domain.Session, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	sess, ok := s.sessions[token]
+	if !ok {
+		return domain.Session{}, errors.New("session not found")
+	}
+	return sess, nil
+}
+
+func (s *Store) DeleteSession(token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.sessions, token)
+	return nil
+}
+
+func (s *Store) DeleteSessionsForUser(userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for tok, sess := range s.sessions {
+		if sess.UserID == userID {
+			delete(s.sessions, tok)
+		}
+	}
 	return nil
 }

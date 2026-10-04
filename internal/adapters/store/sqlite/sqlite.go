@@ -1,4 +1,4 @@
-// Package sqlite 提供 ports.Store 的 SQLite 实现： प्रशासनिक JSON 行 + 迁移水位。
+// Package sqlite 提供 ports.Store 的 SQLite 实现：JSON 行 + 迁移水位。
 // 单文件、WAL、纯 Go 驱动（modernc），教师机双击即跑，重启不丢。
 package sqlite
 
@@ -16,7 +16,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 1
+const schemaVersion = 2
 
 type Store struct {
 	db *sql.DB
@@ -49,25 +49,38 @@ func migrate(db *sql.DB) error {
 	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
 		return err
 	}
-	if v >= schemaVersion {
-		return nil
-	}
-	ddl := []string{
-		`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS contests (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS problems (id TEXT PRIMARY KEY, contest_id TEXT NOT NULL, data TEXT NOT NULL)`,
-		`CREATE INDEX IF NOT EXISTS idx_problems_contest ON problems(contest_id)`,
-		`CREATE TABLE IF NOT EXISTS submissions (id TEXT PRIMARY KEY, contest_id TEXT NOT NULL, data TEXT NOT NULL)`,
-		`CREATE INDEX IF NOT EXISTS idx_submissions_contest ON submissions(contest_id)`,
-		`CREATE TABLE IF NOT EXISTS seq (name TEXT PRIMARY KEY, val INTEGER NOT NULL)`,
-	}
-	for _, q := range ddl {
-		if _, err := db.Exec(q); err != nil {
-			return err
+	if v < 1 {
+		ddl := []string{
+			`CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+			`CREATE TABLE IF NOT EXISTS groups (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+			`CREATE TABLE IF NOT EXISTS contests (id TEXT PRIMARY KEY, data TEXT NOT NULL)`,
+			`CREATE TABLE IF NOT EXISTS problems (id TEXT PRIMARY KEY, contest_id TEXT NOT NULL, data TEXT NOT NULL)`,
+			`CREATE INDEX IF NOT EXISTS idx_problems_contest ON problems(contest_id)`,
+			`CREATE TABLE IF NOT EXISTS submissions (id TEXT PRIMARY KEY, contest_id TEXT NOT NULL, data TEXT NOT NULL)`,
+			`CREATE INDEX IF NOT EXISTS idx_submissions_contest ON submissions(contest_id)`,
+			`CREATE TABLE IF NOT EXISTS seq (name TEXT PRIMARY KEY, val INTEGER NOT NULL)`,
 		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return err
+			}
+		}
+		v = 1
 	}
-	_, err := db.Exec(fmt.Sprintf(`PRAGMA user_version=%d`, schemaVersion))
+	if v < 2 {
+		ddl := []string{
+			`CREATE TABLE IF NOT EXISTS credentials (user_id TEXT PRIMARY KEY, hash TEXT NOT NULL)`,
+			`CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id TEXT NOT NULL, data TEXT NOT NULL)`,
+			`CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return err
+			}
+		}
+		v = 2
+	}
+	_, err := db.Exec(fmt.Sprintf(`PRAGMA user_version=%d`, v))
 	return err
 }
 
@@ -345,4 +358,58 @@ func (s *Store) UpdateSubmission(x domain.Submission) error {
 		return err
 	}
 	return s.putScoped(tSubs, x.ID, x.ContestID, x)
+}
+
+func (s *Store) SetPasswordHash(userID, hash string) error {
+	if _, err := s.GetUser(userID); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`INSERT INTO credentials(user_id, hash) VALUES(?, ?) ON CONFLICT(user_id) DO UPDATE SET hash=excluded.hash`, userID, hash)
+	return err
+}
+
+func (s *Store) GetPasswordHash(userID string) (string, error) {
+	if _, err := s.GetUser(userID); err != nil {
+		return "", err
+	}
+	var hash string
+	if err := s.db.QueryRow(`SELECT hash FROM credentials WHERE user_id=?`, userID).Scan(&hash); err == sql.ErrNoRows {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	return hash, nil
+}
+
+func (s *Store) SaveSession(sess domain.Session) error {
+	data, err := marshal(sess)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO sessions(token, user_id, data) VALUES(?, ?, ?) ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, data=excluded.data`, sess.Token, sess.UserID, data)
+	return err
+}
+
+func (s *Store) GetSession(token string) (domain.Session, error) {
+	var data string
+	if err := s.db.QueryRow(`SELECT data FROM sessions WHERE token=?`, token).Scan(&data); err == sql.ErrNoRows {
+		return domain.Session{}, errors.New("session not found")
+	} else if err != nil {
+		return domain.Session{}, err
+	}
+	var sess domain.Session
+	if err := json.Unmarshal([]byte(data), &sess); err != nil {
+		return domain.Session{}, err
+	}
+	return sess, nil
+}
+
+func (s *Store) DeleteSession(token string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE token=?`, token)
+	return err
+}
+
+func (s *Store) DeleteSessionsForUser(userID string) error {
+	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id=?`, userID)
+	return err
 }

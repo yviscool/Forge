@@ -126,3 +126,17 @@ type Event struct {
 	Data      any       `json:"data"`
 	At        time.Time `json:"at"`
 }
+
+// Session 登录会话（token 明文只在签发时返回，落库只做精确匹配）。
+type Session struct {
+	Token     string    `json:"token"`
+	UserID    string    `json:"userId"`
+	Role      string    `json:"role"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// Expired 会话是否过期。
+func (s Session) Expired(now time.Time) bool {
+	return !s.ExpiresAt.IsZero() && !now.Before(s.ExpiresAt)
+}

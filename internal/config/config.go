@@ -15,6 +15,8 @@ type Config struct {
 	DBPath string
 	// AutoJudge 是否启用本地自动评测 worker（默认开；FORGE_AUTOJUDGE=0 关）。
 	AutoJudge bool
+	// AdminPassword 种子管理员密码（FORGE_ADMIN_PASSWORD；缺省 demo 值，首启即改）。
+	AdminPassword string
 }
 
 func Load() Config {
@@ -38,8 +40,13 @@ func Load() Config {
 	if strings.TrimSpace(os.Getenv("FORGE_AUTOJUDGE")) == "0" {
 		auto = false
 	}
+	adminPw := os.Getenv("FORGE_ADMIN_PASSWORD")
+	if adminPw == "" {
+		adminPw = "admin123"
+	}
 	return Config{
 		Addr: addr, DataDir: dataDir, Locale: strings.TrimSpace(locale),
 		Store: store, DBPath: dataDir + "/forge.db", AutoJudge: auto,
+		AdminPassword: adminPw,
 	}
 }

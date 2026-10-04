@@ -11,14 +11,16 @@ import (
 	"strings"
 
 	"github.com/yviscool/forge/internal/app"
+	"github.com/yviscool/forge/internal/auth"
 	"github.com/yviscool/forge/internal/domain"
 	"github.com/yviscool/forge/internal/pdf"
 	webdist "github.com/yviscool/forge/internal/web"
 )
 
 type Server struct {
-	svc *app.Service
-	log *slog.Logger
+	svc  *app.Service
+	auth *auth.Service
+	log  *slog.Logger
 	// OnSubmit 提交成功后的钩子（自动评测入队；nil 则仅记录手动判题）。
 	OnSubmit func(domain.Submission)
 
@@ -34,7 +36,7 @@ func NewServer(svc *app.Service, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	h := &Server{svc: svc, log: log}
+	h := &Server{svc: svc, log: log, auth: auth.New(svc.Store(), nil)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", Healthz)
 	mux.HandleFunc("/readyz", Readyz)
@@ -80,6 +82,9 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			writeOut(w, h.svc.ListContests(), 200)
 		case "POST":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			var v struct {
 				Name        string `json:"name"`
 				Description string `json:"description"`
@@ -112,9 +117,13 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			writeOut(w, h.svc.ListUsers(), 200)
 		case "POST":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			var v struct {
-				Name string `json:"name"`
-				Role string `json:"role"`
+				Name     string `json:"name"`
+				Role     string `json:"role"`
+				Password string `json:"password"`
 			}
 			if decode(r, &v) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -124,6 +133,12 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
+			}
+			if v.Password != "" {
+				if err := h.auth.ResetPassword(u.ID, v.Password); err != nil {
+					h.err(w, r, 400, err)
+					return
+				}
 			}
 			writeOut(w, u, 201)
 		default:
@@ -138,6 +153,9 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		case "GET":
 			writeOut(w, h.svc.ListGroups(), 200)
 		case "POST":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			var v struct {
 				Name string `json:"name"`
 			}
@@ -159,6 +177,9 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// /groups/{gid}/members
 	if len(parts) == 3 && parts[0] == "groups" && parts[2] == "members" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		gid := parts[1]
 		var v struct {
 			UserID string `json:"userId"`
@@ -188,6 +209,9 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// /submissions/{id}/judge
 	if len(parts) == 3 && parts[0] == "submissions" && parts[2] == "judge" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		var v struct {
 			Verdict string `json:"verdict"`
 			Score   int    `json:"score"`
@@ -207,6 +231,9 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// /submissions/{id}/cases（按点回写，LemonLime 子任务语义聚合）
 	if len(parts) == 3 && parts[0] == "submissions" && parts[2] == "cases" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		var v struct {
 			Cases    []domain.CaseResult `json:"cases"`
 			Subtasks map[int]int         `json:"subtasks"`
@@ -228,6 +255,32 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeOut(w, j, 200)
+		return
+	}
+
+	// /auth/*（身份端点）
+	if len(parts) >= 2 && parts[0] == "auth" {
+		h.authRoutes(w, r, parts[1:])
+		return
+	}
+
+	// /users/{id}/password（教师重置）
+	if len(parts) == 3 && parts[0] == "users" && parts[2] == "password" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		var v struct {
+			Password string `json:"password"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		if err := h.auth.ResetPassword(parts[1], v.Password); err != nil {
+			h.err(w, r, 400, err)
+			return
+		}
+		writeOut(w, map[string]bool{"ok": true}, 200)
 		return
 	}
 
@@ -260,6 +313,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 	if len(rest) == 2 && rest[1] == "start" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		c, err := h.svc.StartContest(cid)
 		if err != nil {
 			h.err(w, r, 400, err)
@@ -269,6 +325,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 	if len(rest) == 2 && rest[1] == "finish" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		c, err := h.svc.FinishContest(cid)
 		if err != nil {
 			h.err(w, r, 400, err)
@@ -288,6 +347,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		case "GET":
 			writeOut(w, h.svc.ListProblems(cid), 200)
 		case "POST":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			var p domain.Problem
 			if decode(r, &p) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -327,6 +389,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		switch {
 		case action == "validate" && r.Method == "POST":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			if verr := domain.ValidateProblem(p); verr != nil {
 				writeOut(w, map[string]any{"valid": false, "error": verr.Error()}, 200)
 				return
@@ -363,8 +428,16 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 	if len(rest) == 2 && rest[1] == "submissions" {
 		switch r.Method {
 		case "GET":
-			writeOut(w, h.svc.ListSubmissions(cid), 200)
+			r2, ok := h.requireLogin(w, r)
+			if !ok {
+				return
+			}
+			writeOut(w, h.redactSubmissions(r2, h.svc.ListSubmissions(cid)), 200)
 		case "POST":
+			r2, ok := h.requireLogin(w, r)
+			if !ok {
+				return
+			}
 			var v struct {
 				ProblemID string `json:"problemID"`
 				ProblemId string `json:"problemId"`
@@ -380,7 +453,16 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			if pid == "" {
 				pid = v.ProblemId
 			}
-			x, err := h.svc.Submit(cid, pid, v.UserID, v.Language, v.Code)
+			// 身份即归属：学生只能以自己名义提交，教师可代指定。
+			uid := v.UserID
+			if sess, ok := sessionOf(r2); ok && !isTeacher(r2) {
+				uid = sess.UserID
+			} else if uid == "" {
+				if sess, ok := sessionOf(r2); ok {
+					uid = sess.UserID
+				}
+			}
+			x, err := h.svc.Submit(cid, pid, uid, v.Language, v.Code)
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
@@ -397,6 +479,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 
 	// /contests/{cid}/groups | /participants
 	if len(rest) == 2 && rest[1] == "groups" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		var v struct {
 			GroupID string `json:"groupId"`
 		}
@@ -412,6 +497,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 	if len(rest) == 2 && rest[1] == "participants" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
 		var v struct {
 			UserID string `json:"userId"`
 		}
@@ -499,4 +587,92 @@ func i18nDict() map[string]map[string]string {
 			"ranking": "Leaderboard", "draft": "Draft", "running": "Running", "finished": "Finished",
 		},
 	}
+}
+
+// authRoutes /auth/* 身份端点。
+func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []string) {
+	// POST /auth/login（公开）
+	if len(rest) == 1 && rest[0] == "login" && r.Method == "POST" {
+		var v struct {
+			Login    string `json:"login"`
+			Password string `json:"password"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		sess, err := h.auth.Login(v.Login, v.Password)
+		if err != nil {
+			WriteError(w, r, 401, "invalid_credentials", "invalid login or password")
+			return
+		}
+		writeOut(w, map[string]any{"token": sess.Token, "userId": sess.UserID, "role": sess.Role}, 200)
+		return
+	}
+	// POST /auth/logout（登录态，幂等）
+	if len(rest) == 1 && rest[0] == "logout" && r.Method == "POST" {
+		if _, ok := h.requireLogin(w, r); !ok {
+			return
+		}
+		_ = h.auth.Logout(bearer(r))
+		writeOut(w, map[string]bool{"ok": true}, 200)
+		return
+	}
+	// GET /auth/me（登录态）
+	if len(rest) == 1 && rest[0] == "me" && r.Method == "GET" {
+		r2, ok := h.requireLogin(w, r)
+		if !ok {
+			return
+		}
+		sess, _ := sessionOf(r2)
+		u, err := h.svc.Store().GetUser(sess.UserID)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		writeOut(w, u, 200)
+		return
+	}
+	// POST /auth/password（本人改密）
+	if len(rest) == 1 && rest[0] == "password" && r.Method == "POST" {
+		r2, ok := h.requireLogin(w, r)
+		if !ok {
+			return
+		}
+		var v struct {
+			OldPassword string `json:"oldPassword"`
+			NewPassword string `json:"newPassword"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		sess, _ := sessionOf(r2)
+		if err := h.auth.ChangePassword(sess.UserID, v.OldPassword, v.NewPassword); err != nil {
+			h.err(w, r, 400, err)
+			return
+		}
+		writeOut(w, map[string]bool{"ok": true}, 200)
+		return
+	}
+	http.NotFound(w, r)
+}
+
+// redactSubmissions 代码可见性：学生只能看自己的代码，教师全见。
+func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []domain.Submission {
+	if isTeacher(r) {
+		return subs
+	}
+	sess, ok := sessionOf(r)
+	if !ok {
+		return subs
+	}
+	out := make([]domain.Submission, len(subs))
+	for i, s := range subs {
+		if s.UserID != sess.UserID {
+			s.Code = ""
+		}
+		out[i] = s
+	}
+	return out
 }

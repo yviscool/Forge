@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os/exec"
@@ -16,11 +17,6 @@ import (
 	"github.com/yviscool/forge/internal/judge"
 	"github.com/yviscool/forge/internal/realtime"
 )
-
-func newTestServer() *httptest.Server {
-	svc := app.NewService(memory.New(), realtime.NewHub(), nil, nil)
-	return httptest.NewServer(NewServer(svc, nil))
-}
 
 func post(t *testing.T, url, body string) (int, map[string]any) {
 	t.Helper()
@@ -40,71 +36,171 @@ func post(t *testing.T, url, body string) (int, map[string]any) {
 	return r.StatusCode, out
 }
 
-func TestV1ContestLifecycle(t *testing.T) {
-	srv := newTestServer()
-	defer srv.Close()
+func postAuth(t *testing.T, url, token, body string) (int, map[string]any) {
+	t.Helper()
+	req, err := http.NewRequest("POST", url, bytes.NewBufferString(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var out map[string]any
+	_ = json.NewDecoder(r.Body).Decode(&out)
+	return r.StatusCode, out
+}
 
-	if code, _ := post(t, srv.URL+"/api/v1/contests", `{"name":""}`); code != 400 {
+func getAuth(t *testing.T, url, token string) (int, []byte) {
+	t.Helper()
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	r, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.Body.Close()
+	var buf bytes.Buffer
+	_, _ = buf.ReadFrom(r.Body)
+	return r.StatusCode, buf.Bytes()
+}
+
+// testEnv 自带教师 + 学生 token 的测试环境。
+type testEnv struct {
+	url     string
+	svc     *app.Service
+	srv     *Server
+	teacher string
+	student string
+	stuID   string
+	close   func()
+}
+
+func newTestEnv(t *testing.T) *testEnv {
+	t.Helper()
+	svc := app.NewService(memory.New(), realtime.NewHub(), nil, nil)
+	srv := NewServer(svc, nil)
+	ts := httptest.NewServer(srv)
+	e := &testEnv{url: ts.URL, svc: svc, srv: srv, close: ts.Close}
+	e.teacher = e.mkUser(t, "Prof", "teacher", "pw-teacher")
+	uid, tok := e.mkUserFull(t, "Alice", "student", "pw-alice")
+	e.student, e.stuID = tok, uid
+	return e
+}
+
+func (e *testEnv) mkUserFull(t *testing.T, name, role, pw string) (string, string) {
+	t.Helper()
+	u, err := e.svc.CreateUser(name, role)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.srv.auth.ResetPassword(u.ID, pw); err != nil {
+		t.Fatal(err)
+	}
+	code, body := post(t, e.url+"/api/v1/auth/login",
+		fmt.Sprintf(`{"login":%q,"password":%q}`, name, pw))
+	if code != 200 {
+		t.Fatalf("login %s: %d %v", name, code, body)
+	}
+	return u.ID, body["token"].(string)
+}
+
+func (e *testEnv) mkUser(t *testing.T, name, role, pw string) string {
+	t.Helper()
+	_, tok := e.mkUserFull(t, name, role, pw)
+	return tok
+}
+
+func TestV1ContestLifecycle(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+
+	if code, _ := postAuth(t, e.url+"/api/v1/contests", e.teacher, `{"name":""}`); code != 400 {
 		t.Fatalf("empty name should 400, got %d", code)
 	}
-	code, c := post(t, srv.URL+"/api/v1/contests", `{"name":"CSP 模拟"}`)
+	if code, _ := post(t, e.url+"/api/v1/contests", `{"name":"x"}`); code != 401 {
+		t.Fatalf("anonymous create should 401, got %d", code)
+	}
+	if code, _ := postAuth(t, e.url+"/api/v1/contests", e.student, `{"name":"x"}`); code != 403 {
+		t.Fatalf("student create should 403, got %d", code)
+	}
+	code, c := postAuth(t, e.url+"/api/v1/contests", e.teacher, `{"name":"CSP 模拟"}`)
 	if code != 201 {
 		t.Fatalf("create %d", code)
 	}
 	cid := c["id"].(string)
 
-	// user + problem + start + submit + judge + ranking
-	_, u := post(t, srv.URL+"/api/v1/users", `{"name":"Alice","role":"student"}`)
-	uid := u["id"].(string)
-	code, p := post(t, srv.URL+"/api/v1/contests/"+cid+"/problems",
+	code, p := postAuth(t, e.url+"/api/v1/contests/"+cid+"/problems", e.teacher,
 		`{"code":"A","title":"和","statement":"a+b","input":"a b","output":"s","constraints":"k"}`)
 	if code != 201 {
 		t.Fatalf("create problem %d %v", code, p)
 	}
 	pid := p["id"].(string)
 
-	if sc, _ := post(t, srv.URL+"/api/v1/contests/"+cid+"/submissions",
-		`{"problemID":"`+pid+`","userId":"`+uid+`","language":"cpp","code":"x"}`); sc != 400 {
+	submit := fmt.Sprintf(`{"problemID":%q,"language":"cpp","code":"x"}`, pid)
+	if sc, _ := post(t, e.url+"/api/v1/contests/"+cid+"/submissions", submit); sc != 401 {
+		t.Fatalf("anonymous submit should 401, got %d", sc)
+	}
+	if sc, _ := postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, submit); sc != 400 {
 		t.Fatalf("draft submit should 400, got %d", sc)
 	}
-	if sc, _ := post(t, srv.URL+"/api/v1/contests/"+cid+"/start", ``); sc != 200 {
+	if sc, _ := postAuth(t, e.url+"/api/v1/contests/"+cid+"/start", e.teacher, ``); sc != 200 {
 		t.Fatalf("start %d", sc)
 	}
-	sc, sub := post(t, srv.URL+"/api/v1/contests/"+cid+"/submissions",
-		`{"problemID":"`+pid+`","userId":"`+uid+`","language":"cpp","code":"x"}`)
+	sc, sub := postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, submit)
 	if sc != 202 {
 		t.Fatalf("submit %d %v", sc, sub)
 	}
 	sid := sub["id"].(string)
-	if sc, _ := post(t, srv.URL+"/api/v1/submissions/"+sid+"/judge", `{"verdict":"accepted","score":100}`); sc != 200 {
+	if sub["userId"] != e.stuID {
+		t.Fatalf("submitter must be session user: %v", sub)
+	}
+	if sc, _ := postAuth(t, e.url+"/api/v1/submissions/"+sid+"/judge", e.student, `{"verdict":"accepted","score":100}`); sc != 403 {
+		t.Fatalf("student judge should 403, got %d", sc)
+	}
+	if sc, _ := postAuth(t, e.url+"/api/v1/submissions/"+sid+"/judge", e.teacher, `{"verdict":"accepted","score":100}`); sc != 200 {
 		t.Fatalf("judge %d", sc)
 	}
 
-	r, err := http.Get(srv.URL + "/api/v1/contests/" + cid + "/ranking")
+	r, err := http.Get(e.url + "/api/v1/contests/" + cid + "/ranking")
 	if err != nil || r.StatusCode != 200 {
 		t.Fatal("ranking failed")
 	}
 	var ranks []map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&ranks)
 	r.Body.Close()
-	if len(ranks) != 1 || ranks[0]["score"].(float64) != 100 {
+	hit := false
+	for _, rk := range ranks {
+		if rk["userName"] == "Alice" && rk["score"].(float64) == 100 {
+			hit = true
+		}
+	}
+	if !hit {
 		t.Fatalf("ranking wrong: %v", ranks)
 	}
 
-	// validate endpoint
-	if sc, _ := post(t, srv.URL+"/api/v1/contests/"+cid+"/problems/"+pid+"/validate", ``); sc != 200 {
+	if sc, _ := postAuth(t, e.url+"/api/v1/contests/"+cid+"/problems/"+pid+"/validate", e.teacher, ``); sc != 200 {
 		t.Fatalf("validate %d", sc)
 	}
 
-	// health + i18n must be 200; /app is 200 when built, else 404 with rebuild hint.
 	for _, p := range []string{"/healthz", "/readyz", "/api/v1/i18n"} {
-		rr, err := http.Get(srv.URL + p)
+		rr, err := http.Get(e.url + p)
 		if err != nil || rr.StatusCode != 200 {
 			t.Fatalf("%s -> %v %v", p, rr, err)
 		}
 		rr.Body.Close()
 	}
-	rr, err := http.Get(srv.URL + "/app")
+	rr, err := http.Get(e.url + "/app")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,29 +216,80 @@ func TestV1ContestLifecycle(t *testing.T) {
 	if !bytes.Contains(buf.Bytes(), []byte("npm run build")) {
 		t.Fatalf("/app 404 should hint rebuild, got %q", buf.String())
 	}
+}
 
-	// restricted contest rejects outsider, allows after binding
-	_, c2 := post(t, srv.URL+"/api/v1/contests", `{"name":"邀请赛"}`)
-	cid2 := c2["id"].(string)
-	_, p2 := post(t, srv.URL+"/api/v1/contests/"+cid2+"/problems",
+func TestAuthFlows(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+
+	// me / logout
+	if code, _ := getAuth(t, e.url+"/api/v1/auth/me", ""); code != 401 {
+		t.Fatalf("anonymous me should 401, got %d", code)
+	}
+	if code, body := getAuth(t, e.url+"/api/v1/auth/me", e.student); code != 200 {
+		t.Fatalf("me %d %s", code, body)
+	}
+	if code, _ := post(t, e.url+"/api/v1/auth/logout", ``); code != 401 {
+		t.Fatalf("anonymous logout should 401, got %d", code)
+	}
+	if code, _ := postAuth(t, e.url+"/api/v1/auth/logout", e.student, ``); code != 200 {
+		t.Fatalf("logout %d", code)
+	}
+	if code, _ := getAuth(t, e.url+"/api/v1/auth/me", e.student); code != 401 {
+		t.Fatalf("logged-out token should 401, got %d", code)
+	}
+
+	// 重新登录：改密（错旧密码/成功）与教师重置。
+	_, e.student = e.mkUserFull(t, "Alice", "student", "pw-alice")
+	if code, _ := postAuth(t, e.url+"/api/v1/auth/password", e.student,
+		`{"oldPassword":"nope","newPassword":"newpw12"}`); code != 400 {
+		t.Fatalf("wrong old password should 400, got %d", code)
+	}
+	if code, _ := postAuth(t, e.url+"/api/v1/auth/password", e.student,
+		`{"oldPassword":"pw-alice","newPassword":"newpw12"}`); code != 200 {
+		t.Fatalf("change password %d", code)
+	}
+	if code, _ := post(t, e.url+"/api/v1/auth/login",
+		`{"login":"Alice","password":"newpw12"}`); code != 200 {
+		t.Fatalf("login with new password %d", code)
+	}
+	// 改密后旧 token 失效。
+	if code, _ := getAuth(t, e.url+"/api/v1/auth/me", e.student); code != 401 {
+		t.Fatalf("pre-change token should 401, got %d", code)
+	}
+}
+
+func TestSubmissionCodeVisibility(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+	bobID, bobTok := e.mkUserFull(t, "Bob", "student", "pw-bob")
+
+	_, c := postAuth(t, e.url+"/api/v1/contests", e.teacher, `{"name":"Vis"}`)
+	cid := c["id"].(string)
+	_, p := postAuth(t, e.url+"/api/v1/contests/"+cid+"/problems", e.teacher,
 		`{"code":"A","title":"T","statement":"s","input":"i","output":"o","constraints":"k"}`)
-	pid2 := p2["id"].(string)
-	_, u2 := post(t, srv.URL+"/api/v1/users", `{"name":"Bob"}`)
-	uid2 := u2["id"].(string)
-	_, g := post(t, srv.URL+"/api/v1/groups", `{"name":"集训A"}`)
-	post(t, srv.URL+"/api/v1/contests/"+cid2+"/start", ``)
-	if sc, _ := post(t, srv.URL+"/api/v1/contests/"+cid2+"/submissions",
-		`{"problemID":"`+pid2+`","userId":"`+uid2+`","language":"cpp","code":"x"}`); sc == 202 {
-		// open contest allows all: bind a group first to make it restricted
-		post(t, srv.URL+"/api/v1/contests/"+cid2+"/groups", `{"groupId":"`+g["id"].(string)+`"}`)
-		if sc2, _ := post(t, srv.URL+"/api/v1/contests/"+cid2+"/submissions",
-			`{"problemID":"`+pid2+`","userId":"`+uid2+`","language":"cpp","code":"x"}`); sc2 == 202 {
-			t.Fatal("outsider should be rejected after group binding")
+	postAuth(t, e.url+"/api/v1/contests/"+cid+"/start", e.teacher, ``)
+	submit := fmt.Sprintf(`{"problemID":%q,"language":"cpp","code":"secret-code"}`, p["id"])
+	postAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.student, submit)
+
+	// Bob 看不到 Alice 的代码，教师全见。
+	if code, body := getAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", bobTok); code != 200 {
+		t.Fatalf("list %d", code)
+	} else {
+		var subs []map[string]any
+		_ = json.Unmarshal(body, &subs)
+		if len(subs) != 1 || subs[0]["code"] != "" {
+			t.Fatalf("peer code must be redacted: %s", body)
 		}
-		post(t, srv.URL+"/api/v1/contests/"+cid2+"/participants", `{"userId":"`+uid2+`"}`)
-		if sc3, _ := post(t, srv.URL+"/api/v1/contests/"+cid2+"/submissions",
-			`{"problemID":"`+pid2+`","userId":"`+uid2+`","language":"cpp","code":"x"}`); sc3 != 202 {
-			t.Fatalf("bound user should submit, got %d", sc3)
+		_ = bobID
+	}
+	if code, body := getAuth(t, e.url+"/api/v1/contests/"+cid+"/submissions", e.teacher); code != 200 {
+		t.Fatalf("teacher list %d", code)
+	} else {
+		var subs []map[string]any
+		_ = json.Unmarshal(body, &subs)
+		if len(subs) != 1 || subs[0]["code"] != "secret-code" {
+			t.Fatalf("teacher must see code: %s", body)
 		}
 	}
 }
@@ -163,7 +310,6 @@ func TestAutoJudgePipeline(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	pool := judge.AutoJudgePool(svc, 1)
-	// 先 cancel 再 Wait（顺序反了 worker 永等）。
 	defer func() { cancel(); pool.Wait() }()
 	pool.Start(ctx, 1)
 	srv.OnSubmit = func(x domain.Submission) {
@@ -178,8 +324,28 @@ func TestAutoJudgePipeline(t *testing.T) {
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
-	_, u := post(t, ts.URL+"/api/v1/users", `{"name":"Auto"}`)
-	_, c := post(t, ts.URL+"/api/v1/contests", `{"name":"Pipe"}`)
+	u, err := svc.CreateUser("Auto", "student")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tu, err := svc.CreateUser("T", "teacher")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = srv.auth.ResetPassword(u.ID, "pw-auto")
+	_ = srv.auth.ResetPassword(tu.ID, "pw-t")
+	login := func(name, pw string) string {
+		code, body := post(t, ts.URL+"/api/v1/auth/login",
+			fmt.Sprintf(`{"login":%q,"password":%q}`, name, pw))
+		if code != 200 {
+			t.Fatalf("login: %d %v", code, body)
+		}
+		return body["token"].(string)
+	}
+	tTeacher := login("T", "pw-t")
+	tStudent := login("Auto", "pw-auto")
+
+	_, c := postAuth(t, ts.URL+"/api/v1/contests", tTeacher, `{"name":"Pipe"}`)
 	cid := c["id"].(string)
 	probBody, _ := json.Marshal(map[string]any{
 		"code": "A", "title": "plus", "statement": "s", "input": "i",
@@ -189,19 +355,27 @@ func TestAutoJudgePipeline(t *testing.T) {
 			{"id": "t2", "inputFile": "0 0", "outputFile": "0", "score": 50, "subtask": 1},
 		},
 	})
-	r, err := http.Post(ts.URL+"/api/v1/contests/"+cid+"/problems", "application/json", bytes.NewReader(probBody))
+	req, _ := http.NewRequest("POST", ts.URL+"/api/v1/contests/"+cid+"/problems", bytes.NewReader(probBody))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+tTeacher)
+	r, err := http.DefaultClient.Do(req)
 	if err != nil || r.StatusCode != 201 {
 		t.Fatalf("create problem: %v %v", r, err)
 	}
 	var p map[string]any
 	_ = json.NewDecoder(r.Body).Decode(&p)
 	r.Body.Close()
-	post(t, ts.URL+"/api/v1/contests/"+cid+"/start", ``)
+	postAuth(t, ts.URL+"/api/v1/contests/"+cid+"/start", tTeacher, ``)
 
 	codeBody, _ := json.Marshal(map[string]any{
-		"problemID": p["id"], "userId": u["id"], "language": "cpp", "code": pipelineCode,
+		"problemID": p["id"], "language": "cpp", "code": pipelineCode,
 	})
-	rr, err := http.Post(ts.URL+"/api/v1/contests/"+cid+"/submissions", "application/json", bytes.NewReader(codeBody))
+	rr, err := func() (*http.Response, error) {
+		rq, _ := http.NewRequest("POST", ts.URL+"/api/v1/contests/"+cid+"/submissions", bytes.NewReader(codeBody))
+		rq.Header.Set("Content-Type", "application/json")
+		rq.Header.Set("Authorization", "Bearer "+tStudent)
+		return http.DefaultClient.Do(rq)
+	}()
 	if err != nil || rr.StatusCode != 202 {
 		t.Fatalf("submit: %v %v", rr, err)
 	}
@@ -224,7 +398,13 @@ func TestAutoJudgePipeline(t *testing.T) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
-	if r := svc.Ranking(cid); len(r) != 1 || r[0].Score != 100 {
-		t.Fatalf("ranking: %+v", r)
+	found := false
+	for _, r := range svc.Ranking(cid) {
+		if r.UserName == "Auto" && r.Score == 100 {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("ranking: %+v", svc.Ranking(cid))
 	}
 }

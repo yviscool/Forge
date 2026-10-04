@@ -143,3 +143,48 @@ func Exercise(t *testing.T, s ports.Store) {
 		}
 	}
 }
+
+// PasswordsAndSessions 凭证与会话契约：hash 缺席为空串，会话 CRUD。
+func PasswordsAndSessions(t *testing.T, s ports.Store) {
+	t.Helper()
+	u, err := s.CreateUser(domain.User{Name: "Auth", Role: "student"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h, err := s.GetPasswordHash(u.ID); err != nil || h != "" {
+		t.Fatalf("absent hash should be empty: %q %v", h, err)
+	}
+	if err := s.SetPasswordHash("ghost", "x"); err == nil {
+		t.Fatal("ghost password set should error")
+	}
+	if err := s.SetPasswordHash(u.ID, "bcrypt-hash"); err != nil {
+		t.Fatal(err)
+	}
+	if h, _ := s.GetPasswordHash(u.ID); h != "bcrypt-hash" {
+		t.Fatal("hash round-trip broken")
+	}
+	if _, err := s.GetSession("ghost"); err == nil {
+		t.Fatal("ghost session should error")
+	}
+	sess := domain.Session{Token: "tok-1", UserID: u.ID, Role: "student"}
+	if err := s.SaveSession(sess); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.GetSession("tok-1"); err != nil || got.UserID != u.ID {
+		t.Fatalf("session round-trip: %+v %v", got, err)
+	}
+	if err := s.DeleteSession("tok-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSession("tok-1"); err == nil {
+		t.Fatal("deleted session should error")
+	}
+	_ = s.SaveSession(domain.Session{Token: "a", UserID: u.ID})
+	_ = s.SaveSession(domain.Session{Token: "b", UserID: u.ID})
+	if err := s.DeleteSessionsForUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetSession("a"); err == nil {
+		t.Fatal("user sessions should be wiped")
+	}
+}

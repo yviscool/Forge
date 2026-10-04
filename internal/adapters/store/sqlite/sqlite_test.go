@@ -15,6 +15,7 @@ func TestStoreConformance(t *testing.T) {
 	}
 	defer s.Close()
 	storetest.Exercise(t, s)
+	storetest.PasswordsAndSessions(t, s)
 }
 
 func TestPersistenceAcrossReopen(t *testing.T) {

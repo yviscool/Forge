@@ -13,6 +13,7 @@ import (
 	"github.com/yviscool/forge/internal/adapters/store/memory"
 	"github.com/yviscool/forge/internal/adapters/store/sqlite"
 	"github.com/yviscool/forge/internal/app"
+	"github.com/yviscool/forge/internal/auth"
 	"github.com/yviscool/forge/internal/config"
 	"github.com/yviscool/forge/internal/domain"
 	"github.com/yviscool/forge/internal/judge"
@@ -40,6 +41,15 @@ func main() {
 
 	svc := app.NewService(store, realtime.NewHub(), nil, log)
 	srv := httpapi.NewServer(svc, log)
+
+	// 种子管理员（幂等；默认口令仅演示，生产必须改）。
+	if _, err := auth.New(store, nil).EnsureAdmin(cfg.AdminPassword); err != nil {
+		log.Error("ensure admin failed", "err", err)
+		os.Exit(1)
+	}
+	if cfg.AdminPassword == "admin123" {
+		log.Warn("default admin password in use; set FORGE_ADMIN_PASSWORD immediately")
+	}
 
 	// 自动评测 worker：Submit → 入队 → JudgeOne → JudgeCases 回写。
 	// 无测试点的题目跳过自动评测（保留教师手动判题）。

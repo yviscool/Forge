@@ -56,5 +56,13 @@ type Store interface {
 	ListSubmissions(contestID string) []domain.Submission
 	UpdateSubmission(s domain.Submission) error
 
+	// Credentials & sessions（auth 端口：hash 永不进 domain.User JSON）。
+	SetPasswordHash(userID, hash string) error
+	GetPasswordHash(userID string) (string, error)
+	SaveSession(s domain.Session) error
+	GetSession(token string) (domain.Session, error)
+	DeleteSession(token string) error
+	DeleteSessionsForUser(userID string) error
+
 	NextID(prefix string) string
 }
