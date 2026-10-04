@@ -199,16 +199,16 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 			continue
 		}
 		switch {
-		case run.TimedOut:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseTLE, TimeMs: run.TimeMs}
+		case run.TimedOut || run.CpuMs > cl.TimeMs:
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseTLE, TimeMs: run.TimeMs, CpuMs: run.CpuMs}
 		case run.OutOfMemory:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseMLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseMLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 		case run.Truncated:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseOLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseOLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 		case run.NoOutput:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 		case run.ExitCode != 0:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: mapRuntimeError(req.Language, run), TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: mapRuntimeError(req.Language, run), TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 		default:
 			out[i] = judgeOutput(ctx, o.Runner, checker, compile, c, run, req, cl, workdir)
 			out[i].CaseIndex = i
@@ -242,7 +242,7 @@ func mergeLimits(base, over Limits) Limits {
 
 // judgeOutput 默认比较或特判二选一。
 func judgeOutput(ctx context.Context, _ Runner, checker *compiledChecker, _ CompileResult, c CaseInput, run RunResult, req Request, _ Limits, workdir string) domain.CaseResult {
-	res := domain.CaseResult{TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB}
+	res := domain.CaseResult{TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 	if checker != nil {
 		ok, msg := checker.check(ctx, resolveIO(c.Input), run.Stdout, resolveIO(c.Expected), workdir)
 		_ = msg

@@ -54,6 +54,12 @@ func (t Toolchain) spec(lang string) ToolSpec {
 	if over.Std != "" {
 		base.Std = over.Std
 	}
+	if over.CompileTimeoutSec > 0 {
+		base.CompileTimeoutSec = over.CompileTimeoutSec
+	}
+	if over.CompileMemoryMiB > 0 {
+		base.CompileMemoryMiB = over.CompileMemoryMiB
+	}
 	return base
 }
 
@@ -62,6 +68,14 @@ func (t Toolchain) timeout() time.Duration {
 		return t.CompileTimeout
 	}
 	return 30 * time.Second
+}
+
+// timeoutFor 分语言编译超时：语言配置 > 全局配置 > 30s 缺省。
+func (t Toolchain) timeoutFor(sp ToolSpec) time.Duration {
+	if sp.CompileTimeoutSec > 0 {
+		return time.Duration(sp.CompileTimeoutSec) * time.Second
+	}
+	return t.timeout()
 }
 
 // Argv 运行参数：解释型走 [解释器, 源文件]，编译型走 [可执行文件]。
@@ -77,7 +91,8 @@ func (c CompileResult) Argv() []string {
 
 // Compile 源码落盘 workdir 并编译/检查，返回可执行路径。
 func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir string) (CompileResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, t.timeout())
+	sp := t.spec(lang)
+	ctx, cancel := context.WithTimeout(ctx, t.timeoutFor(sp))
 	defer cancel()
 
 	switch lang {
@@ -86,7 +101,6 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 		if lang == "c" {
 			cc, file = "gcc", "main.c"
 		}
-		sp := t.spec(lang)
 		cc = sp.Command
 		srcPath := filepath.Join(workdir, file)
 		exePath := filepath.Join(workdir, "main.exe")
@@ -103,15 +117,12 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 			args = append(args, "-std="+sp.Std)
 		}
 		args = append(args, "-o", exePath, srcPath)
-		cmd := exec.CommandContext(ctx, cc, args...)
-		cmd.Stdout, cmd.Stderr = &out, &out
-		if err := cmd.Run(); err != nil {
+		if err := t.runCompiler(ctx, append([]string{cc}, args...), "", sp.CompileMemoryMiB, &out); err != nil {
 			return CompileResult{Message: out.String()}, nil
 		}
 		t.Cache.Put(lang, src, t.Config, exePath)
 		return CompileResult{OK: true, Executable: exePath}, nil
 	case "go", "golang":
-		sp := t.spec(lang)
 		srcPath := filepath.Join(workdir, "main.go")
 		exePath := filepath.Join(workdir, "main.exe")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
@@ -120,15 +131,11 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 		var out bytes.Buffer
 		args := append([]string{"build"}, sp.Args...)
 		args = append(args, "-o", exePath, srcPath)
-		cmd := exec.CommandContext(ctx, sp.Command, args...)
-		cmd.Stdout, cmd.Stderr = &out, &out
-		cmd.Dir = workdir
-		if err := cmd.Run(); err != nil {
+		if err := t.runCompiler(ctx, append([]string{sp.Command}, args...), workdir, sp.CompileMemoryMiB, &out); err != nil {
 			return CompileResult{Message: out.String()}, nil
 		}
 		return CompileResult{OK: true, Executable: exePath}, nil
 	case "python", "python3", "py":
-		sp := t.spec(lang)
 		srcPath := filepath.Join(workdir, "main.py")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
@@ -137,4 +144,32 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 	default:
 		return CompileResult{Message: "unsupported language: " + lang}, nil
 	}
+}
+
+// runCompiler 运行编译器命令：内存墙按需加（Windows Job / Linux prlimit）。
+// maxProcs 恒为 0：编译器起 cc1plus 等子进程，绝不加单进程墙。
+// Job 的 KILL_ON_CLOSE 保证超时连坐杀掉整棵编译进程树。
+func (t Toolchain) runCompiler(ctx context.Context, argv []string, workdir string, memMiB int, out *bytes.Buffer) error {
+	if memMiB > 0 {
+		argv = confineArgv(argv, Limits{MemoryMiB: memMiB})
+	}
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	if workdir != "" {
+		cmd.Dir = workdir
+	}
+	cmd.Stdout, cmd.Stderr = out, out
+	limiter, err := newJobLimiter(memMiB, 0)
+	if err != nil {
+		return err
+	}
+	defer limiter.Close()
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	if err := limiter.Attach(cmd.Process.Pid); err != nil {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+		return err
+	}
+	return cmd.Wait()
 }

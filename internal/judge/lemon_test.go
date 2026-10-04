@@ -173,9 +173,9 @@ func TestInterpretedTimeFactor(t *testing.T) {
 	defer cancel()
 	got, err := o.JudgeOne(ctx, Request{
 		Language: "python", Code: "import time\ntime.sleep(1.1)\nprint('ok')",
-		Cases:    []CaseInput{{Input: "", Expected: "ok"}},
-		Compare:  domain.CompareIgnoreSpace,
-		Limits:   Limits{TimeMs: 1000, MemoryMiB: 256},
+		Cases:   []CaseInput{{Input: "", Expected: "ok"}},
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 1000, MemoryMiB: 256},
 	})
 	if err != nil {
 		t.Fatal(err)

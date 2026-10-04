@@ -34,6 +34,8 @@ type RunResult struct {
 	Truncated bool
 	TimeMs    int
 	PeakKiB   int
+	// CpuMs 用户+系统 CPU 时间（并行程序 wall 低估时用它判 TLE）。
+	CpuMs int
 }
 
 // Runner 运行器抽象（可 fake 单测）。
@@ -88,7 +90,7 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	errCap := &cappedWriter{cap: 1 << 20}
 	cmd.Stdout, cmd.Stderr = outCap, errCap
 
-	limiter, err := newJobLimiter(lim.MemoryMiB)
+	limiter, err := newJobLimiter(lim.MemoryMiB, 1)
 	if err != nil {
 		return res, err
 	}
@@ -113,6 +115,9 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	elapsed := time.Since(start)
 
 	res.TimeMs = int(elapsed / time.Millisecond)
+	if ps := cmd.ProcessState; ps != nil {
+		res.CpuMs = int((ps.UserTime() + ps.SystemTime()) / time.Millisecond)
+	}
 	res.Stdout, res.Stderr = outCap.String(), errCap.String()
 	if outFromFile != "" {
 		if b, err := os.ReadFile(outFromFile); err == nil {

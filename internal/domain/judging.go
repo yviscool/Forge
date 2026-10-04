@@ -39,6 +39,8 @@ type CaseResult struct {
 	Score     int         `json:"score"`
 	TimeMs    int         `json:"timeMs"`
 	MemoryKiB int         `json:"memoryKib"`
+	// CpuMs 用户+系统 CPU 时间（CCF 口径；并行程序 wall 会低估，用它判 TLE）。
+	CpuMs int `json:"cpuMs,omitempty"`
 }
 
 // JudgeOutcome 一次评测的完整产出：分点明细 + 编译信息（CE 原文落库用）。

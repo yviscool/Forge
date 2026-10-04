@@ -16,7 +16,7 @@ var prlimitPath string
 // Linux 接入点（后续）：cgroup v2 或 RLIMIT_AS 子进程包装替代 prlimit。
 type jobLimiter struct{}
 
-func newJobLimiter(_ int) (*jobLimiter, error) { return &jobLimiter{}, nil }
+func newJobLimiter(_, _ int) (*jobLimiter, error) { return &jobLimiter{}, nil }
 
 func confineArgv(argv []string, lim Limits) []string {
 	prlimitOnce.Do(func() {

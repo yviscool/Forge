@@ -9,8 +9,12 @@ import (
 type ToolSpec struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
-	// Std is used for cpp/c: e.g. c++17. Empty keeps toolchain default.
+	// Std is used for cpp/c: e.g. c++14. Empty keeps toolchain default.
 	Std string `json:"std"`
+	// CompileTimeoutSec 单次编译上限（秒），0 则用 Toolchain 缺省 30s。
+	CompileTimeoutSec int `json:"compileTimeoutSec"`
+	// CompileMemoryMiB 编译进程内存墙（MB），0 则不限。
+	CompileMemoryMiB int `json:"compileMemoryMib"`
 }
 
 // ToolchainConfig 全语言工具链配置（JSON 文件，FORGE_TOOLCHAINS 指向）。
@@ -54,6 +58,12 @@ func LoadToolchainConfig(path string) ToolchainConfig {
 		}
 		if o.Std != "" {
 			d.Std = o.Std
+		}
+		if o.CompileTimeoutSec > 0 {
+			d.CompileTimeoutSec = o.CompileTimeoutSec
+		}
+		if o.CompileMemoryMiB > 0 {
+			d.CompileMemoryMiB = o.CompileMemoryMiB
 		}
 		return d
 	}

@@ -218,6 +218,14 @@ func TestToolchainConfig(t *testing.T) {
 	if got.CPP.Std != "c++20" || got.Python.Command != "python" {
 		t.Fatalf("merge broken: %+v", got)
 	}
+	// spec() 方法必须透传新字段（曾漏合并导致墙没生效）。
+	tc := Toolchain{Config: ToolchainConfig{CPP: ToolSpec{CompileTimeoutSec: 9, CompileMemoryMiB: 111}}}
+	if sp := tc.spec("cpp"); sp.CompileTimeoutSec != 9 || sp.CompileMemoryMiB != 111 {
+		t.Fatalf("spec merge: %+v", sp)
+	}
+	if sp := (Toolchain{}).spec("cpp"); sp.CompileTimeoutSec != 0 || sp.Command != "g++" {
+		t.Fatalf("spec defaults: %+v", sp)
+	}
 }
 
 func TestOutputLimitConfigurable(t *testing.T) {
@@ -280,5 +288,60 @@ func TestCompileTimeoutConfigurable(t *testing.T) {
 	got := oc.Cases
 	if err != nil || got[0].Verdict != domain.CaseAC {
 		t.Fatalf("default must not interrupt: %v %+v", err, got)
+	}
+}
+
+func TestParallelCPUTLE(t *testing.T) {
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	// 4 线程忙等：wall 短、CPU 爆表，必须按 CPU 口径判 TLE。
+	got, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: loadCode(t, "parallel.cpp"),
+		Cases:   []CaseInput{{Input: "", Expected: "done"}},
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 1000, MemoryMiB: 512},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cases[0].Verdict != domain.CaseTLE {
+		t.Fatalf("parallel overuse must be TLE: %+v", got.Cases[0])
+	}
+	if got.Cases[0].CpuMs <= got.Cases[0].TimeMs {
+		t.Fatalf("cpu must exceed wall (parallelism evidence): %+v", got.Cases[0])
+	}
+}
+
+func TestCompilerPerLangLimits(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	tc := Toolchain{}
+	if d := tc.timeoutFor(ToolSpec{CompileTimeoutSec: 5}); d != 5*time.Second {
+		t.Fatalf("per-lang timeout: %v", d)
+	}
+	if d := tc.timeoutFor(ToolSpec{}); d != 30*time.Second {
+		t.Fatalf("default timeout: %v", d)
+	}
+	tc2 := Toolchain{CompileTimeout: 7 * time.Second}
+	if d := tc2.timeoutFor(ToolSpec{}); d != 7*time.Second {
+		t.Fatalf("global timeout: %v", d)
+	}
+	// 1ms 全局超时必杀真编译（表现为 OK=false；kill 无输出）。
+	dir := t.TempDir()
+	r, err := Toolchain{CompileTimeout: time.Millisecond}.Compile(
+		ctx, "cpp", []byte("#include<iostream>\nint main(){std::cout<<1;return 0;}"), dir)
+	if err != nil || r.OK {
+		t.Fatalf("1ms compile timeout must kill: ok=%v err=%v", r.OK, err)
+	}
+	// 64MB 编译内存墙装不下 bits 头编译（正常需 300MB+）。
+	dir2 := t.TempDir()
+	r2, err := Toolchain{Config: ToolchainConfig{CPP: ToolSpec{CompileMemoryMiB: 64}}}.Compile(
+		ctx, "cpp", []byte("#include<bits/stdc++.h>\nint main(){return 0;}"), dir2)
+	if err != nil {
+		t.Fatalf("walled compile should fail cleanly, not error: %v", err)
+	}
+	if r2.OK {
+		t.Fatal("64MB wall must fail bits-header compile")
 	}
 }

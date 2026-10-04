@@ -11,7 +11,7 @@ type jobLimiter struct {
 	job windows.Handle
 }
 
-func newJobLimiter(memoryMiB int) (*jobLimiter, error) {
+func newJobLimiter(memoryMiB, maxProcs int) (*jobLimiter, error) {
 	job, err := windows.CreateJobObject(nil, nil)
 	if err != nil {
 		return nil, err
@@ -21,9 +21,11 @@ func newJobLimiter(memoryMiB int) (*jobLimiter, error) {
 		info.BasicLimitInformation.LimitFlags =
 			windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
 				windows.JOB_OBJECT_LIMIT_PROCESS_MEMORY |
-				windows.JOB_OBJECT_LIMIT_JOB_MEMORY |
-				windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-		info.BasicLimitInformation.ActiveProcessLimit = 1
+				windows.JOB_OBJECT_LIMIT_JOB_MEMORY
+		if maxProcs > 0 {
+			info.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+			info.BasicLimitInformation.ActiveProcessLimit = uint32(maxProcs)
+		}
 		info.ProcessMemoryLimit = uintptr(int64(memoryMiB) << 20)
 		info.JobMemoryLimit = uintptr(int64(memoryMiB) << 20)
 		_, err = windows.SetInformationJobObject(
@@ -37,10 +39,14 @@ func newJobLimiter(memoryMiB int) (*jobLimiter, error) {
 			return nil, err
 		}
 	} else {
+		// 无内存墙也要 KILL_ON_CLOSE；单进程墙只在 maxProcs>0 时加
+		// （编译器会起 cc1plus 等子进程，绝不能套单进程墙）。
 		var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
-		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE |
-			windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
-		info.BasicLimitInformation.ActiveProcessLimit = 1
+		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+		if maxProcs > 0 {
+			info.BasicLimitInformation.LimitFlags |= windows.JOB_OBJECT_LIMIT_ACTIVE_PROCESS
+			info.BasicLimitInformation.ActiveProcessLimit = uint32(maxProcs)
+		}
 		_, err = windows.SetInformationJobObject(
 			job,
 			windows.JobObjectExtendedLimitInformation,
