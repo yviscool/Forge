@@ -16,7 +16,7 @@ Both Chinese (`zh-CN`) and English (`en-US`) are first-class locales across fron
 
 ### 2.1 Frontend Build vs Runtime Decoupling
 - **Development Mode (`frontend/`):** Built with modern frontend tooling (Vite + Vue 3 / React + Tailwind CSS + Monaco Editor + KaTeX). Provides rich Markdown live preview, syntax highlighting, split-pane editing, and responsive tables.
-- **Runtime Distribution (`internal/arena/web/`):** Pre-compiled production bundles are embedded directly into the Go executable via `//go:embed`. End users and teachers require **zero Node.js or npm dependencies** to run Forge.
+- **Runtime Distribution (`internal/web/dist/`):** Pre-compiled production bundles are embedded directly into the Go executable via `//go:embed`. End users and teachers require **zero Node.js or npm dependencies** to run Forge.
 
 ### 2.2 Desktop GUI vs Headless Mode
 - **Teacher Desktop Mode (Default):** Runs with a native system tray, auto-detects the local IP/port, shows a QR code/URL for students to join, and automatically opens the teacher console.

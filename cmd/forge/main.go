@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"syscall"
 	"time"
 
@@ -63,7 +62,7 @@ func main() {
 			tc.Cache = cc
 		}
 		pool := judge.AutoJudgePool(svc, tc)
-		pool.Start(workerCtx, runtime.NumCPU())
+		pool.Start(workerCtx, cfg.JudgeWorkers)
 		defer pool.Wait()
 		srv.OnSubmit = func(x domain.Submission) {
 			p, err := svc.GetProblem(x.ContestID, x.ProblemID)
@@ -78,7 +77,7 @@ func main() {
 				log.Warn("judge queue full, left for manual judging", "sub", x.ID)
 			}
 		}
-		log.Info("autojudge ready", "workers", runtime.NumCPU())
+		log.Info("autojudge ready", "workers", cfg.JudgeWorkers)
 	}
 
 	httpSrv := &http.Server{Addr: cfg.Addr, Handler: srv}

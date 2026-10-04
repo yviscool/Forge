@@ -80,6 +80,13 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/api/v1")
 	parts := strings.Split(strings.Trim(p, "/"), "/")
 
+	// /contests/import 与 /contests/{cid}/bundle（教师）
+	if len(parts) >= 2 && parts[0] == "contests" {
+		if h.bundleRoutes(w, r, parts) {
+			return
+		}
+	}
+
 	// /contests
 	if len(parts) == 1 && parts[0] == "contests" {
 		switch r.Method {

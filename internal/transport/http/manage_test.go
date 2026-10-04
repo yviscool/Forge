@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -234,5 +235,47 @@ func TestLanguagesAndExport(t *testing.T) {
 	}
 	if code, _ := getAuth(t, e.url+"/api/v1/contests/"+cid+"/statistics/export", e.student); code != 403 {
 		t.Fatalf("student export should 403, got %d", code)
+	}
+}
+
+func TestBundleExportImport(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+
+	_, c := postAuth(t, e.url+"/api/v1/contests", e.teacher, `{"name":"B1"}`)
+	cid := c["id"].(string)
+	postAuth(t, e.url+"/api/v1/contests/"+cid+"/problems", e.teacher,
+		`{"code":"A","title":"T","statement":"s","input":"i","output":"o","constraints":"k"}`)
+
+	if code, _ := getAuth(t, e.url+"/api/v1/contests/"+cid+"/bundle", e.student); code != 403 {
+		t.Fatalf("student bundle should 403, got %d", code)
+	}
+	code, raw := getAuth(t, e.url+"/api/v1/contests/"+cid+"/bundle", e.teacher)
+	if code != 200 {
+		t.Fatalf("export %d", code)
+	}
+	var b map[string]any
+	_ = json.Unmarshal(raw, &b)
+	if b["contest"].(map[string]any)["name"] != "B1" {
+		t.Fatalf("bundle: %s", raw)
+	}
+	if code, body := postAuth(t, e.url+"/api/v1/contests/import", e.teacher, string(raw)); code != 201 {
+		t.Fatalf("import %d %v", code, body)
+	} else if body["id"] == cid {
+		t.Fatal("import must mint new contest id")
+	}
+}
+
+func TestSpaTraversalSafe(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.close()
+	// 直接调 handler（绕过 mux 清洗）：任何越界读取不得 200 透出。
+	for _, p := range []string{"/app/dist/../../go.mod", "/app/dist/%2e%2e/go.mod"} {
+		req := httptest.NewRequest("GET", p, nil)
+		rec := httptest.NewRecorder()
+		e.srv.ServeHTTP(rec, req)
+		if rec.Code == 200 && strings.Contains(rec.Body.String(), "module github") {
+			t.Fatalf("traversal leaked: %s", p)
+		}
 	}
 }

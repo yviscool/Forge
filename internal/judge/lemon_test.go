@@ -138,3 +138,49 @@ func verdictsOf(got []domain.CaseResult) []domain.CaseVerdict {
 	}
 	return v
 }
+
+// TestMemoryReported 内存必须真实上报（值为 0 的墙等于没墙）。
+func TestMemoryReported(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("peak RSS query is windows-only in this phase")
+	}
+	requireTool(t, "g++")
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	got, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: "#include<iostream>\nint main(){long long a,b;if(!(std::cin>>a>>b))return 0;std::cout<<a+b;return 0;}",
+		Cases:   []CaseInput{{Input: "1 2", Expected: "3"}},
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 5000, MemoryMiB: 512},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cases[0].Verdict != domain.CaseAC {
+		t.Fatalf("verdict: %+v", got.Cases[0])
+	}
+	if got.Cases[0].MemoryKiB <= 0 {
+		t.Fatalf("peak memory must be measured, got %+v", got.Cases[0])
+	}
+}
+
+// TestInterpretedTimeFactor 解释型 2x 时限：sleep 1.2s 在 1s 限下必须 AC。
+func TestInterpretedTimeFactor(t *testing.T) {
+	requireTool(t, "python")
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	got, err := o.JudgeOne(ctx, Request{
+		Language: "python", Code: "import time\ntime.sleep(1.1)\nprint('ok')",
+		Cases:    []CaseInput{{Input: "", Expected: "ok"}},
+		Compare:  domain.CompareIgnoreSpace,
+		Limits:   Limits{TimeMs: 1000, MemoryMiB: 256},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cases[0].Verdict != domain.CaseAC {
+		t.Fatalf("2x factor must cover 1.2s sleep under 1s limit: %+v", got.Cases[0])
+	}
+}

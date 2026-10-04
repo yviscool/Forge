@@ -60,6 +60,10 @@ type Request struct {
 // TaskType 即 domain.TaskType（别名，调用方无需多导一包）。
 type TaskType = domain.TaskType
 
+// InterpretedTimeFactor 解释型语言时限倍率（对标 LemonLime extraTimeRatio
+// 思想，教室场景取整为 2x：解释器启动 + 字节码开销不应计入算法时限）。
+var InterpretedTimeFactor = 2.0
+
 // CheckerSpec 特判程序源码（随题目下发，评测机编译执行）。
 type CheckerSpec struct {
 	Language string
@@ -171,6 +175,10 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 	}
 	if lim.MemoryMiB <= 0 {
 		lim.MemoryMiB = 512
+	}
+	// 解释型语言时限补偿（编译产物 compile.Interpreted 标识）。
+	if compile.Interpreted && InterpretedTimeFactor > 1 {
+		lim.TimeMs = int(float64(lim.TimeMs) * InterpretedTimeFactor)
 	}
 	out := make([]domain.CaseResult, len(req.Cases))
 	for i, c := range req.Cases {

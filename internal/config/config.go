@@ -2,6 +2,8 @@ package config
 
 import (
 	"os"
+	"runtime"
+	"strconv"
 	"strings"
 )
 
@@ -19,6 +21,8 @@ type Config struct {
 	AdminPassword string
 	// Toolchains 工具链配置文件路径（FORGE_TOOLCHAINS；为空用内置默认）。
 	Toolchains string
+	// JudgeWorkers 评测并发数（FORGE_JUDGE_WORKERS；缺省 CPU 数，最小 1）。
+	JudgeWorkers int
 }
 
 func Load() Config {
@@ -46,9 +50,14 @@ func Load() Config {
 	if adminPw == "" {
 		adminPw = "admin123"
 	}
+	workers := runtime.NumCPU()
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("FORGE_JUDGE_WORKERS"))); err == nil && n >= 1 {
+		workers = n
+	}
 	return Config{
 		Addr: addr, DataDir: dataDir, Locale: strings.TrimSpace(locale),
 		Store: store, DBPath: dataDir + "/forge.db", AutoJudge: auto,
 		AdminPassword: adminPw, Toolchains: os.Getenv("FORGE_TOOLCHAINS"),
+		JudgeWorkers: workers,
 	}
 }

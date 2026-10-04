@@ -250,3 +250,40 @@ func (h *Server) exportStatistics(c domain.Contest) string {
 	}
 	return b.String()
 }
+
+// bundleRoutes 比赛 Bundle 导入导出（教师；对标 LemonLime .cdf 往返，JSON 格式）。
+func (h *Server) bundleRoutes(w http.ResponseWriter, r *http.Request, parts []string) bool {
+	// GET /contests/{cid}/bundle
+	if len(parts) == 3 && parts[0] == "contests" && parts[2] == "bundle" && r.Method == "GET" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return true
+		}
+		b, err := h.svc.ExportContest(parts[1])
+		if err != nil {
+			h.err(w, r, 404, err)
+			return true
+		}
+		w.Header().Set("Content-Disposition", "attachment; filename=bundle-"+parts[1]+".json")
+		writeOut(w, b, 200)
+		return true
+	}
+	// POST /contests/import
+	if len(parts) == 2 && parts[0] == "contests" && parts[1] == "import" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return true
+		}
+		var b app.ContestBundle
+		if decode(r, &b) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return true
+		}
+		c, err := h.svc.ImportBundle(b)
+		if err != nil {
+			h.err(w, r, 400, err)
+			return true
+		}
+		writeOut(w, c, 201)
+		return true
+	}
+	return false
+}

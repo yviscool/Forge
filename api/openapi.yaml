@@ -54,6 +54,10 @@ paths:
     get: { responses: { '200': { description: CSV report card } } }
   /api/v1/contests/{cid}/settings:
     put: { responses: { '200': { description: rankingMode and allowedLanguages } } }
+  /api/v1/contests/{cid}/bundle:
+    get: { responses: { '200': { description: contest bundle download } } }
+  /api/v1/contests/import:
+    post: { responses: { '201': { description: import bundle as new contest } } }
   /api/v1/users/import:
     post: { responses: { '200': { description: CSV bulk import } } }
   /api/v1/users/export:
