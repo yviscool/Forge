@@ -62,7 +62,7 @@ func main() {
 		if cc, err := judge.NewCompileCache(filepath.Join(os.TempDir(), "forge-ccache")); err == nil {
 			tc.Cache = cc
 		}
-		pool := judge.AutoJudgePool(svc, runtime.NumCPU(), tc)
+		pool := judge.AutoJudgePool(svc, tc)
 		pool.Start(workerCtx, runtime.NumCPU())
 		defer pool.Wait()
 		srv.OnSubmit = func(x domain.Submission) {

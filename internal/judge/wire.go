@@ -7,9 +7,9 @@ import (
 
 // AutoJudgePool 创建自动评测池：JudgeOne 评测，回写走 svc.JudgeCases。
 // 无测试点的题目跳过自动评测（保留人工判题入口）。
-func AutoJudgePool(svc *app.Service, workers int, tc Toolchain) *Pool {
+func AutoJudgePool(svc *app.Service, tc Toolchain) *Pool {
 	o := &Orchestrator{Compiler: tc, Runner: LocalRunner{}}
-	return NewPool(workers, 128, o.JudgeOne, func(subID string, cases []domain.CaseResult) {
+	return NewPool(128, o.JudgeOne, func(subID string, cases []domain.CaseResult) {
 		x, err := svc.GetSubmission(subID)
 		if err != nil {
 			return

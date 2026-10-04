@@ -409,3 +409,48 @@ func (s *Service) Statistics(cid string) (ContestStats, error) {
 	}
 	return st, nil
 }
+
+// ContestBundle 比赛Bundle（对标 LemonLime .cdf 读写往返）：比赛 + 题目全量，
+// 不含提交与会话。导入时重发 ID，原数据只读。
+type ContestBundle struct {
+	Contest  domain.Contest   `json:"contest"`
+	Problems []domain.Problem `json:"problems"`
+}
+
+// ExportContest 导出比赛 Bundle。
+func (s *Service) ExportContest(cid string) (ContestBundle, error) {
+	c, err := s.store.GetContest(cid)
+	if err != nil {
+		return ContestBundle{}, err
+	}
+	return ContestBundle{Contest: c, Problems: s.store.ListProblems(cid)}, nil
+}
+
+// ImportBundle 导入 Bundle 为一场新比赛（新 ID，题目重挂）。
+func (s *Service) ImportBundle(b ContestBundle) (domain.Contest, error) {
+	name := b.Contest.Name
+	if name == "" {
+		name = "imported"
+	}
+	c, err := s.CreateContest(name+" (imported)", b.Contest.Description)
+	if err != nil {
+		return domain.Contest{}, err
+	}
+	c.Status = string(domain.Draft)
+	if b.Contest.RankingMode == "acm" {
+		c.RankingMode = "acm"
+	}
+	c.GroupIDs = append([]string{}, b.Contest.GroupIDs...)
+	c.ParticipantUserIDs = append([]string{}, b.Contest.ParticipantUserIDs...)
+	if err := s.store.UpdateContest(c); err != nil {
+		return domain.Contest{}, err
+	}
+	for _, p := range b.Problems {
+		p.ID = ""
+		p.ContestID = c.ID
+		if _, err := s.CreateProblem(p); err != nil {
+			return domain.Contest{}, err
+		}
+	}
+	return s.store.GetContest(c.ID)
+}

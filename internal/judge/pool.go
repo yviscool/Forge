@@ -28,11 +28,8 @@ type Pool struct {
 	started bool
 }
 
-// NewPool 创建评测池。workers<=0 时默认为 2。queueLen 为等待队列长度。
-func NewPool(workers, queueLen int, judge func(context.Context, Request) ([]domain.CaseResult, error), report ReportFunc) *Pool {
-	if workers <= 0 {
-		workers = 2
-	}
+// NewPool 创建评测池。queueLen 为等待队列长度；worker 数由 Start 指定。
+func NewPool(queueLen int, judge func(context.Context, Request) ([]domain.CaseResult, error), report ReportFunc) *Pool {
 	if queueLen <= 0 {
 		queueLen = 64
 	}

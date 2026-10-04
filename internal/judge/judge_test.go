@@ -269,7 +269,7 @@ func TestIntegrationCE_Python(t *testing.T) {
 func TestPoolReportsAll(t *testing.T) {
 	var mu sync.Mutex
 	reported := map[string]int{}
-	pool := NewPool(2, 16,
+	pool := NewPool(16,
 		func(_ context.Context, r Request) ([]domain.CaseResult, error) {
 			return []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseAC}}, nil
 		},

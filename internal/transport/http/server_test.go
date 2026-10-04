@@ -309,7 +309,7 @@ func TestAutoJudgePipeline(t *testing.T) {
 	srv := NewServer(svc, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	pool := judge.AutoJudgePool(svc, 1, judge.Toolchain{})
+	pool := judge.AutoJudgePool(svc, judge.Toolchain{})
 	defer func() { cancel(); pool.Wait() }()
 	pool.Start(ctx, 1)
 	srv.OnSubmit = func(x domain.Submission) {

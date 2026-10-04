@@ -128,3 +128,40 @@ func TestJudgeCasesOLEAndDetail(t *testing.T) {
 		t.Fatal("detail must survive store round-trip")
 	}
 }
+
+func TestContestBundleRoundTrip(t *testing.T) {
+	svc := NewService(memory.New(), realtime.NewHub(), nil, nil)
+	c, _ := svc.CreateContest("Bundle", "desc", "acm")
+	p, err := svc.CreateProblem(domain.Problem{
+		ContestID: c.ID, Code: "A", Title: "T", Statement: "s",
+		Input: "i", Output: "o", Constraints: "k",
+		CompareMode: domain.CompareIgnoreSpace, TaskType: domain.TaskTraditional,
+		TestCases: []domain.TestCase{{ID: "t1", InputFile: "1", OutputFile: "1", Score: 100}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = p
+
+	b, err := svc.ExportContest(c.ID)
+	if err != nil || len(b.Problems) != 1 {
+		t.Fatalf("export: %v %+v", err, b)
+	}
+	c2, err := svc.ImportBundle(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c2.ID == c.ID || c2.RankingMode != "acm" {
+		t.Fatalf("import identity: %+v", c2)
+	}
+	ps := svc.ListProblems(c2.ID)
+	if len(ps) != 1 || ps[0].Title != "T" || ps[0].ID == p.ID {
+		t.Fatalf("import problems: %+v", ps)
+	}
+	if ps[0].TestCases[0].InputFile != "1" {
+		t.Fatal("testcase payload lost")
+	}
+	if _, err := svc.ExportContest("ghost"); err == nil {
+		t.Fatal("ghost export should error")
+	}
+}
