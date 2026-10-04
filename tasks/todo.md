@@ -6,4 +6,4 @@
 - [x] Update embedded web UI for teacher console and student lobby
 - [x] Write comprehensive unit and HTTP integration tests
 - [x] Verify `go test ./...` and `go build ./...` pass
-- [ ] Initialize GitHub repository `yviscool/Forge` via `gh` CLI
+- [x] Initialize GitHub repository `yviscool/Forge` via `gh` CLI
