@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -343,5 +345,48 @@ func TestCompilerPerLangLimits(t *testing.T) {
 	}
 	if r2.OK {
 		t.Fatal("64MB wall must fail bits-header compile")
+	}
+}
+
+func TestSafeFileName(t *testing.T) {
+	for _, tc := range []struct{ in, fb, want string }{
+		{"", "dflt", "dflt"},
+		{"p.in", "dflt", "p.in"},
+		{"../evil", "dflt", "evil"},
+		{"../../etc/x", "dflt", "x"},
+		{"/abs/path", "dflt", "path"},
+		{".", "dflt", "dflt"},
+	} {
+		if got := SafeFileName(tc.in, tc.fb); got != tc.want {
+			t.Fatalf("SafeFileName(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+	// 反斜杠只在 Windows 是分隔符；无论哪种解释都不得逃逸。
+	if runtime.GOOS == "windows" {
+		if got := SafeFileName(`..\win`, "dflt"); got != "win" {
+			t.Fatalf("backslash: %q", got)
+		}
+	} else if got := SafeFileName(`..\win`, "dflt"); strings.Contains(got, "/") {
+		t.Fatalf("backslash must stay contained: %q", got)
+	}
+}
+
+func TestFileIOTraversalContained(t *testing.T) {
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	// 恶意文件名必须被压平：程序读写的是工作目录内文件，照常 AC。
+	code := "#include <bits/stdc++.h>\nusing namespace std;\nint main(){long long a,b;FILE*f=fopen(\"p.in\",\"r\");if(!f)return 1;fscanf(f,\"%lld%lld\",&a,&b);fclose(f);f=fopen(\"p.out\",\"w\");if(!f)return 1;fprintf(f,\"%lld\",a+b);fclose(f);return 0;}"
+	lim := Limits{TimeMs: 3000, MemoryMiB: 256, IOMode: domain.IOFile, InFile: "../p.in", OutFile: "../../p.out"}
+	got, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: code,
+		Cases:   []CaseInput{{Input: "3 4", Expected: "7"}},
+		Compare: domain.CompareIgnoreSpace, Limits: lim,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Cases[0].Verdict != domain.CaseAC {
+		t.Fatalf("contained traversal must still judge: %+v", got.Cases[0])
 	}
 }

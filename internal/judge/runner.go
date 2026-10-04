@@ -64,16 +64,11 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	cmd.Env = scrubEnv()
 
 	// 文件 IO 模式（OI 文件读写题）：输入落盘，输出从文件回读。
+	// 文件名强制 Base 净化：配置来自题目数据，../ 不得逃逸工作目录。
 	stdinData := input
 	outFromFile := ""
 	if lim.IOMode == domain.IOFile {
-		inName, outName := lim.InFile, lim.OutFile
-		if inName == "" {
-			inName = "input.txt"
-		}
-		if outName == "" {
-			outName = "output.txt"
-		}
+		inName, outName := SafeFileName(lim.InFile, "input.txt"), SafeFileName(lim.OutFile, "output.txt")
 		_ = os.Remove(filepath.Join(workdir, outName))
 		if err := os.WriteFile(filepath.Join(workdir, inName), []byte(input), 0644); err != nil {
 			return res, err
@@ -184,3 +179,15 @@ func (w *cappedWriter) Write(p []byte) (int, error) {
 }
 
 func (w *cappedWriter) String() string { return w.buf.String() }
+
+// SafeFileName 文件 IO 名净化：空用缺省，路径一律压平为 Base，杜绝逃逸。
+func SafeFileName(name, fallback string) string {
+	if name == "" {
+		return fallback
+	}
+	base := filepath.Base(name)
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return fallback
+	}
+	return base
+}
