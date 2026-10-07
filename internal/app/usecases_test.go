@@ -20,6 +20,9 @@ func TestContestBindingsAndFinish(t *testing.T) {
 	if err := svc.AddGroupToContest(c.ID, g.ID); err != nil {
 		t.Fatal("idempotent re-bind should pass")
 	}
+	if _, err := svc.StartContest(c.ID); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := svc.FinishContest(c.ID); err != nil {
 		t.Fatal(err)
 	}

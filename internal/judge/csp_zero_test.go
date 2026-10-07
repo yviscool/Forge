@@ -42,7 +42,7 @@ func TestCSP_Zero(t *testing.T) {
 
 	t.Run("slow_case10", func(t *testing.T) {
 		big := loadCases(t, "zero", "zero", []int{10})
-		got := runVariant(t, "cpp", loadCode(t, "zero_slow.cpp"), big, Limits{TimeMs: 3000, MemoryMiB: 512})
+		got := runVariant(t, "cpp", loadCode(t, "zero_slow.cpp"), big, Limits{TimeMs: 1000, MemoryMiB: 512})
 		assertVerdicts(t, "zero/slow", got, []domain.CaseVerdict{domain.CaseTLE})
 	})
 

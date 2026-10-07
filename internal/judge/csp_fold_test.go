@@ -44,7 +44,7 @@ func TestCSP_Fold(t *testing.T) {
 
 	t.Run("slow_case10", func(t *testing.T) {
 		big := loadCases(t, "fold", "fold", []int{10})
-		got := runVariant(t, "cpp", loadCode(t, "fold_slow.cpp"), big, Limits{TimeMs: 3000, MemoryMiB: 256})
+		got := runVariant(t, "cpp", loadCode(t, "fold_slow.cpp"), big, Limits{TimeMs: 1000, MemoryMiB: 256})
 		assertVerdicts(t, "fold/slow", got, []domain.CaseVerdict{domain.CaseTLE})
 	})
 }

@@ -53,7 +53,7 @@ func TestCSP_Distance(t *testing.T) {
 
 	t.Run("slow_case10", func(t *testing.T) {
 		big := loadCases(t, "distance", "distance", []int{10})
-		got := runVariant(t, "cpp", loadCode(t, "distance_slow.cpp"), big, Limits{TimeMs: 3000, MemoryMiB: 256})
+		got := runVariant(t, "cpp", loadCode(t, "distance_slow.cpp"), big, Limits{TimeMs: 1000, MemoryMiB: 256})
 		assertVerdicts(t, "distance/slow", got, []domain.CaseVerdict{domain.CaseTLE})
 	})
 }

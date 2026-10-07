@@ -34,9 +34,11 @@ const DefaultOutputCap = 16 << 20
 // 也可是磁盘路径（存在即读文件——兼容 LemonLime 数据文件式管理）。
 // Limits 非零项覆盖题目级限额（分点限额，LemonLime TestCase 语义）。
 type CaseInput struct {
-	Input    string
-	Expected string
-	Limits   Limits
+	Input     string
+	Expected  string
+	Limits    Limits
+	Subtask   int
+	DependsOn []int
 }
 
 // Request 一次完整评测请求。
@@ -160,12 +162,12 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 			return domain.JudgeOutcome{}, err
 		}
 		if !checker.ok {
-			// 特判自身编译失败：判题事故，整单按 RE 处理并透出信息。
+			// 特判自身编译失败：评测机特判故障，整单按 CheckerError 处理并透出信息。
 			out := make([]domain.CaseResult, len(req.Cases))
 			for i := range out {
-				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseCheckerError}
 			}
-			return domain.JudgeOutcome{Cases: out}, nil
+			return domain.JudgeOutcome{Cases: out, CompileMessage: checker.msg}, nil
 		}
 	}
 
@@ -181,21 +183,38 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		lim.TimeMs = int(float64(lim.TimeMs) * InterpretedTimeFactor)
 	}
 	out := make([]domain.CaseResult, len(req.Cases))
+	failedSubtasks := map[int]bool{}
 	for i, c := range req.Cases {
+		if c.Subtask > 0 && domain.ShouldSkipCase(c.Subtask, c.DependsOn, failedSubtasks) {
+			out[i] = domain.CaseResult{
+				CaseIndex: i,
+				Verdict:   domain.CaseSkipped,
+			}
+			continue
+		}
 		cl := mergeLimits(lim, c.Limits)
 		// 交互式：跳过普通运行，走管道对接。
 		if req.TaskType == domain.TaskInteraction && req.Interactor != nil {
 			ir, err := RunInteraction(ctx, o.Compiler, *req.Interactor, compile.Argv(), resolveIO(c.Input), cl, workdir)
 			if err != nil {
 				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+				if c.Subtask > 0 {
+					failedSubtasks[c.Subtask] = true
+				}
 				continue
 			}
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: ir.Verdict, TimeMs: ir.TimeMs}
+			if ir.Verdict != domain.CaseAC && c.Subtask > 0 {
+				failedSubtasks[c.Subtask] = true
+			}
 			continue
 		}
 		run, err := o.Runner.Run(ctx, compile.Argv(), resolveIO(c.Input), cl, workdir)
 		if err != nil {
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+			if c.Subtask > 0 {
+				failedSubtasks[c.Subtask] = true
+			}
 			continue
 		}
 		switch {
@@ -212,6 +231,9 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		default:
 			out[i] = judgeOutput(ctx, o.Runner, checker, compile, c, run, req, cl, workdir)
 			out[i].CaseIndex = i
+		}
+		if out[i].Verdict != domain.CaseAC && c.Subtask > 0 {
+			failedSubtasks[c.Subtask] = true
 		}
 	}
 	return domain.JudgeOutcome{Cases: out}, nil
@@ -244,13 +266,8 @@ func mergeLimits(base, over Limits) Limits {
 func judgeOutput(ctx context.Context, _ Runner, checker *compiledChecker, _ CompileResult, c CaseInput, run RunResult, req Request, _ Limits, workdir string) domain.CaseResult {
 	res := domain.CaseResult{TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 	if checker != nil {
-		ok, msg := checker.check(ctx, resolveIO(c.Input), run.Stdout, resolveIO(c.Expected), workdir)
-		_ = msg
-		if ok {
-			res.Verdict = domain.CaseAC
-		} else {
-			res.Verdict = domain.CaseWA
-		}
+		verdict, _ := checker.check(ctx, resolveIO(c.Input), run.Stdout, resolveIO(c.Expected), workdir)
+		res.Verdict = verdict
 		return res
 	}
 	if domain.CompareOutput(run.Stdout, resolveIO(c.Expected), req.Compare, req.RealEps) {

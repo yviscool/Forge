@@ -3,6 +3,7 @@
 package ports
 
 import (
+	"context"
 	"time"
 
 	"github.com/yviscool/forge/internal/domain"
@@ -33,27 +34,27 @@ type Broadcaster interface {
 type Store interface {
 	CreateUser(u domain.User) (domain.User, error)
 	GetUser(id string) (domain.User, error)
-	ListUsers() []domain.User
+	ListUsers() ([]domain.User, error)
 	UpdateUser(u domain.User) error
 
 	CreateGroup(g domain.Group) (domain.Group, error)
 	GetGroup(id string) (domain.Group, error)
-	ListGroups() []domain.Group
+	ListGroups() ([]domain.Group, error)
 	UpdateGroup(g domain.Group) error
 
 	CreateContest(c domain.Contest) (domain.Contest, error)
 	GetContest(id string) (domain.Contest, error)
-	ListContests() []domain.Contest
+	ListContests() ([]domain.Contest, error)
 	UpdateContest(c domain.Contest) error
 
 	CreateProblem(p domain.Problem) (domain.Problem, error)
 	GetProblem(id string) (domain.Problem, error)
-	ListProblems(contestID string) []domain.Problem
+	ListProblems(contestID string) ([]domain.Problem, error)
 	UpdateProblem(p domain.Problem) (domain.Problem, error)
 
 	CreateSubmission(s domain.Submission) (domain.Submission, error)
 	GetSubmission(id string) (domain.Submission, error)
-	ListSubmissions(contestID string) []domain.Submission
+	ListSubmissions(contestID string) ([]domain.Submission, error)
 	UpdateSubmission(s domain.Submission) error
 
 	// Credentials & sessions（auth 端口：hash 永不进 domain.User JSON）。
@@ -65,4 +66,9 @@ type Store interface {
 	DeleteSessionsForUser(userID string) error
 
 	NextID(prefix string) string
+}
+
+// Transactor 事务边界接口：支持在事务内执行原子操作并在报错时回滚。
+type Transactor interface {
+	WithTx(ctx context.Context, fn func(tx Store) error) error
 }

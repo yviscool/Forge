@@ -46,4 +46,22 @@ func TestFiles(t *testing.T) {
 	if p, err := s.Path("c", "p", "a01.in"); err != nil || p == "" {
 		t.Fatal("path helper")
 	}
+
+	// Lemon compatibility: .ans as standard expected output
+	if err := s.Put("c", "p", "c01.in", []byte("10")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("c", "p", "c01.ans", []byte("20")); err != nil {
+		t.Fatal(err)
+	}
+	if m, _ := s.Pairs("c", "p"); len(m) != 0 {
+		t.Fatalf(".ans pairing should have no missing pairs, got: %v", m)
+	}
+	matched, err := s.MatchCases("c", "p")
+	if err != nil || len(matched) != 2 {
+		t.Fatalf("expected 2 matched cases, got %d (err: %v)", len(matched), err)
+	}
+	if matched[0].BaseName != "a01" || matched[1].BaseName != "c01" {
+		t.Fatalf("matched cases order: %+v", matched)
+	}
 }

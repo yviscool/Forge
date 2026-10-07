@@ -82,7 +82,8 @@ func (s *Store) List(cid, pid string) ([]string, error) {
 	return out, nil
 }
 
-// Pairs 校验 .in/.out 成对情况，返回缺失配对的文件名。
+// Pairs 校验 .in 与 .out/.ans 成对情况，返回缺失配对的文件名。
+// 对标 LemonLime 规范，.ans 与 .out 均作为标准测试答案扩展名。
 func (s *Store) Pairs(cid, pid string) ([]string, error) {
 	names, err := s.List(cid, pid)
 	if err != nil {
@@ -94,20 +95,69 @@ func (s *Store) Pairs(cid, pid string) ([]string, error) {
 	}
 	var missing []string
 	for _, n := range names {
-		var want string
 		if strings.HasSuffix(n, ".in") {
-			want = strings.TrimSuffix(n, ".in") + ".out"
+			base := strings.TrimSuffix(n, ".in")
+			if !has[base+".out"] && !has[base+".ans"] {
+				missing = append(missing, n)
+			}
 		} else if strings.HasSuffix(n, ".out") {
-			want = strings.TrimSuffix(n, ".out") + ".in"
-		} else {
-			continue
-		}
-		if !has[want] {
-			missing = append(missing, n)
+			base := strings.TrimSuffix(n, ".out")
+			if !has[base+".in"] {
+				missing = append(missing, n)
+			}
+		} else if strings.HasSuffix(n, ".ans") {
+			base := strings.TrimSuffix(n, ".ans")
+			if !has[base+".in"] {
+				missing = append(missing, n)
+			}
 		}
 	}
 	sort.Strings(missing)
 	return missing, nil
+}
+
+// MatchedCase 成对测试点信息。
+type MatchedCase struct {
+	BaseName   string
+	InputFile  string
+	OutputFile string
+}
+
+// MatchCases 自动识别已配对的测试点列表（兼容 .in + .out 或 .in + .ans）。
+func (s *Store) MatchCases(cid, pid string) ([]MatchedCase, error) {
+	names, err := s.List(cid, pid)
+	if err != nil {
+		return nil, err
+	}
+	has := map[string]bool{}
+	for _, n := range names {
+		has[n] = true
+	}
+	var matched []MatchedCase
+	for _, n := range names {
+		if strings.HasSuffix(n, ".in") {
+			base := strings.TrimSuffix(n, ".in")
+			outName := ""
+			if has[base+".ans"] {
+				outName = base + ".ans"
+			} else if has[base+".out"] {
+				outName = base + ".out"
+			}
+			if outName != "" {
+				inPath, _ := s.Path(cid, pid, n)
+				outPath, _ := s.Path(cid, pid, outName)
+				matched = append(matched, MatchedCase{
+					BaseName:   base,
+					InputFile:  inPath,
+					OutputFile: outPath,
+				})
+			}
+		}
+	}
+	sort.Slice(matched, func(i, j int) bool {
+		return matched[i].BaseName < matched[j].BaseName
+	})
+	return matched, nil
 }
 
 // Path 测试文件绝对路径（供 TestCase.InputFile 引用）。

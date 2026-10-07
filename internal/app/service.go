@@ -3,7 +3,9 @@
 package app
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"strings"
 	"time"
@@ -59,26 +61,35 @@ func (s *Service) CreateGroup(name string) (domain.Group, error) {
 	return s.store.CreateGroup(g)
 }
 
+func (s *Service) withTx(fn func(tx ports.Store) error) error {
+	if txer, ok := s.store.(ports.Transactor); ok {
+		return txer.WithTx(context.Background(), fn)
+	}
+	return fn(s.store)
+}
+
 func (s *Service) AddUserToGroup(uid, gid string) error {
-	u, err := s.store.GetUser(uid)
-	if err != nil {
-		return err
-	}
-	g, err := s.store.GetGroup(gid)
-	if err != nil {
-		return err
-	}
-	for _, x := range g.UserIDs {
-		if x == uid {
-			return nil
+	return s.withTx(func(tx ports.Store) error {
+		u, err := tx.GetUser(uid)
+		if err != nil {
+			return err
 		}
-	}
-	g.UserIDs = append(g.UserIDs, uid)
-	u.Groups = append(u.Groups, gid)
-	if err := s.store.UpdateGroup(g); err != nil {
-		return err
-	}
-	return s.store.UpdateUser(u)
+		g, err := tx.GetGroup(gid)
+		if err != nil {
+			return err
+		}
+		for _, x := range g.UserIDs {
+			if x == uid {
+				return nil
+			}
+		}
+		g.UserIDs = append(g.UserIDs, uid)
+		u.Groups = append(u.Groups, gid)
+		if err := tx.UpdateGroup(g); err != nil {
+			return err
+		}
+		return tx.UpdateUser(u)
+	})
 }
 
 func (s *Service) CreateContest(name, desc string, mode ...string) (domain.Contest, error) {
@@ -112,8 +123,8 @@ func (s *Service) StartContest(id string) (domain.Contest, error) {
 	if err != nil {
 		return domain.Contest{}, err
 	}
-	if c.Status == string(domain.Finished) {
-		return domain.Contest{}, errors.New("contest already finished")
+	if !domain.Status(c.Status).CanTransitionTo(domain.Running) {
+		return domain.Contest{}, fmt.Errorf("cannot start contest from status %s", c.Status)
 	}
 	c.Status = string(domain.Running)
 	c.StartedAt = s.clock.Now()
@@ -129,7 +140,7 @@ func (s *Service) Submit(contestID, problemID, userID, lang, code string) (domai
 	if err != nil {
 		return domain.Submission{}, err
 	}
-	if c.Status != string(domain.Running) {
+	if !c.CanSubmit() {
 		return domain.Submission{}, errors.New("contest is not running")
 	}
 	if len(c.AllowedLanguages) > 0 {
@@ -148,7 +159,10 @@ func (s *Service) Submit(contestID, problemID, userID, lang, code string) (domai
 	if err != nil {
 		return domain.Submission{}, err
 	}
-	ps := s.store.ListProblems(contestID)
+	ps, err := s.store.ListProblems(contestID)
+	if err != nil {
+		return domain.Submission{}, err
+	}
 	found := false
 	for _, p := range ps {
 		if p.ID == problemID {
@@ -194,7 +208,20 @@ func (s *Service) Ranking(contestID string) []domain.RankEntry {
 	if err != nil {
 		return []domain.RankEntry{}
 	}
-	return domain.ComputeRanking(s.store.ListUsers(), c, s.store.ListSubmissions(contestID))
+	users, _ := s.store.ListUsers()
+	subs, _ := s.store.ListSubmissions(contestID)
+	probs, _ := s.store.ListProblems(contestID)
+	fullMap := map[string]int{}
+	for _, p := range probs {
+		full := 0
+		for _, tc := range p.TestCases {
+			full += tc.Score
+		}
+		if full > 0 {
+			fullMap[p.ID] = full
+		}
+	}
+	return domain.ComputeRanking(users, c, subs, fullMap)
 }
 
 // RankingACM ACM 赛制榜（解题数/罚时），contest.RankingMode=="acm" 时传输层选用。
@@ -203,7 +230,9 @@ func (s *Service) RankingACM(contestID string) []domain.ACMRankEntry {
 	if err != nil {
 		return []domain.ACMRankEntry{}
 	}
-	return domain.ComputeRankingACM(s.store.ListUsers(), c, s.store.ListSubmissions(contestID))
+	users, _ := s.store.ListUsers()
+	subs, _ := s.store.ListSubmissions(contestID)
+	return domain.ComputeRankingACM(users, c, subs)
 }
 
 func (s *Service) Health() map[string]any {

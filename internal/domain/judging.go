@@ -22,14 +22,18 @@ const (
 type CaseVerdict string
 
 const (
-	CaseAC  CaseVerdict = "AC"
-	CaseWA  CaseVerdict = "WA"
-	CaseTLE CaseVerdict = "TLE"
-	CaseMLE CaseVerdict = "MLE"
-	CaseRE  CaseVerdict = "RE"
-	CaseCE  CaseVerdict = "CE"
+	CaseAC           CaseVerdict = "AC"
+	CaseWA           CaseVerdict = "WA"
+	CasePE           CaseVerdict = "PE"
+	CaseTLE          CaseVerdict = "TLE"
+	CaseMLE          CaseVerdict = "MLE"
+	CaseRE           CaseVerdict = "RE"
+	CaseCE           CaseVerdict = "CE"
 	// CaseOLE 输出超限（stdout 命中上限被截断）。
-	CaseOLE CaseVerdict = "OLE"
+	CaseOLE          CaseVerdict = "OLE"
+	CaseSkipped      CaseVerdict = "Skipped"
+	CaseCheckerError CaseVerdict = "CheckerError"
+	CaseSystemError  CaseVerdict = "SystemError"
 )
 
 // CaseResult 单点评测结果（worker 回写时使用）。
@@ -104,15 +108,22 @@ func CompareOutput(got, want string, mode ComparisonMode, realEps float64) bool 
 	}
 }
 
-// AggregateScore 子任务依赖感知聚合：
-// 某子任务内任一测试点非 AC 则该子任务得 0（对标 LemonLime dependenceSubtask 语义）。
+// AggregateScore 子任务依赖感知聚合（兼容无显式依赖旧接口）。
 func AggregateScore(cases []CaseResult, subtaskOf func(caseIndex int) int, fullOf func(subtask int) int) int {
+	return AggregateScoreWithDeps(cases, subtaskOf, fullOf, nil)
+}
+
+// AggregateScoreWithDeps 完整子任务 DAG 依赖感知聚合：
+// 1. 某子任务内任一测试点非 AC，则该子任务失败（得 0 分）；
+// 2. 某子任务若依赖其他子任务，则其所有依赖子任务必须全部 AC，否则该子任务得 0 分。
+func AggregateScoreWithDeps(cases []CaseResult, subtaskOf func(caseIndex int) int, fullOf func(subtask int) int, depsOf func(subtask int) []int) int {
 	bySub := map[int][]CaseResult{}
 	for _, c := range cases {
 		st := subtaskOf(c.CaseIndex)
 		bySub[st] = append(bySub[st], c)
 	}
-	total := 0
+
+	subtaskAC := map[int]bool{}
 	for st, cs := range bySub {
 		ok := true
 		for _, c := range cs {
@@ -121,9 +132,57 @@ func AggregateScore(cases []CaseResult, subtaskOf func(caseIndex int) int, fullO
 				break
 			}
 		}
-		if ok {
+		subtaskAC[st] = ok
+	}
+
+	if depsOf == nil {
+		total := 0
+		for st, ok := range subtaskAC {
+			if ok {
+				total += fullOf(st)
+			}
+		}
+		return total
+	}
+
+	// 依赖校验（支持多级依赖拓扑）
+	var checkPassed func(st int, visiting map[int]bool) bool
+	checkPassed = func(st int, visiting map[int]bool) bool {
+		if !subtaskAC[st] {
+			return false
+		}
+		if visiting[st] {
+			return false // 防止配置了环形依赖死递归
+		}
+		visiting[st] = true
+		for _, dep := range depsOf(st) {
+			if !checkPassed(dep, visiting) {
+				return false
+			}
+		}
+		delete(visiting, st)
+		return true
+	}
+
+	total := 0
+	for st := range bySub {
+		if checkPassed(st, map[int]bool{}) {
 			total += fullOf(st)
 		}
 	}
 	return total
+}
+
+// ShouldSkipCase 判定当前测试点是否应短路跳过：
+// 当所属子任务已有测试点失败，或其任何前置依赖子任务已失败时返回 true。
+func ShouldSkipCase(subtask int, deps []int, failedSubtasks map[int]bool) bool {
+	if failedSubtasks[subtask] {
+		return true
+	}
+	for _, d := range deps {
+		if failedSubtasks[d] {
+			return true
+		}
+	}
+	return false
 }

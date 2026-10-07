@@ -3,12 +3,14 @@
 package memory
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"sort"
 	"sync"
 
 	"github.com/yviscool/forge/internal/domain"
+	"github.com/yviscool/forge/internal/ports"
 )
 
 type Store struct {
@@ -67,7 +69,47 @@ func (s *Store) GetUser(id string) (domain.User, error) {
 	return u, nil
 }
 
-func (s *Store) ListUsers() []domain.User {
+func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// 拍摄快照到独立工作副本，避免同一个 Store 递归锁死
+	tx := &Store{
+		seq:         s.seq,
+		users:       cloneMap(s.users),
+		groups:      cloneMap(s.groups),
+		contests:    cloneMap(s.contests),
+		problems:    cloneMap(s.problems),
+		submissions: cloneMap(s.submissions),
+		passwords:   cloneMap(s.passwords),
+		sessions:    cloneMap(s.sessions),
+	}
+
+	if err := fn(tx); err != nil {
+		return err
+	}
+
+	// 提交：将工作副本数据合并回主存储
+	s.seq = tx.seq
+	s.users = tx.users
+	s.groups = tx.groups
+	s.contests = tx.contests
+	s.problems = tx.problems
+	s.submissions = tx.submissions
+	s.passwords = tx.passwords
+	s.sessions = tx.sessions
+	return nil
+}
+
+func cloneMap[K comparable, V any](m map[K]V) map[K]V {
+	out := make(map[K]V, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+func (s *Store) ListUsers() ([]domain.User, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]domain.User, 0, len(s.users))
@@ -75,7 +117,7 @@ func (s *Store) ListUsers() []domain.User {
 		out = append(out, u)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateUser(u domain.User) error {
@@ -108,7 +150,7 @@ func (s *Store) GetGroup(id string) (domain.Group, error) {
 	return g, nil
 }
 
-func (s *Store) ListGroups() []domain.Group {
+func (s *Store) ListGroups() ([]domain.Group, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]domain.Group, 0, len(s.groups))
@@ -116,7 +158,7 @@ func (s *Store) ListGroups() []domain.Group {
 		out = append(out, g)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateGroup(g domain.Group) error {
@@ -149,7 +191,7 @@ func (s *Store) GetContest(id string) (domain.Contest, error) {
 	return c, nil
 }
 
-func (s *Store) ListContests() []domain.Contest {
+func (s *Store) ListContests() ([]domain.Contest, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := make([]domain.Contest, 0, len(s.contests))
@@ -157,7 +199,7 @@ func (s *Store) ListContests() []domain.Contest {
 		out = append(out, c)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateContest(c domain.Contest) error {
@@ -194,7 +236,7 @@ func (s *Store) GetProblem(id string) (domain.Problem, error) {
 	return p, nil
 }
 
-func (s *Store) ListProblems(contestID string) []domain.Problem {
+func (s *Store) ListProblems(contestID string) ([]domain.Problem, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []domain.Problem{}
@@ -204,7 +246,7 @@ func (s *Store) ListProblems(contestID string) []domain.Problem {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateProblem(p domain.Problem) (domain.Problem, error) {
@@ -237,7 +279,7 @@ func (s *Store) GetSubmission(id string) (domain.Submission, error) {
 	return x, nil
 }
 
-func (s *Store) ListSubmissions(contestID string) []domain.Submission {
+func (s *Store) ListSubmissions(contestID string) ([]domain.Submission, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := []domain.Submission{}
@@ -247,7 +289,7 @@ func (s *Store) ListSubmissions(contestID string) []domain.Submission {
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SubmittedAt.After(out[j].SubmittedAt) })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateSubmission(x domain.Submission) error {

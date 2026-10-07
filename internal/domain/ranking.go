@@ -2,41 +2,53 @@ package domain
 
 import "sort"
 
-// ComputeRanking OI 式榜单纯函数：每人每题取最高分，总分降序、满题数降序、姓名升序。
-// 纯函数可单测，是榜单地基；并发与存储由上层负责。
-func ComputeRanking(users []User, contest Contest, subs []Submission) []RankEntry {
+// ComputeRanking OI 式榜单纯函数：每人每题取最高分，总分降序、满题数降序、姓名升序、用户ID升序。
+// fullScores 可选传题目满分映射（默认满分 100）。
+func ComputeRanking(users []User, contest Contest, subs []Submission, fullScores ...map[string]int) []RankEntry {
 	scores := map[string]*RankEntry{}
-	allowed := func(u User) bool { return IsUserAllowed(contest, u) }
+	allowedMap := map[string]bool{}
 	for _, u := range users {
-		if allowed(u) {
+		if IsUserAllowed(contest, u) {
+			allowedMap[u.ID] = true
 			scores[u.ID] = &RankEntry{UserID: u.ID, UserName: u.Name, ProblemScores: map[string]int{}}
 		}
 	}
+
 	for _, x := range subs {
 		if x.ContestID != contest.ID {
 			continue
 		}
-		e, ok := scores[x.UserID]
-		if !ok {
-			e = &RankEntry{UserID: x.UserID, UserName: x.UserName, ProblemScores: map[string]int{}}
-			scores[x.UserID] = e
+		if !allowedMap[x.UserID] {
+			continue
 		}
+		e := scores[x.UserID]
 		if x.Score > e.ProblemScores[x.ProblemID] {
 			e.ProblemScores[x.ProblemID] = x.Score
 		}
 	}
+
+	var maxScoreMap map[string]int
+	if len(fullScores) > 0 {
+		maxScoreMap = fullScores[0]
+	}
+
 	out := make([]RankEntry, 0, len(scores))
 	for _, e := range scores {
 		total, accepted := 0, 0
-		for _, s := range e.ProblemScores {
+		for pid, s := range e.ProblemScores {
 			total += s
-			if s == 100 {
+			full := 100
+			if maxScoreMap != nil && maxScoreMap[pid] > 0 {
+				full = maxScoreMap[pid]
+			}
+			if s >= full {
 				accepted++
 			}
 		}
 		e.Score, e.Accepted = total, accepted
 		out = append(out, *e)
 	}
+
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Score != out[j].Score {
 			return out[i].Score > out[j].Score
@@ -44,7 +56,10 @@ func ComputeRanking(users []User, contest Contest, subs []Submission) []RankEntr
 		if out[i].Accepted != out[j].Accepted {
 			return out[i].Accepted > out[j].Accepted
 		}
-		return out[i].UserName < out[j].UserName
+		if out[i].UserName != out[j].UserName {
+			return out[i].UserName < out[j].UserName
+		}
+		return out[i].UserID < out[j].UserID
 	})
 	return out
 }

@@ -42,7 +42,11 @@ func newToken() (string, error) {
 
 func (a *Service) findByLogin(login string) (domain.User, error) {
 	login = strings.TrimSpace(login)
-	for _, u := range a.store.ListUsers() {
+	users, err := a.store.ListUsers()
+	if err != nil {
+		return domain.User{}, err
+	}
+	for _, u := range users {
 		if u.Username == login || u.Name == login {
 			return u, nil
 		}
@@ -132,7 +136,11 @@ func (a *Service) setPassword(uid, newPassword string) error {
 
 // EnsureAdmin 种子管理员：不存在则创建并设密（首次启动用）。
 func (a *Service) EnsureAdmin(password string) (domain.User, error) {
-	for _, u := range a.store.ListUsers() {
+	users, err := a.store.ListUsers()
+	if err != nil {
+		return domain.User{}, err
+	}
+	for _, u := range users {
 		if u.Username == "admin" && u.Role == domain.RoleAdmin {
 			return u, nil
 		}

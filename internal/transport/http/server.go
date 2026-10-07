@@ -790,15 +790,16 @@ func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []
 	if isTeacher(r) {
 		return subs
 	}
-	sess, ok := sessionOf(r)
-	if !ok {
-		return subs
+	currentUID := ""
+	if sess, ok := sessionOf(r); ok {
+		currentUID = sess.UserID
 	}
 	out := make([]domain.Submission, len(subs))
 	for i, s := range subs {
-		if s.UserID != sess.UserID {
+		if currentUID == "" || s.UserID != currentUID {
 			s.Code = ""
 			s.CompileMessage = ""
+			s.Cases = nil
 		}
 		out[i] = s
 	}

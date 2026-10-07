@@ -11,6 +11,18 @@ const (
 	Finished Status = "finished"
 )
 
+// CanTransitionTo 状态机合法迁移判断。
+func (s Status) CanTransitionTo(next Status) bool {
+	switch s {
+	case Draft:
+		return next == Running
+	case Running:
+		return next == Finished
+	default:
+		return false
+	}
+}
+
 // Roles 角色常量。
 const (
 	RoleAdmin   = "admin"
@@ -20,13 +32,19 @@ const (
 
 // Verdicts 判题结果规范值。
 const (
-	VerdictQueued       = "queued"
-	VerdictJudging      = "judging"
-	VerdictAccepted     = "accepted"
-	VerdictWrongAnswer  = "wrong_answer"
-	VerdictTimeLimit    = "time_limit"
-	VerdictRuntimeError = "runtime_error"
-	VerdictCompileError = "compile_error"
+	VerdictQueued            = "queued"
+	VerdictJudging           = "judging"
+	VerdictAccepted          = "accepted"
+	VerdictWrongAnswer       = "wrong_answer"
+	VerdictPresentationError = "presentation_error"
+	VerdictTimeLimit         = "time_limit"
+	VerdictMemoryLimit       = "memory_limit"
+	VerdictOutputLimit       = "output_limit"
+	VerdictRuntimeError      = "runtime_error"
+	VerdictCompileError      = "compile_error"
+	VerdictCheckerError      = "checker_error"
+	VerdictSystemError       = "system_error"
+	VerdictSkipped           = "skipped"
 )
 
 type User struct {
@@ -62,6 +80,18 @@ type Contest struct {
 	FinishedAt         time.Time `json:"finishedAt,omitempty"`
 }
 
+func (c Contest) CanTransitionTo(next Status) bool {
+	return Status(c.Status).CanTransitionTo(next)
+}
+
+func (c Contest) CanModifySettings() bool {
+	return c.Status != string(Finished)
+}
+
+func (c Contest) CanSubmit() bool {
+	return c.Status == string(Running)
+}
+
 type ProblemLocale struct {
 	Title       string `json:"title"`
 	Statement   string `json:"statement"`
@@ -79,6 +109,7 @@ type TestCase struct {
 	Subtask     int    `json:"subtask"`
 	TimeLimitMs int    `json:"timeLimitMs,omitempty"`
 	MemoryMiB   int    `json:"memoryMib,omitempty"`
+	DependsOn   []int  `json:"dependsOn,omitempty"`
 }
 
 // TaskType 题目类型（对标 LemonLime TaskType 子集）。

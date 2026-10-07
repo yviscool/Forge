@@ -46,7 +46,7 @@ func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRa
 				acAt[s.ProblemID] = int64(mins)
 				solved++
 				penalty += mins + 20*waCnt[s.ProblemID]
-			} else if s.Verdict != VerdictQueued && s.Verdict != VerdictJudging {
+			} else if s.Verdict != VerdictQueued && s.Verdict != VerdictJudging && s.Verdict != VerdictCompileError && s.Verdict != string(CaseCE) && s.Verdict != VerdictSkipped && s.Verdict != string(CaseSkipped) {
 				waCnt[s.ProblemID]++
 			}
 		}
@@ -56,20 +56,14 @@ func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRa
 		}
 		out = append(out, ACMRankEntry{UserID: uid, UserName: name, Solved: solved, Penalty: penalty})
 	}
-	// 参赛但零提交的用户也上榜（0 题）。
-	allowed := map[string]bool{}
-	for _, u := range users {
-		if IsUserAllowed(contest, u) {
-			allowed[u.ID] = true
-		}
-	}
+	// 参赛但零提交的用户也上榜（0 题），以稳定排序插入。
 	seen := map[string]bool{}
 	for _, e := range out {
 		seen[e.UserID] = true
 	}
-	for uid := range allowed {
-		if !seen[uid] {
-			out = append(out, ACMRankEntry{UserID: uid, UserName: nameOf[uid], Solved: 0, Penalty: 0})
+	for _, u := range users {
+		if IsUserAllowed(contest, u) && !seen[u.ID] {
+			out = append(out, ACMRankEntry{UserID: u.ID, UserName: u.Name, Solved: 0, Penalty: 0})
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
@@ -79,7 +73,10 @@ func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRa
 		if out[i].Penalty != out[j].Penalty {
 			return out[i].Penalty < out[j].Penalty
 		}
-		return out[i].UserName < out[j].UserName
+		if out[i].UserName != out[j].UserName {
+			return out[i].UserName < out[j].UserName
+		}
+		return out[i].UserID < out[j].UserID
 	})
 	return out
 }

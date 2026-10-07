@@ -44,7 +44,7 @@ func TestCSP_Point(t *testing.T) {
 
 	t.Run("slow_case10", func(t *testing.T) {
 		big := loadCases(t, "point", "point", []int{10})
-		got := runVariant(t, "cpp", loadCode(t, "point_slow.cpp"), big, Limits{TimeMs: 3000, MemoryMiB: 256})
+		got := runVariant(t, "cpp", loadCode(t, "point_slow.cpp"), big, Limits{TimeMs: 1000, MemoryMiB: 256})
 		assertVerdicts(t, "point/slow", got, []domain.CaseVerdict{domain.CaseTLE})
 	})
 }

@@ -3,6 +3,7 @@
 package storetest
 
 import (
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -33,7 +34,10 @@ func Exercise(t *testing.T, s ports.Store) {
 	if !strings.HasPrefix(u1.ID, "usr-") {
 		t.Fatalf("user id prefix broken: %s", u1.ID)
 	}
-	users := s.ListUsers()
+	users, err := s.ListUsers()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(users) != 2 || users[0].Name != "Ada" {
 		t.Fatalf("users sorted by name: %+v", users)
 	}
@@ -58,17 +62,18 @@ func Exercise(t *testing.T, s ports.Store) {
 	if err := s.UpdateGroup(g1); err != nil {
 		t.Fatal(err)
 	}
-	if gs := s.ListGroups(); len(gs) != 1 {
-		t.Fatalf("groups: %+v", gs)
+	gs, err := s.ListGroups()
+	if err != nil || len(gs) != 1 {
+		t.Fatalf("groups: %+v %v", gs, err)
 	}
 
 	// ---- contests ----
 	now := time.Now().UTC()
 	c1, _ := s.CreateContest(domain.Contest{Name: "Morning", Status: "draft", CreatedAt: now})
 	c2, _ := s.CreateContest(domain.Contest{Name: "Afternoon", Status: "draft", CreatedAt: now.Add(time.Second)})
-	cs := s.ListContests()
-	if len(cs) != 2 || cs[0].Name != "Morning" {
-		t.Fatalf("contests sorted by creation: %+v", cs)
+	cs, err := s.ListContests()
+	if err != nil || len(cs) != 2 || cs[0].Name != "Morning" {
+		t.Fatalf("contests sorted by creation: %+v %v", cs, err)
 	}
 	c1.Status = string(domain.Running)
 	if err := s.UpdateContest(c1); err != nil {
@@ -89,12 +94,13 @@ func Exercise(t *testing.T, s ports.Store) {
 		t.Fatal(err)
 	}
 	_ = p1
-	ps := s.ListProblems(c1.ID)
-	if len(ps) != 2 || ps[0].Code != "A" || ps[1].Code != "B" {
-		t.Fatalf("problems sorted by code: %+v", ps)
+	ps, err := s.ListProblems(c1.ID)
+	if err != nil || len(ps) != 2 || ps[0].Code != "A" || ps[1].Code != "B" {
+		t.Fatalf("problems sorted by code: %+v %v", ps, err)
 	}
-	if other := s.ListProblems(c2.ID); len(other) != 0 {
-		t.Fatalf("contest isolation broken: %+v", other)
+	other, err := s.ListProblems(c2.ID)
+	if err != nil || len(other) != 0 {
+		t.Fatalf("contest isolation broken: %+v %v", other, err)
 	}
 	p2.Title = "T1-renamed"
 	if _, err := s.UpdateProblem(p2); err != nil {
@@ -115,9 +121,9 @@ func Exercise(t *testing.T, s ports.Store) {
 	base := time.Now().UTC()
 	x1, _ := s.CreateSubmission(domain.Submission{ContestID: c1.ID, ProblemID: p2.ID, UserID: u1.ID, Score: 10, SubmittedAt: base})
 	x2, _ := s.CreateSubmission(domain.Submission{ContestID: c1.ID, ProblemID: p2.ID, UserID: u1.ID, Score: 20, SubmittedAt: base.Add(time.Second)})
-	subs := s.ListSubmissions(c1.ID)
-	if len(subs) != 2 || subs[0].ID != x2.ID || subs[1].ID != x1.ID {
-		t.Fatal("submissions must be newest-first")
+	subs, err := s.ListSubmissions(c1.ID)
+	if err != nil || len(subs) != 2 || subs[0].ID != x2.ID || subs[1].ID != x1.ID {
+		t.Fatalf("submissions must be newest-first: %+v %v", subs, err)
 	}
 	x2.Score = 100
 	if err := s.UpdateSubmission(x2); err != nil {
@@ -186,5 +192,44 @@ func PasswordsAndSessions(t *testing.T, s ports.Store) {
 	}
 	if _, err := s.GetSession("a"); err == nil {
 		t.Fatal("user sessions should be wiped")
+	}
+}
+
+// TransactionSemantics 验证事务提交与回滚语义。
+func TransactionSemantics(t *testing.T, s ports.Store) {
+	t.Helper()
+	txer, ok := s.(ports.Transactor)
+	if !ok {
+		return
+	}
+	ctx := time.Now()
+	_ = ctx
+
+	// 1. 事务回滚：中间出错，之前的操作必须全部撤回
+	err := txer.WithTx(nil, func(tx ports.Store) error {
+		if _, err := tx.CreateUser(domain.User{ID: "tx-u1", Name: "TxUser1"}); err != nil {
+			return err
+		}
+		return errors.New("abort transaction")
+	})
+	if err == nil {
+		t.Fatal("expected error from WithTx")
+	}
+	if _, err := s.GetUser("tx-u1"); err == nil {
+		t.Fatal("tx-u1 should have been rolled back")
+	}
+
+	// 2. 事务提交：成功后持久化
+	err = txer.WithTx(nil, func(tx ports.Store) error {
+		if _, err := tx.CreateUser(domain.User{ID: "tx-u2", Name: "TxUser2"}); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u, err := s.GetUser("tx-u2"); err != nil || u.Name != "TxUser2" {
+		t.Fatalf("tx-u2 should exist after commit: %+v %v", u, err)
 	}
 }

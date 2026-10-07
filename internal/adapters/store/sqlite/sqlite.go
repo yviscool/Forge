@@ -3,6 +3,7 @@
 package sqlite
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,15 +12,24 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/yviscool/forge/internal/domain"
+	"github.com/yviscool/forge/internal/ports"
 	_ "modernc.org/sqlite"
 )
 
 const schemaVersion = 2
 
+type dbExecutor interface {
+	Exec(query string, args ...any) (sql.Result, error)
+	Query(query string, args ...any) (*sql.Rows, error)
+	QueryRow(query string, args ...any) *sql.Row
+}
+
 type Store struct {
 	db *sql.DB
+	ex dbExecutor
 }
 
 // Open 打开（不存在则创建）SQLite 文件并执行迁移。
@@ -39,10 +49,30 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, ex: db}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// WithTx 开启事务执行闭包，返回错误时自动回滚。若当前已在事务中则复用。
+func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error {
+	if _, isTx := s.ex.(*sql.Tx); isTx {
+		return fn(s)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	txs := &Store{db: s.db, ex: tx}
+	if err := fn(txs); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 
 func migrate(db *sql.DB) error {
 	var v int
@@ -80,6 +110,17 @@ func migrate(db *sql.DB) error {
 		}
 		v = 2
 	}
+	if v < 3 {
+		ddl := []string{
+			`CREATE INDEX IF NOT EXISTS idx_problems_contest_code ON problems(contest_id, json_extract(data, '$.code'))`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return err
+			}
+		}
+		v = 3
+	}
 	_, err := db.Exec(fmt.Sprintf(`PRAGMA user_version=%d`, v))
 	return err
 }
@@ -99,7 +140,7 @@ func (s *Store) put(table, id string, v any) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(fmt.Sprintf(`INSERT INTO %s(id, data) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, table), id, data)
+	_, err = s.ex.Exec(fmt.Sprintf(`INSERT INTO %s(id, data) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, table), id, data)
 	return err
 }
 
@@ -108,13 +149,13 @@ func (s *Store) putScoped(table, id, contestID string, v any) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(fmt.Sprintf(`INSERT INTO %s(id, contest_id, data) VALUES(?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, contest_id=excluded.contest_id`, table), id, contestID, data)
+	_, err = s.ex.Exec(fmt.Sprintf(`INSERT INTO %s(id, contest_id, data) VALUES(?, ?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data, contest_id=excluded.contest_id`, table), id, contestID, data)
 	return err
 }
 
 func (s *Store) get(table, id string, v any, what string) error {
 	var data string
-	err := s.db.QueryRow(fmt.Sprintf(`SELECT data FROM %s WHERE id=?`, table), id).Scan(&data)
+	err := s.ex.QueryRow(fmt.Sprintf(`SELECT data FROM %s WHERE id=?`, table), id).Scan(&data)
 	if err == sql.ErrNoRows {
 		return notFound(what)
 	}
@@ -125,7 +166,7 @@ func (s *Store) get(table, id string, v any, what string) error {
 }
 
 func (s *Store) listAll(table string, v any) error {
-	rows, err := s.db.Query(fmt.Sprintf(`SELECT data FROM %s`, table))
+	rows, err := s.ex.Query(fmt.Sprintf(`SELECT data FROM %s`, table))
 	if err != nil {
 		return err
 	}
@@ -134,7 +175,7 @@ func (s *Store) listAll(table string, v any) error {
 }
 
 func (s *Store) listScoped(table, contestID string, v any) error {
-	rows, err := s.db.Query(fmt.Sprintf(`SELECT data FROM %s WHERE contest_id=?`, table), contestID)
+	rows, err := s.ex.Query(fmt.Sprintf(`SELECT data FROM %s WHERE contest_id=?`, table), contestID)
 	if err != nil {
 		return err
 	}
@@ -171,10 +212,9 @@ const (
 
 func (s *Store) NextID(prefix string) string {
 	var n int64
-	err := s.db.QueryRow(`INSERT INTO seq(name,val) VALUES('seq',1) ON CONFLICT(name) DO UPDATE SET val=val+1 RETURNING val`).Scan(&n)
+	err := s.ex.QueryRow(`INSERT INTO seq(name,val) VALUES('seq',1) ON CONFLICT(name) DO UPDATE SET val=val+1 RETURNING val`).Scan(&n)
 	if err != nil {
-		// 极端降级：不阻塞业务（测试外几乎不可达）。
-		return fmt.Sprintf("%s-xxxx", prefix)
+		return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 	}
 	return fmt.Sprintf("%s-%04d", prefix, n)
 }
@@ -194,13 +234,13 @@ func (s *Store) GetUser(id string) (domain.User, error) {
 	return u, nil
 }
 
-func (s *Store) ListUsers() []domain.User {
+func (s *Store) ListUsers() ([]domain.User, error) {
 	var out []domain.User
 	if err := s.listAll(tUsers, &out); err != nil {
-		return []domain.User{}
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateUser(u domain.User) error {
@@ -226,13 +266,13 @@ func (s *Store) GetGroup(id string) (domain.Group, error) {
 	return g, nil
 }
 
-func (s *Store) ListGroups() []domain.Group {
+func (s *Store) ListGroups() ([]domain.Group, error) {
 	var out []domain.Group
 	if err := s.listAll(tGroups, &out); err != nil {
-		return []domain.Group{}
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateGroup(g domain.Group) error {
@@ -258,13 +298,13 @@ func (s *Store) GetContest(id string) (domain.Contest, error) {
 	return c, nil
 }
 
-func (s *Store) ListContests() []domain.Contest {
+func (s *Store) ListContests() ([]domain.Contest, error) {
 	var out []domain.Contest
 	if err := s.listAll(tContests, &out); err != nil {
-		return []domain.Contest{}
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateContest(c domain.Contest) error {
@@ -282,17 +322,19 @@ func (s *Store) CreateProblem(p domain.Problem) (domain.Problem, error) {
 	if err := s.putScoped(tProblems, p.ID, p.ContestID, p); err != nil {
 		return domain.Problem{}, err
 	}
-	// 同步比赛 ProblemIDs（与 memory 语义一致）。
+	// 同步比赛 ProblemIDs
 	if c, err := s.GetContest(p.ContestID); err == nil {
 		c.ProblemIDs = append(c.ProblemIDs, p.ID)
-		_ = s.put(tContests, c.ID, c)
+		if err := s.put(tContests, c.ID, c); err != nil {
+			return domain.Problem{}, err
+		}
 	}
 	return p, nil
 }
 
 func (s *Store) GetProblem(id string) (domain.Problem, error) {
 	var raw string
-	if e := s.db.QueryRow(`SELECT data FROM problems WHERE id=?`, id).Scan(&raw); e == sql.ErrNoRows {
+	if e := s.ex.QueryRow(`SELECT data FROM problems WHERE id=?`, id).Scan(&raw); e == sql.ErrNoRows {
 		return domain.Problem{}, notFound("problem")
 	} else if e != nil {
 		return domain.Problem{}, e
@@ -304,13 +346,13 @@ func (s *Store) GetProblem(id string) (domain.Problem, error) {
 	return p, nil
 }
 
-func (s *Store) ListProblems(contestID string) []domain.Problem {
+func (s *Store) ListProblems(contestID string) ([]domain.Problem, error) {
 	var out []domain.Problem
 	if err := s.listScoped(tProblems, contestID, &out); err != nil {
-		return []domain.Problem{}
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Code < out[j].Code })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateProblem(p domain.Problem) (domain.Problem, error) {
@@ -332,7 +374,7 @@ func (s *Store) CreateSubmission(x domain.Submission) (domain.Submission, error)
 
 func (s *Store) GetSubmission(id string) (domain.Submission, error) {
 	var raw string
-	if e := s.db.QueryRow(`SELECT data FROM submissions WHERE id=?`, id).Scan(&raw); e == sql.ErrNoRows {
+	if e := s.ex.QueryRow(`SELECT data FROM submissions WHERE id=?`, id).Scan(&raw); e == sql.ErrNoRows {
 		return domain.Submission{}, notFound("submission")
 	} else if e != nil {
 		return domain.Submission{}, e
@@ -344,13 +386,13 @@ func (s *Store) GetSubmission(id string) (domain.Submission, error) {
 	return x, nil
 }
 
-func (s *Store) ListSubmissions(contestID string) []domain.Submission {
+func (s *Store) ListSubmissions(contestID string) ([]domain.Submission, error) {
 	var out []domain.Submission
 	if err := s.listScoped(tSubs, contestID, &out); err != nil {
-		return []domain.Submission{}
+		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].SubmittedAt.After(out[j].SubmittedAt) })
-	return out
+	return out, nil
 }
 
 func (s *Store) UpdateSubmission(x domain.Submission) error {
@@ -364,7 +406,7 @@ func (s *Store) SetPasswordHash(userID, hash string) error {
 	if _, err := s.GetUser(userID); err != nil {
 		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO credentials(user_id, hash) VALUES(?, ?) ON CONFLICT(user_id) DO UPDATE SET hash=excluded.hash`, userID, hash)
+	_, err := s.ex.Exec(`INSERT INTO credentials(user_id, hash) VALUES(?, ?) ON CONFLICT(user_id) DO UPDATE SET hash=excluded.hash`, userID, hash)
 	return err
 }
 
@@ -373,7 +415,7 @@ func (s *Store) GetPasswordHash(userID string) (string, error) {
 		return "", err
 	}
 	var hash string
-	if err := s.db.QueryRow(`SELECT hash FROM credentials WHERE user_id=?`, userID).Scan(&hash); err == sql.ErrNoRows {
+	if err := s.ex.QueryRow(`SELECT hash FROM credentials WHERE user_id=?`, userID).Scan(&hash); err == sql.ErrNoRows {
 		return "", nil
 	} else if err != nil {
 		return "", err
@@ -386,13 +428,13 @@ func (s *Store) SaveSession(sess domain.Session) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO sessions(token, user_id, data) VALUES(?, ?, ?) ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, data=excluded.data`, sess.Token, sess.UserID, data)
+	_, err = s.ex.Exec(`INSERT INTO sessions(token, user_id, data) VALUES(?, ?, ?) ON CONFLICT(token) DO UPDATE SET user_id=excluded.user_id, data=excluded.data`, sess.Token, sess.UserID, data)
 	return err
 }
 
 func (s *Store) GetSession(token string) (domain.Session, error) {
 	var data string
-	if err := s.db.QueryRow(`SELECT data FROM sessions WHERE token=?`, token).Scan(&data); err == sql.ErrNoRows {
+	if err := s.ex.QueryRow(`SELECT data FROM sessions WHERE token=?`, token).Scan(&data); err == sql.ErrNoRows {
 		return domain.Session{}, errors.New("session not found")
 	} else if err != nil {
 		return domain.Session{}, err
@@ -405,11 +447,11 @@ func (s *Store) GetSession(token string) (domain.Session, error) {
 }
 
 func (s *Store) DeleteSession(token string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE token=?`, token)
+	_, err := s.ex.Exec(`DELETE FROM sessions WHERE token=?`, token)
 	return err
 }
 
 func (s *Store) DeleteSessionsForUser(userID string) error {
-	_, err := s.db.Exec(`DELETE FROM sessions WHERE user_id=?`, userID)
+	_, err := s.ex.Exec(`DELETE FROM sessions WHERE user_id=?`, userID)
 	return err
 }

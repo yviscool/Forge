@@ -5,7 +5,7 @@ import (
 	"strings"
 )
 
-// ValidateProblem 强制校验题面必要字段，与 SPEC 5.3 对齐。
+// ValidateProblem 强制校验题面必要字段与合理性，与 SPEC 对齐。
 func ValidateProblem(p Problem) error {
 	if strings.TrimSpace(p.ContestID) == "" {
 		return errors.New("contestId is required")
@@ -27,6 +27,31 @@ func ValidateProblem(p Problem) error {
 	}
 	if strings.TrimSpace(p.Constraints) == "" {
 		return errors.New("constraints specification is required")
+	}
+	if p.TimeLimitMs < 0 {
+		return errors.New("time limit cannot be negative")
+	}
+	if p.MemoryLimitMiB < 0 {
+		return errors.New("memory limit cannot be negative")
+	}
+	if p.IOMode == IOFile {
+		if strings.TrimSpace(p.InFile) == "" || strings.TrimSpace(p.OutFile) == "" {
+			return errors.New("file IO mode requires both inFile and outFile")
+		}
+		if strings.Contains(p.InFile, "..") || strings.Contains(p.OutFile, "..") {
+			return errors.New("file IO path cannot contain traversal elements (..)")
+		}
+	}
+	for i, tc := range p.TestCases {
+		if tc.Score < 0 {
+			return errors.New("testcase score cannot be negative")
+		}
+		for _, dep := range tc.DependsOn {
+			if dep == tc.Subtask {
+				return errors.New("subtask cannot depend on itself")
+			}
+		}
+		_ = i
 	}
 	return nil
 }
