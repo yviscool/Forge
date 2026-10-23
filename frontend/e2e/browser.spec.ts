@@ -397,6 +397,13 @@ test('administrator can open the teacher console and security controls', async (
     await expectNoSeriousAccessibilityViolations(page)
   }
 
+  // 内置省份表：真实端点 + 只读视图（教师/管理员可见，管理员有操作列）。
+  await page.getByRole('tab', { name: '省份与考号' }).click()
+  await expect(page.getByRole('tabpanel', { name: '省份与考号' })).toBeVisible()
+  await expect(
+    page.getByRole('tabpanel', { name: '省份与考号' }).getByText('河南')
+  ).toBeVisible()
+
   await tabs.first().click()
   await page.getByRole('button', { name: '新建比赛' }).click()
   const createDialog = page.getByRole('dialog', { name: '创建新比赛' })

@@ -19,3 +19,12 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
 - [x] CI 五道门：go(ubuntu+windows) / frontend(含覆盖率与 audit) / e2e / contract(OpenAPI) / security(govulncheck)，action 全部固定 commit SHA
 - [x] Release 流水线：verify → 4 平台归档 + go version SBOM + SHA256SUMS → 归档解压启动冒烟（cmd/forge-smoke）→ 发布
 - [x] 判题 fixture 稳定性：并行偷钟探针改为固定迭代量烧 CPU，调度受限宿主不再误判 AC（wall/CPU 双路径均 TLE）
+
+# 省份表与 CSP 准考证号（2026-10 完成）
+
+- [x] 内置 34 省级行政区引用表（编号/名称/固定排序，编译进二进制），启用状态持久化（sqlite v7 + memory 契约测试）
+- [x] 用户关联省份：创建账号（编号或中文全名归一化）、编辑账号（PUT /users/{id}）、批量改省（事务原子）、CSV 导入第 6 列
+- [x] CSP 准考证号发号：省份-组别(J/S)+定长序号（默认 5 位，3-8 可配），按（省份，组别）续发永不重号，exam_ticket 唯一索引兜底
+- [x] 前端：「省份与考号」管理表（用户数/状态/启停，仅管理员可操作）、名册省份与准考证列、批量改省份、准考证对话框 CSP 模式（预览号段/选中发号）
+- [x] CSV 导出对齐导入列序（name,role,group,password,username,province,examTicket），可回导
+- [x] 无障碍：管理表全部文本对比度 ≥ 4.5:1，E2E axe 扫描覆盖新面板

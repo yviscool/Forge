@@ -26,6 +26,8 @@ type Store struct {
 	subByReqID  map[string]string
 	passwords   map[string]string
 	sessions    map[string]domain.Session
+	// provinceStates 省份启用状态覆盖（编号 → 是否启用）；nil 视为全部启用。
+	provinceStates map[string]bool
 }
 
 // Ping always succeeds: an in-memory store has no external connection to lose.
@@ -33,14 +35,15 @@ func (s *Store) Ping(context.Context) error { return nil }
 
 func New() *Store {
 	return &Store{
-		users:       map[string]domain.User{},
-		groups:      map[string]domain.Group{},
-		contests:    map[string]domain.Contest{},
-		problems:    map[string]domain.Problem{},
-		submissions: map[string]domain.Submission{},
-		subByReqID:  map[string]string{},
-		passwords:   map[string]string{},
-		sessions:    map[string]domain.Session{},
+		users:          map[string]domain.User{},
+		groups:         map[string]domain.Group{},
+		contests:       map[string]domain.Contest{},
+		problems:       map[string]domain.Problem{},
+		submissions:    map[string]domain.Submission{},
+		subByReqID:     map[string]string{},
+		passwords:      map[string]string{},
+		sessions:       map[string]domain.Session{},
+		provinceStates: map[string]bool{},
 	}
 }
 
@@ -98,15 +101,16 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 
 	// 拍摄快照到独立工作副本，避免同一个 Store 递归锁死
 	tx := &Store{
-		seq:         s.seq,
-		users:       cloneMap(s.users),
-		groups:      cloneMap(s.groups),
-		contests:    cloneMap(s.contests),
-		problems:    cloneMap(s.problems),
-		submissions: cloneMap(s.submissions),
-		subByReqID:  cloneMap(s.subByReqID),
-		passwords:   cloneMap(s.passwords),
-		sessions:    cloneMap(s.sessions),
+		seq:            s.seq,
+		users:          cloneMap(s.users),
+		groups:         cloneMap(s.groups),
+		contests:       cloneMap(s.contests),
+		problems:       cloneMap(s.problems),
+		submissions:    cloneMap(s.submissions),
+		subByReqID:     cloneMap(s.subByReqID),
+		passwords:      cloneMap(s.passwords),
+		sessions:       cloneMap(s.sessions),
+		provinceStates: cloneMap(s.provinceStates),
 	}
 
 	if err := fn(tx); err != nil {
@@ -123,6 +127,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 	s.subByReqID = tx.subByReqID
 	s.passwords = tx.passwords
 	s.sessions = tx.sessions
+	s.provinceStates = tx.provinceStates
 	return nil
 }
 
@@ -155,6 +160,29 @@ func (s *Store) UpdateUser(u domain.User) error {
 		return errors.New("username already exists")
 	}
 	s.users[u.ID] = u
+	return nil
+}
+
+// ProvinceStates 返回省份启用状态覆盖表；调用方拿到的是副本。
+func (s *Store) ProvinceStates() (map[string]bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string]bool, len(s.provinceStates))
+	for code, enabled := range s.provinceStates {
+		out[code] = enabled
+	}
+	return out, nil
+}
+
+// SetProvinceState 记录单个省份的启用状态；非内置省份直接拒绝。
+func (s *Store) SetProvinceState(code string, enabled bool) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	canonical, ok := domain.ProvinceByCode(code)
+	if !ok {
+		return fmt.Errorf("unknown province %q", code)
+	}
+	s.provinceStates[canonical.Code] = enabled
 	return nil
 }
 

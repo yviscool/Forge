@@ -104,8 +104,37 @@ export interface User {
   username: string
   name: string
   role: Role
+  province?: string
+  examTicket?: string
   groups?: string[]
   createdAt?: string
+}
+
+export interface ProvinceView {
+  code: string
+  name: string
+  sort: number
+  enabled: boolean
+  users: number
+  hasUsers: boolean
+}
+
+export interface CSPTicketAssignment {
+  user: User
+  ticket: string
+}
+
+export interface CSPTicketRequest {
+  province: string
+  group: 'J' | 'S'
+  /** 序号补零位宽，缺省 5（HA-J00001）。 */
+  numberLength?: number
+  /** 与 userIds 二选一：批量创建考生账号数量。 */
+  createCount?: number
+  /** 与 createCount 二选一：给既有账号发号。 */
+  userIds?: string[]
+  /** 仅对新建账号生效的统一初始密码。 */
+  password?: string
 }
 
 export interface Group {
@@ -527,10 +556,34 @@ export const api = {
     requestBlob(`/contests/${encoded(cid)}/problems/${encoded(pid)}/files/${encoded(name)}`),
 
   users: () => request<User[]>('/users'),
-  createUser: (name: string, username = '', role: Role = 'student', password = '') =>
+  createUser: (name: string, username = '', role: Role = 'student', password = '', province = '') =>
     request<User>('/users', {
       method: 'POST',
-      body: JSON.stringify({ name, username, role, password }),
+      body: JSON.stringify({ name, username, role, password, province }),
+    }),
+  updateUser: (
+    uid: string,
+    payload: { name: string; username: string; role?: string; province?: string }
+  ) =>
+    request<User>(`/users/${encoded(uid)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    }),
+  batchSetProvince: (userIds: string[], province: string) =>
+    request<{ updated: number }>('/users/batch-province', {
+      method: 'POST',
+      body: JSON.stringify({ userIds, province }),
+    }),
+  generateCSPTickets: (req: CSPTicketRequest) =>
+    request<{ assignments: CSPTicketAssignment[] }>('/users/csp-tickets', {
+      method: 'POST',
+      body: JSON.stringify(req),
+    }),
+  provinces: () => request<ProvinceView[]>('/provinces'),
+  setProvinceEnabled: (code: string, enabled: boolean) =>
+    request<ProvinceView>(`/provinces/${encoded(code)}`, {
+      method: 'PUT',
+      body: JSON.stringify({ enabled }),
     }),
   resetUserPassword: (uid: string, password: string) =>
     request<{ ok: boolean }>(`/users/${encoded(uid)}/password`, {

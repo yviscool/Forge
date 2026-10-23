@@ -10,4 +10,5 @@ func TestStoreConformance(t *testing.T) {
 	storetest.Exercise(t, New())
 	storetest.PasswordsAndSessions(t, New())
 	storetest.TransactionSemantics(t, New())
+	storetest.ProvinceStates(t, New())
 }

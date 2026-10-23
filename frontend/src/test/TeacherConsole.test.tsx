@@ -1,11 +1,12 @@
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { beforeEach, describe, expect, it } from 'vitest'
-import type { Contest, Group, Problem, User } from '../api/client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Contest, Group, Problem, ProvinceView, User } from '../api/client'
 import { ToastProvider } from '../components/ui/toast'
 import { TeacherConsole } from '../views/TeacherConsole'
 import { useStore } from '../store/useStore'
+import type { PathParams } from 'msw'
 import { apiRoutes, HttpResponse, server } from './msw'
 
 const contest: Contest = {
@@ -39,6 +40,12 @@ const users: User[] = [
 
 const groups: Group[] = [{ id: 'g1', name: '高一竞赛A班', userIds: ['u1'] }]
 
+const provinces: ProvinceView[] = [
+  { code: 'BJ', name: '北京', sort: 10, enabled: true, users: 0, hasUsers: false },
+  { code: 'HA', name: '河南', sort: 170, enabled: true, users: 1, hasUsers: true },
+  { code: 'CQ', name: '重庆', sort: 40, enabled: false, users: 0, hasUsers: false },
+]
+
 function renderConsole() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -64,6 +71,7 @@ function installBaseline(
     apiRoutes.get('/contests', () => HttpResponse.json([contest])),
     apiRoutes.get('/contests/contest-1/problems', () => HttpResponse.json([problem])),
     apiRoutes.get('/users', () => HttpResponse.json(users)),
+    apiRoutes.get('/provinces', () => HttpResponse.json(provinces)),
     apiRoutes.get('/groups', () => HttpResponse.json(groups)),
     apiRoutes.get('/contests/contest-1/submissions', () => HttpResponse.json([])),
     apiRoutes.get('/contests/contest-1/ranking', () => HttpResponse.json([])),
@@ -147,6 +155,37 @@ describe('TeacherConsole test data workflow', () => {
     await waitFor(() => expect(usersTab).toHaveAttribute('aria-selected', 'true'))
     expect(usersTab).toHaveFocus()
     expect(screen.getByRole('tabpanel', { name: '用户与编组' })).toBeInTheDocument()
+  })
+
+  it('shows the province table read-only for teachers and edits user province', async () => {
+    const user = userEvent.setup()
+    const lastEdit: { current: { id: string; body: Record<string, unknown> } | null } = { current: null }
+    const updateUserSpy = vi.fn(async ({ params, request }: { params: PathParams; request: Request }) => {
+      const body = (await request.json()) as Record<string, unknown>
+      lastEdit.current = { id: String(params.id), body }
+      return HttpResponse.json({ ...users[0], ...body })
+    })
+    installBaseline({ files: [], missingPairs: [] })
+    server.use(apiRoutes.put('/users/:id', updateUserSpy))
+    renderConsole()
+
+    // 教师视角：省份表只读，没有启停操作列。
+    await user.click(await screen.findByRole('tab', { name: '省份与考号' }))
+    expect(await screen.findByText('河南')).toBeInTheDocument()
+    expect(screen.getByText('重庆')).toBeInTheDocument()
+    expect(screen.queryByRole('columnheader', { name: '操作' })).not.toBeInTheDocument()
+
+    // 用户名册：编辑 Alice，省份改河南。
+    await user.click(screen.getByRole('tab', { name: '用户与编组' }))
+    const row = (await screen.findByText('Alice')).closest('tr') as HTMLElement
+    await user.click(within(row).getByRole('button', { name: '编辑' }))
+    const dialog = await screen.findByRole('dialog', { name: '编辑账号' })
+    await user.selectOptions(within(dialog).getByLabelText('编辑省份'), 'HA')
+    await user.click(within(dialog).getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(lastEdit.current).not.toBeNull())
+    expect(lastEdit.current?.id).toBe('u1')
+    expect(lastEdit.current?.body).toMatchObject({ name: 'Alice', username: 's001', province: 'HA' })
   })
 
   it('blocks syncing until every test data file is paired', async () => {

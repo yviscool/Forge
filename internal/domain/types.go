@@ -51,12 +51,17 @@ const (
 )
 
 type User struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	Name      string    `json:"name"`
-	Role      string    `json:"role"`
-	Groups    []string  `json:"groups"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID       string `json:"id"`
+	Username string `json:"username"`
+	Name     string `json:"name"`
+	Role     string `json:"role"`
+	// Province 内置省份编号（如 HA）；空表示未设置。归一化与校验见 provinces.go。
+	Province string `json:"province"`
+	// ExamTicket 已分配的 CSP 准考证号（如 HA-J00001）；空表示未分配。
+	// 一经分配不再变化，序号按（省份, 组别）递增。
+	ExamTicket string    `json:"examTicket,omitempty"`
+	Groups     []string  `json:"groups"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 type Group struct {

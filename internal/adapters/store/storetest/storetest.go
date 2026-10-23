@@ -352,3 +352,43 @@ func TransactionSemantics(t *testing.T, s ports.Store) {
 		t.Fatalf("tx-u2 should exist after commit: %+v %v", u, err)
 	}
 }
+
+// ProvinceStates 省份启用状态覆盖表契约：缺省启用、写入持久、非法编号拒绝。
+func ProvinceStates(t *testing.T, s ports.Store) {
+	t.Helper()
+	states, err := s.ProvinceStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := states["HA"]; ok {
+		t.Fatal("fresh store must not carry a HA override")
+	}
+	if err := s.SetProvinceState("HA", false); err != nil {
+		t.Fatal(err)
+	}
+	// 大小写归一化：小写编号写入后仍指向 HA。
+	if err := s.SetProvinceState("gd", false); err != nil {
+		t.Fatal(err)
+	}
+	states, err = s.ProvinceStates()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if states["HA"] || states["GD"] {
+		t.Fatalf("disabled provinces must persist: %+v", states)
+	}
+	if len(states) != 2 {
+		t.Fatalf("override table should hold exactly 2 rows: %+v", states)
+	}
+	if err := s.SetProvinceState("XX", true); err == nil {
+		t.Fatal("unknown province code must be rejected")
+	}
+	// 重新启用。
+	if err := s.SetProvinceState("HA", true); err != nil {
+		t.Fatal(err)
+	}
+	states, _ = s.ProvinceStates()
+	if !states["HA"] {
+		t.Fatal("HA should be re-enabled")
+	}
+}

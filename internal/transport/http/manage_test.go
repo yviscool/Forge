@@ -88,7 +88,8 @@ func TestUserCSVExportQuotesFieldsAndNeutralizesFormulas(t *testing.T) {
 	seenFormula := false
 	seenQuotedName := false
 	for _, row := range rows[1:] {
-		if len(row) != 3 {
+		// name,role,group,password,username,province,examTicket
+		if len(row) != 7 {
 			t.Fatalf("wrong column count: %#v", row)
 		}
 		if strings.HasPrefix(row[0], "'=") {

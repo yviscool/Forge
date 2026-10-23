@@ -218,6 +218,20 @@ func (h *Server) err(w http.ResponseWriter, r *http.Request, code int, err error
 	WriteError(w, r, code, "request_failed", msg)
 }
 
+// writeAppError 把 app 层错误映射为 HTTP 状态码：角色矩阵拒绝统一 403，
+// 其余按请求错误 400 处理（app 层错误文本以 "forbidden: " 前缀标识越权）。
+func writeAppError(w http.ResponseWriter, r *http.Request, err error) {
+	if err != nil && strings.HasPrefix(err.Error(), "forbidden:") {
+		WriteError(w, r, http.StatusForbidden, "forbidden", err.Error())
+		return
+	}
+	code := 400
+	if err != nil && strings.Contains(err.Error(), "not found") {
+		code = 404
+	}
+	WriteError(w, r, code, "request_failed", err.Error())
+}
+
 // dispatch /api/v1 下所有路由。
 func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	p := strings.TrimPrefix(r.URL.Path, "/api/v1")
@@ -300,6 +314,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 				Username string `json:"username"`
 				Role     string `json:"role"`
 				Password string `json:"password"`
+				Province string `json:"province"`
 			}
 			if decode(r, &v) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -319,7 +334,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 					"only administrators can create or promote staff accounts")
 				return
 			}
-			u, err := h.svc.CreateUserWithUsername(v.Name, v.Username, v.Role)
+			u, err := h.svc.CreateAccount(v.Name, v.Username, v.Role, v.Province)
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
@@ -363,6 +378,166 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", "attachment; filename=forge-users.csv")
 		_, _ = w.Write([]byte(h.exportUsers()))
+		return
+	}
+
+	// /users/batch-province（批量设置省份，教师改学生、管理员任意）
+	if len(parts) == 2 && parts[0] == "users" && parts[1] == "batch-province" && r.Method == "POST" {
+		r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+		if !ok {
+			return
+		}
+		var v struct {
+			UserIDs  []string `json:"userIds"`
+			Province string   `json:"province"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		sess, _ := sessionOf(r2)
+		updated, err := h.svc.BatchSetProvince(sess.Role, v.UserIDs, v.Province)
+		if err != nil {
+			writeAppError(w, r, err)
+			return
+		}
+		writeOut(w, map[string]any{"updated": updated}, 200)
+		return
+	}
+
+	// /users/csp-tickets（CSP 准考证号分配：批量建考生账号或给既有账号发号）
+	if len(parts) == 2 && parts[0] == "users" && parts[1] == "csp-tickets" && r.Method == "POST" {
+		r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+		if !ok {
+			return
+		}
+		var v struct {
+			Province     string   `json:"province"`
+			Group        string   `json:"group"`
+			NumberLength int      `json:"numberLength"`
+			CreateCount  int      `json:"createCount"`
+			UserIDs      []string `json:"userIds"`
+			Password     string   `json:"password"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		sess, _ := sessionOf(r2)
+		assignments, err := h.svc.AssignCSPTickets(sess.Role, app.CSPTicketRequest{
+			Province:     v.Province,
+			Group:        v.Group,
+			NumberLength: v.NumberLength,
+			CreateCount:  v.CreateCount,
+			UserIDs:      v.UserIDs,
+		})
+		if err != nil {
+			writeAppError(w, r, err)
+			return
+		}
+		// 统一初始密码仅作用于本次新建的考生账号；给既有账号发号不动密码。
+		if v.Password != "" {
+			for _, a := range assignments {
+				if !a.Created {
+					continue
+				}
+				if err := h.auth.ResetPassword(a.User.ID, v.Password); err != nil {
+					h.err(w, r, 400, fmt.Errorf("password for %s: %w", a.User.Username, err))
+					return
+				}
+			}
+		}
+		writeOut(w, map[string]any{"assignments": assignments}, 201)
+		return
+	}
+
+	// /users/{id}（PUT 编辑账号：姓名/登录名/角色/省份）
+	if len(parts) == 2 && parts[0] == "users" &&
+		parts[1] != "import" && parts[1] != "export" &&
+		parts[1] != "batch-province" && parts[1] != "csp-tickets" {
+		if r.Method != "PUT" {
+			h.err(w, r, 405, fmt.Errorf("method not allowed"))
+			return
+		}
+		r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+		if !ok {
+			return
+		}
+		var v struct {
+			Name     string `json:"name"`
+			Username string `json:"username"`
+			Role     string `json:"role"`
+			Province string `json:"province"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		sess, _ := sessionOf(r2)
+		u, err := h.svc.UpdateUser(sess.Role, parts[1], app.UpdateUserInput{
+			Name: v.Name, Username: v.Username, Role: v.Role, Province: v.Province,
+		})
+		if err != nil {
+			writeAppError(w, r, err)
+			return
+		}
+		writeOut(w, u, 200)
+		return
+	}
+
+	// /provinces（内置省份表 + 用户数 + 启用状态）
+	if len(parts) == 1 && parts[0] == "provinces" {
+		switch r.Method {
+		case "GET":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
+			views, err := h.svc.ListProvinces()
+			if err != nil {
+				h.err(w, r, 500, err)
+				return
+			}
+			writeOut(w, views, 200)
+		default:
+			h.err(w, r, 405, fmt.Errorf("method not allowed"))
+		}
+		return
+	}
+
+	// /provinces/{code}（启用/停用，仅管理员）
+	if len(parts) == 2 && parts[0] == "provinces" {
+		if r.Method != "PUT" {
+			h.err(w, r, 405, fmt.Errorf("method not allowed"))
+			return
+		}
+		r2, ok := h.requireRole(w, r, domain.RoleAdmin)
+		if !ok {
+			return
+		}
+		var v struct {
+			Enabled *bool `json:"enabled"`
+		}
+		if decode(r, &v) != nil || v.Enabled == nil {
+			h.err(w, r, 400, fmt.Errorf("enabled (boolean) is required"))
+			return
+		}
+		sess, _ := sessionOf(r2)
+		if err := h.svc.SetProvinceEnabled(sess.Role, parts[1], *v.Enabled); err != nil {
+			writeAppError(w, r, err)
+			return
+		}
+		views, err := h.svc.ListProvinces()
+		if err != nil {
+			h.err(w, r, 500, err)
+			return
+		}
+		for _, view := range views {
+			if strings.EqualFold(view.Code, parts[1]) {
+				writeOut(w, view, 200)
+				return
+			}
+		}
+		h.err(w, r, 404, fmt.Errorf("province not found"))
 		return
 	}
 

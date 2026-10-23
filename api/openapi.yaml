@@ -1315,6 +1315,9 @@ paths:
                 password:
                   type: string
                   format: password
+                province:
+                  type: string
+                  description: Built-in province code (case-insensitive) or Chinese name.
       responses:
         "201":
           description: User created.
@@ -1322,6 +1325,123 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/{id}:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    put:
+      tags: [identity]
+      operationId: updateUser
+      summary: Update user profile, role, or province
+      description: >-
+        Role changes and cross-staff edits follow the privilege matrix
+        (teachers may only manage student accounts).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, username]
+              properties:
+                name:
+                  type: string
+                username:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, teacher, student]
+                  description: Omit to keep the current role.
+                province:
+                  type: string
+                  description: Built-in province code or Chinese name; unchanged value keeps the current one.
+      responses:
+        "200":
+          description: Updated user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/batch-province:
+    post:
+      tags: [identity]
+      operationId: batchSetProvince
+      summary: Set province for many users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userIds, province]
+              properties:
+                userIds:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: string
+                province:
+                  type: string
+      responses:
+        "200":
+          description: Number of users updated (transaction is all-or-nothing).
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/csp-tickets:
+    post:
+      tags: [identity]
+      operationId: assignCSPTickets
+      summary: Assign CSP admission tickets
+      description: >-
+        Tickets follow `PROVINCE-GROUP<zero-padded number>` (e.g. HA-J00001).
+        Sequence continues per (province, group). Provide exactly one of
+        `createCount` (create candidate accounts) or `userIds` (existing users).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [province, group]
+              properties:
+                province:
+                  type: string
+                group:
+                  type: string
+                  enum: [J, S]
+                numberLength:
+                  type: integer
+                  minimum: 3
+                  maximum: 8
+                  default: 5
+                createCount:
+                  type: integer
+                  minimum: 1
+                  maximum: 500
+                userIds:
+                  type: array
+                  maxItems: 500
+                  items:
+                    type: string
+                password:
+                  type: string
+                  format: password
+                  description: Optional unified initial password for newly created accounts only.
+      responses:
+        "201":
+          description: Ticket assignments in issue order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assignments:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/CSPTicketAssignment"
         "403":
           $ref: "#/components/responses/Forbidden"
   /api/v1/users/import:
@@ -1377,6 +1497,53 @@ paths:
       responses:
         "200":
           description: Password reset.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/provinces:
+    get:
+      tags: [identity]
+      operationId: listProvinces
+      summary: List built-in provinces with user counts
+      responses:
+        "200":
+          description: Provinces in canonical sort order.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProvinceView"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/provinces/{code}:
+    parameters:
+      - name: code
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [identity]
+      operationId: setProvinceEnabled
+      summary: Enable or disable a province
+      description: Admin-only exam policy; disabled provinces block new assignments but keep existing users.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated province view.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProvinceView"
         "403":
           $ref: "#/components/responses/Forbidden"
   /api/v1/groups:
@@ -1681,6 +1848,12 @@ components:
         role:
           type: string
           enum: [admin, teacher, student]
+        province:
+          type: string
+          description: Built-in province code (e.g. HA); empty when unset.
+        examTicket:
+          type: string
+          description: Assigned CSP admission ticket (e.g. HA-J00001); empty when unassigned.
         groups:
           type: array
           items:
@@ -1688,6 +1861,33 @@ components:
         createdAt:
           type: string
           format: date-time
+    ProvinceView:
+      type: object
+      required: [code, name, sort, enabled, users]
+      properties:
+        code:
+          type: string
+          description: Two-letter province code used in CSP tickets.
+        name:
+          type: string
+        sort:
+          type: integer
+        enabled:
+          type: boolean
+        users:
+          type: integer
+          description: Number of users linked to this province.
+        hasUsers:
+          type: boolean
+    CSPTicketAssignment:
+      type: object
+      required: [user, ticket]
+      properties:
+        user:
+          $ref: "#/components/schemas/User"
+        ticket:
+          type: string
+          example: HA-J00001
     Group:
       type: object
       required: [id, name]

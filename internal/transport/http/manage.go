@@ -19,7 +19,8 @@ const (
 	maxImportRows     = 5000
 )
 
-// importUsers CSV 批量导入：name,role,group,password（首行可为表头）。
+// importUsers CSV 批量导入：name,role,group,password,username,province（首行可为表头）。
+// 第 5/6 列为可选扩展；省份接受编号（大小写不敏感）或中文全名，如「河南」或 HA。
 func (h *Server) importUsers(raw, actorRole string) map[string]any {
 	if len(raw) > maxImportCSVBytes {
 		return map[string]any{
@@ -62,6 +63,19 @@ func (h *Server) importUsers(raw, actorRole string) map[string]any {
 		if len(f) > 3 {
 			pw = strings.TrimSpace(f[3])
 		}
+		username := ""
+		if len(f) > 4 {
+			username = strings.TrimSpace(f[4])
+		}
+		province := ""
+		if len(f) > 5 {
+			ref, err := domain.NormalizeProvinceRef(f[5])
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("line %d province: %v", i+1, err))
+				continue
+			}
+			province = ref
+		}
 		if !domain.ValidRole(role) {
 			errs = append(errs, fmt.Sprintf("line %d: unknown role %q", i+1, role))
 			continue
@@ -78,7 +92,7 @@ func (h *Server) importUsers(raw, actorRole string) map[string]any {
 				continue
 			}
 		}
-		u, err := h.svc.CreateUser(name, role)
+		u, err := h.svc.CreateAccount(name, username, role, province)
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("line %d: %v", i+1, err))
 			continue
@@ -142,7 +156,9 @@ func writeCSV(rows [][]string) string {
 	return b.String()
 }
 
-// exportUsers 导出 name,role,groups（不含密码）。
+// exportUsers 导出 name,role,group,password,username,province,examTicket（不含密码）。
+// 列序与导入格式对齐（第 3 列组名、第 5 列登录名、第 6 列省份、第 7 列准考证号），
+// 导出的 CSV 可直接编辑后回导。
 func (h *Server) exportUsers() string {
 	users := h.svc.ListUsers()
 	sort.Slice(users, func(i, j int) bool { return users[i].Name < users[j].Name })
@@ -151,7 +167,7 @@ func (h *Server) exportUsers() string {
 		groups[g.ID] = g.Name
 	}
 	rows := make([][]string, 0, len(users)+1)
-	rows = append(rows, []string{"name", "role", "groups"})
+	rows = append(rows, []string{"name", "role", "group", "password", "username", "province", "examTicket"})
 	for _, u := range users {
 		var gs []string
 		for _, gid := range u.Groups {
@@ -161,6 +177,7 @@ func (h *Server) exportUsers() string {
 		}
 		rows = append(rows, []string{
 			csvText(u.Name), csvText(u.Role), csvText(strings.Join(gs, ";")),
+			"", csvText(u.Username), csvText(u.Province), csvText(u.ExamTicket),
 		})
 	}
 	return writeCSV(rows)

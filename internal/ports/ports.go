@@ -37,6 +37,12 @@ type Store interface {
 	ListUsers() ([]domain.User, error)
 	UpdateUser(u domain.User) error
 
+	// ProvinceStates 返回省份启用状态覆盖表：编号 → 是否启用；
+	// 未出现的省份默认启用（内置行政区划本身编译在 domain 里）。
+	ProvinceStates() (map[string]bool, error)
+	// SetProvinceState 记录单个省份的启用/停用；code 必须是内置省份。
+	SetProvinceState(code string, enabled bool) error
+
 	CreateGroup(g domain.Group) (domain.Group, error)
 	GetGroup(id string) (domain.Group, error)
 	ListGroups() ([]domain.Group, error)

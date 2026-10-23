@@ -20,7 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 6
+const schemaVersion = 7
 
 type dbExecutor interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -199,6 +199,25 @@ func migrate(db *sql.DB) error {
 			}
 		}
 		v = 6
+	}
+	if v < 7 {
+		ddl := []string{
+			// 省份启用状态覆盖：未出现的行默认启用；行政区划本身编译在 domain 里。
+			`CREATE TABLE IF NOT EXISTS province_states (
+				code TEXT PRIMARY KEY,
+				enabled INTEGER NOT NULL CHECK (enabled IN (0, 1))
+			)`,
+			// 准考证号一经分配不再变化且全省同组唯一；空值（未分配）不参与唯一约束。
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_exam_ticket
+			 ON users(upper(json_extract(data, '$.examTicket')))
+			 WHERE COALESCE(json_extract(data, '$.examTicket'), '') <> ''`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v7: %w", err)
+			}
+		}
+		v = 7
 	}
 	if v != schemaVersion {
 		return fmt.Errorf("unsupported sqlite schema version %d (want %d)", v, schemaVersion)
@@ -441,6 +460,44 @@ func (s *Store) UpdateUser(u domain.User) error {
 		return err
 	}
 	return s.put(tUsers, u.ID, u)
+}
+
+// ProvinceStates 读取省份启用状态覆盖表。
+func (s *Store) ProvinceStates() (map[string]bool, error) {
+	rows, err := s.ex.Query(`SELECT code, enabled FROM province_states`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]bool{}
+	for rows.Next() {
+		var code string
+		var enabled int
+		if err := rows.Scan(&code, &enabled); err != nil {
+			return nil, err
+		}
+		out[code] = enabled == 1
+	}
+	return out, rows.Err()
+}
+
+// SetProvinceState 写入单个省份的启用状态；非内置省份直接拒绝，
+// 避免运营侧误建出准考证号无法使用的假省份。
+func (s *Store) SetProvinceState(code string, enabled bool) error {
+	canonical, ok := domain.ProvinceByCode(code)
+	if !ok {
+		return fmt.Errorf("unknown province %q", code)
+	}
+	flag := 0
+	if enabled {
+		flag = 1
+	}
+	_, err := s.ex.Exec(
+		`INSERT INTO province_states(code, enabled) VALUES(?, ?)
+		 ON CONFLICT(code) DO UPDATE SET enabled=excluded.enabled`,
+		canonical.Code, flag,
+	)
+	return err
 }
 
 func (s *Store) CreateGroup(g domain.Group) (domain.Group, error) {

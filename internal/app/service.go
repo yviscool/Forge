@@ -47,7 +47,14 @@ func (s *Service) CreateUser(name, role string) (domain.User, error) {
 	return s.CreateUserWithUsername(name, "", role)
 }
 
+// CreateUserWithUsername 旧签名入口（不带省份/准考证号）。
 func (s *Service) CreateUserWithUsername(name, username, role string) (domain.User, error) {
+	return s.createUserRecord(name, username, role, "", "")
+}
+
+// createUserRecord 账号创建核心：登录名冲突时自动加后缀；
+// 省份与准考证号由调用方先行归一化校验（见 provinces.go）。
+func (s *Service) createUserRecord(name, username, role, province, examTicket string) (domain.User, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return domain.User{}, errors.New("name is required")
@@ -80,7 +87,8 @@ func (s *Service) CreateUserWithUsername(name, username, role string) (domain.Us
 		}
 		created, err = tx.CreateUser(domain.User{
 			ID: tx.NextID("usr"), Username: username, Name: name,
-			Role: domain.NormalizeRole(role), Groups: []string{}, CreatedAt: s.clock.Now(),
+			Role: domain.NormalizeRole(role), Province: province, ExamTicket: examTicket,
+			Groups: []string{}, CreatedAt: s.clock.Now(),
 		})
 		return err
 	})

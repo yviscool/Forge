@@ -20,6 +20,8 @@ import { useToast } from '../components/ui/toast'
 import { Scoreboard } from '../components/Scoreboard'
 import { MarkdownView } from '../components/MarkdownView'
 import { ChoicePaperEditor } from '../components/ChoicePaperEditor'
+import { ProvincesPanel } from '../components/ProvincesPanel'
+import { useStore } from '../store/useStore'
 import { EditorLoading } from '../components/ui/editor-loading'
 import { InlineError } from '../components/ui/empty-state'
 import { useSSE } from '../realtime/useSSE'
@@ -50,6 +52,8 @@ import {
   RefreshCw,
   FolderArchive,
   Info,
+  MapPin,
+  UserPen,
 } from 'lucide-react'
 import { TeacherSecurityPanel } from '../components/TeacherSecurityPanel'
 
@@ -59,7 +63,7 @@ const CodeDiffViewer = React.lazy(() =>
   }))
 )
 
-type TeacherTab = 'contests' | 'users' | 'problems' | 'analytics' | 'submissions' | 'security'
+type TeacherTab = 'contests' | 'users' | 'provinces' | 'problems' | 'analytics' | 'submissions' | 'security'
 
 const TAB_ITEMS: Array<{
   key: TeacherTab
@@ -68,6 +72,7 @@ const TAB_ITEMS: Array<{
 }> = [
   { key: 'contests', label: '比赛概览', icon: Layers },
   { key: 'users', label: '用户与编组', icon: Users },
+  { key: 'provinces', label: '省份与考号', icon: MapPin },
   { key: 'problems', label: '试题工坊', icon: FileCode },
   { key: 'analytics', label: '学情分析', icon: GitCompare },
   { key: 'submissions', label: '实时提交', icon: Activity },
@@ -163,6 +168,8 @@ function groupSubtaskDrafts(testCases: TestCase[] = []): SubtaskDraft[] {
 
 export function TeacherConsole() {
   const toast = useToast()
+  const session = useStore((s) => s.session)
+  const isAdmin = session?.role === 'admin'
   const [activeTab, setActiveTab] = useState<TeacherTab>('contests')
   const [pending, setPending] = useState<string | null>(null)
 
@@ -217,16 +224,29 @@ export function TeacherConsole() {
   // User Management State
   const [newGroupForm, setNewGroupForm] = useState({ name: '' })
   const [groupMemberDraft, setGroupMemberDraft] = useState<Record<string, string>>({})
-  const [newUserForm, setNewUserForm] = useState({ name: '', username: '', role: 'student', password: '' })
+  const [newUserForm, setNewUserForm] = useState({ name: '', username: '', role: 'student', password: '', province: '' })
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [editingUser, setEditingUser] = useState<User | null>(null)
+  const [editUserForm, setEditUserForm] = useState({ name: '', username: '', role: '', province: '' })
+  const [editUserBusy, setEditUserBusy] = useState(false)
+  const [showBatchProvince, setShowBatchProvince] = useState(false)
+  const [batchProvinceCode, setBatchProvinceCode] = useState('')
+  const [batchProvinceBusy, setBatchProvinceBusy] = useState(false)
   const [csvContent, setCsvContent] = useState('')
   const [showImportCsv, setShowImportCsv] = useState(false)
   const [examUserPrefix, setExamUserPrefix] = useState('NOIP2026-')
   const [examUserCount, setExamUserCount] = useState(20)
   const [examUserPassword, setExamUserPassword] = useState('')
   const [isGeneratingUsers, setIsGeneratingUsers] = useState(false)
+  const [seatMode, setSeatMode] = useState<'prefix' | 'csp'>('csp')
+  const [cspProvince, setCspProvince] = useState('')
+  const [cspGroup, setCspGroup] = useState<'J' | 'S'>('J')
+  const [cspDigits, setCspDigits] = useState(5)
+  const [cspCount, setCspCount] = useState(20)
+  const [isGeneratingCSP, setIsGeneratingCSP] = useState(false)
   const [showSeatCardModal, setShowSeatCardModal] = useState(false)
   const [generatedCredentials, setGeneratedCredentials] = useState<
-    Array<{ username: string; password: string; name: string }>
+    Array<{ username: string; password: string; name: string; ticket?: string }>
   >([])
   const [resetUser, setResetUser] = useState<User | null>(null)
   const [resetPassword, setResetPassword] = useState('')
@@ -601,6 +621,20 @@ export function TeacherConsole() {
     queryFn: api.users,
   })
 
+  const {
+    data: provinces = [],
+    isLoading: provincesLoading,
+    error: provincesError,
+    refetch: refetchProvinces,
+  } = useQuery({
+    queryKey: ['provinces'],
+    queryFn: api.provinces,
+  })
+
+  const enabledProvinces = provinces.filter((p) => p.enabled)
+  const provinceName = (code?: string) =>
+    provinces.find((p) => p.code === code)?.name || code || ''
+
   const seatCardEntries =
     generatedCredentials.length > 0
       ? generatedCredentials
@@ -610,6 +644,7 @@ export function TeacherConsole() {
           // print a guessed credential on a seat card.
           password: '密码未知，请由教师重置',
           name: user.name,
+          ticket: user.examTicket,
         }))
 
   const {
@@ -908,13 +943,116 @@ export function TeacherConsole() {
         newUserForm.name.trim(),
         newUserForm.username.trim(),
         newUserForm.role as 'student' | 'teacher',
-        newUserForm.password
+        newUserForm.password,
+        newUserForm.province
       )
-      setNewUserForm({ name: '', username: '', role: 'student', password: '' })
+      setNewUserForm({ name: '', username: '', role: 'student', password: '', province: newUserForm.province })
       await refetchUsers()
-      toast.success('账号已录入', `登录账号：${created.username}`)
+      toast.success('账号已录入', `登录账号：${created.username}${created.province ? ' · 省份：' + provinceName(created.province) : ''}`)
     } catch (cause) {
       toast.error('录入失败', errorText(cause))
+    }
+  }
+
+  const handleOpenEditUser = (u: User) => {
+    setEditingUser(u)
+    setEditUserForm({ name: u.name, username: u.username, role: u.role, province: u.province || '' })
+  }
+
+  const handleSaveEditUser = async () => {
+    if (!editingUser) return
+    if (!editUserForm.name.trim()) {
+      toast.error('请填写姓名')
+      return
+    }
+    if (!editUserForm.username.trim()) {
+      toast.error('请填写登录名')
+      return
+    }
+    setEditUserBusy(true)
+    try {
+      await api.updateUser(editingUser.id, {
+        name: editUserForm.name.trim(),
+        username: editUserForm.username.trim(),
+        province: editUserForm.province,
+        ...(isAdmin && editUserForm.role !== editingUser.role ? { role: editUserForm.role } : {}),
+      })
+      await Promise.all([refetchUsers(), refetchProvinces()])
+      toast.success('账号已更新', `${editUserForm.name.trim()} · ${editUserForm.username.trim()}`)
+      setEditingUser(null)
+    } catch (cause) {
+      toast.error('更新账号失败', errorText(cause))
+    } finally {
+      setEditUserBusy(false)
+    }
+  }
+
+  const handleBatchSetProvince = async () => {
+    if (selectedUserIds.length === 0) {
+      toast.error('请先在名册中勾选学生')
+      return
+    }
+    if (!batchProvinceCode) {
+      toast.error('请选择目标省份')
+      return
+    }
+    setBatchProvinceBusy(true)
+    try {
+      const res = await api.batchSetProvince(selectedUserIds, batchProvinceCode)
+      await refetchUsers()
+      toast.success('批量省份已更新', `本次更新 ${res.updated} 名学生`)
+      setSelectedUserIds([])
+      setShowBatchProvince(false)
+    } catch (cause) {
+      toast.error('批量设置省份失败', errorText(cause))
+    } finally {
+      setBatchProvinceBusy(false)
+    }
+  }
+
+  const toggleUserSelected = (uid: string) => {
+    setSelectedUserIds((current) =>
+      current.includes(uid) ? current.filter((id) => id !== uid) : [...current, uid]
+    )
+  }
+
+  const handleGenerateCSPTickets = async () => {
+    if (!cspProvince) {
+      toast.error('请选择省份', 'CSP 准考证号以省份编号开头，如 HA-J00001。')
+      return
+    }
+    if (examUserPassword && examUserPassword.length < 10) {
+      toast.error('统一初始密码过短', '至少 10 位；留空则每个账号生成独立随机密码。')
+      return
+    }
+    setIsGeneratingCSP(true)
+    try {
+      const res = await api.generateCSPTickets({
+        province: cspProvince,
+        group: cspGroup,
+        numberLength: cspDigits,
+        ...(selectedUserIds.length > 0
+          ? { userIds: selectedUserIds }
+          : { createCount: Math.max(1, Math.min(500, cspCount || 1)) }),
+        ...(examUserPassword ? { password: examUserPassword } : {}),
+      })
+      const credentials = res.assignments.map((a) => ({
+        username: a.user.username || a.user.id,
+        password: examUserPassword || generateInitialPassword(),
+        name: a.user.name,
+        ticket: a.ticket,
+      }))
+      await Promise.all([refetchUsers(), refetchProvinces()])
+      setGeneratedCredentials(credentials)
+      setSelectedUserIds([])
+      toast.success(
+        `已发放 ${credentials.length} 个准考证号`,
+        `号段 ${credentials[0]?.ticket ?? ''} ~ ${credentials[credentials.length - 1]?.ticket ?? ''}，可在座位卡中打印。`
+      )
+    } catch (cause) {
+      toast.error('准考证号发放失败', errorText(cause))
+    } finally {
+      setIsGeneratingCSP(false)
     }
   }
 
@@ -1694,6 +1832,19 @@ export function TeacherConsole() {
                   <Button
                     size="sm"
                     variant="outline"
+                    disabled={selectedUserIds.length === 0}
+                    onClick={() => {
+                      setBatchProvinceCode('')
+                      setShowBatchProvince(true)
+                    }}
+                    title={selectedUserIds.length === 0 ? '先在名册中勾选学生' : `为选中的 ${selectedUserIds.length} 名学生设置省份`}
+                    className="text-xs gap-1"
+                  >
+                    <MapPin className="w-3.5 h-3.5" /> 批量改省份 ({selectedUserIds.length})
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
                     onClick={() => setShowSeatCardModal(true)}
                     className="text-xs gap-1 border-amber-300 text-amber-800 bg-amber-50 hover:bg-amber-100"
                   >
@@ -1740,6 +1891,20 @@ export function TeacherConsole() {
                     value={newUserForm.password}
                     onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
                   />
+                  <Select
+                    aria-label="录入省份"
+                    value={newUserForm.province}
+                    onChange={(e) => setNewUserForm({ ...newUserForm, province: e.target.value })}
+                    className="h-9 text-xs"
+                    title="CSP 准考证号的省份编号来源"
+                  >
+                    <option value="">省份（可选）…</option>
+                    {enabledProvinces.map((p) => (
+                      <option key={p.code} value={p.code}>
+                        {p.code} · {p.name}
+                      </option>
+                    ))}
+                  </Select>
                   <div className="flex gap-2">
                     <Button
                       size="sm"
@@ -1759,7 +1924,7 @@ export function TeacherConsole() {
                 {showImportCsv && (
                   <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-200 space-y-2">
                     <span className="text-xs font-semibold text-blue-800">
-                      粘贴 CSV 内容 (格式: name,role,group,password):
+                      粘贴 CSV 内容 (格式: name,role,group,password,username,province；省份可填编号或中文全名，如 HA 或 河南):
                     </span>
                     <textarea
                       rows={3}
@@ -1779,9 +1944,25 @@ export function TeacherConsole() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-50 font-semibold text-slate-600 border-b border-slate-200">
                       <tr>
+                        <th className="px-3 py-2">
+                          <input
+                            type="checkbox"
+                            aria-label="全选学生"
+                            checked={selectedUserIds.length > 0 && selectedUserIds.length === users.filter((u2) => u2.role === 'student').length}
+                            onChange={(event) =>
+                              setSelectedUserIds(
+                                event.target.checked
+                                  ? users.filter((u2) => u2.role === 'student').map((u2) => u2.id)
+                                  : []
+                              )
+                            }
+                          />
+                        </th>
                         <th className="px-3 py-2">姓名</th>
                         <th className="px-3 py-2">学号 / 唯一账号</th>
                         <th className="px-3 py-2">角色</th>
+                        <th className="px-3 py-2">省份</th>
+                        <th className="px-3 py-2">准考证号</th>
                         <th className="px-3 py-2">所属组别</th>
                         <th className="px-3 py-2 text-right">账号操作</th>
                       </tr>
@@ -1791,6 +1972,15 @@ export function TeacherConsole() {
                         const isDup = duplicateNames.has(u.name)
                         return (
                           <tr key={u.id} className="hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              <input
+                                type="checkbox"
+                                aria-label={`选择 ${u.name}`}
+                                disabled={u.role !== 'student'}
+                                checked={selectedUserIds.includes(u.id)}
+                                onChange={() => toggleUserSelected(u.id)}
+                              />
+                            </td>
                             <td className="px-3 py-2 font-medium">
                               <span className="text-slate-900 font-semibold">{u.name}</span>
                               {isDup && (
@@ -1804,6 +1994,19 @@ export function TeacherConsole() {
                               {u.username || u.id}
                             </td>
                             <td className="px-3 py-2 text-slate-600">{u.role}</td>
+                            <td className="px-3 py-2 text-slate-600">
+                              {u.province ? (
+                                <span className="whitespace-nowrap">
+                                  <span className="font-mono font-semibold">{u.province}</span>
+                                  <span className="ml-1 text-slate-400">{provinceName(u.province)}</span>
+                                </span>
+                              ) : (
+                                <span className="text-slate-500">—</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 font-mono text-blue-800">
+                              {u.examTicket || <span className="text-slate-500">—</span>}
+                            </td>
                             <td className="px-3 py-2 text-slate-500">
                               {u.groups && u.groups.length > 0 ? (
                                 u.groups.map((gid) => {
@@ -1843,6 +2046,14 @@ export function TeacherConsole() {
                                 <Button
                                   size="sm"
                                   variant="ghost"
+                                  onClick={() => handleOpenEditUser(u)}
+                                  className="h-7 gap-1 px-2 text-[10px] text-indigo-700"
+                                >
+                                  <UserPen className="h-3 w-3" /> 编辑
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
                                   onClick={() => {
                                     setResetUser(u)
                                     setResetPassword(generateInitialPassword())
@@ -1862,6 +2073,24 @@ export function TeacherConsole() {
               </CardContent>
             </Card>
           </div>
+        </div>
+      )}
+
+      {/* TAB: 省份与考号（内置省份表 + CSP 准考证号说明） */}
+      {activeTab === 'provinces' && (
+        <div
+          role="tabpanel"
+          id="teacher-panel-provinces"
+          aria-labelledby="teacher-tab-provinces"
+          className="space-y-5"
+        >
+          <ProvincesPanel
+            provinces={provinces}
+            loading={provincesLoading}
+            error={provincesError}
+            refetch={refetchProvinces}
+            isAdmin={isAdmin}
+          />
         </div>
       )}
 
@@ -3371,6 +3600,126 @@ export function TeacherConsole() {
       </Dialog>
 
       <Dialog
+        open={Boolean(editingUser)}
+        onClose={() => setEditingUser(null)}
+        title="编辑账号"
+        eyebrow="Account profile"
+        footer={
+          <>
+            <Button size="sm" variant="outline" onClick={() => setEditingUser(null)}>
+              取消
+            </Button>
+            <Button size="sm" loading={editUserBusy} onClick={() => void handleSaveEditUser()}>
+              保存
+            </Button>
+          </>
+        }
+      >
+        {editingUser && (
+          <div className="space-y-3 text-sm">
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">姓名</span>
+              <Input
+                aria-label="编辑姓名"
+                value={editUserForm.name}
+                onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">登录名</span>
+              <Input
+                aria-label="编辑登录名"
+                value={editUserForm.username}
+                onChange={(e) => setEditUserForm({ ...editUserForm, username: e.target.value })}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs font-semibold text-slate-700">省份</span>
+              <Select
+                aria-label="编辑省份"
+                value={editUserForm.province}
+                onChange={(e) => setEditUserForm({ ...editUserForm, province: e.target.value })}
+                className="h-9 text-xs"
+              >
+                <option value="">未设置…</option>
+                {provinces.map((p) => (
+                  <option key={p.code} value={p.code} disabled={!p.enabled && p.code !== editUserForm.province}>
+                    {p.code} · {p.name}
+                    {p.enabled ? '' : '（已停用）'}
+                  </option>
+                ))}
+              </Select>
+              <span className="mt-1 block text-[11px] text-slate-400">
+                已停用省份不可新选；当前省份保持不变不受影响。
+              </span>
+            </label>
+            {isAdmin && (
+              <label className="block">
+                <span className="mb-1 block text-xs font-semibold text-slate-700">角色（仅管理员可改）</span>
+                <Select
+                  aria-label="编辑角色"
+                  value={editUserForm.role}
+                  onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}
+                  className="h-9 text-xs"
+                >
+                  <option value="student">student · 学生</option>
+                  <option value="teacher">teacher · 教师</option>
+                  <option value="admin">admin · 管理员</option>
+                </Select>
+              </label>
+            )}
+            {editingUser.examTicket && (
+              <p className="rounded-lg bg-blue-50 px-3 py-2 text-[11px] text-blue-900">
+                准考证号 <span className="font-mono font-bold">{editingUser.examTicket}</span> 已发放，随账号保留。
+              </p>
+            )}
+          </div>
+        )}
+      </Dialog>
+
+      <Dialog
+        open={showBatchProvince}
+        onClose={() => setShowBatchProvince(false)}
+        title="批量设置省份"
+        eyebrow="Batch province"
+        footer={
+          <>
+            <Button size="sm" variant="outline" onClick={() => setShowBatchProvince(false)}>
+              取消
+            </Button>
+            <Button
+              size="sm"
+              loading={batchProvinceBusy}
+              disabled={!batchProvinceCode}
+              onClick={() => void handleBatchSetProvince()}
+            >
+              应用到 {selectedUserIds.length} 名学生
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm">
+          <p className="text-xs leading-5 text-slate-600">
+            将为选中的 {selectedUserIds.length} 名学生统一设置省份。省份编号将作为 CSP 准考证号前缀使用；
+            已有准考证号的账号只改省份，号码保持不变。整个批次原子生效。
+          </p>
+          <Select
+            aria-label="批量目标省份"
+            value={batchProvinceCode}
+            onChange={(e) => setBatchProvinceCode(e.target.value)}
+            className="h-9 text-xs"
+          >
+            <option value="">选择省份…</option>
+            {enabledProvinces.map((p) => (
+              <option key={p.code} value={p.code}>
+                {p.code} · {p.name}
+              </option>
+            ))}
+          </Select>
+        </div>
+      </Dialog>
+
+      <Dialog
         open={showSeatCardModal}
         onClose={() => setShowSeatCardModal(false)}
         title="智能准考证与机房座位卡"
@@ -3386,19 +3735,128 @@ export function TeacherConsole() {
             >
               <Printer className="w-3.5 h-3.5" /> 打印当前名单座位卡
             </Button>
-            <Button
-              size="sm"
-              onClick={handleBatchGenerateExamUsers}
-              disabled={isGeneratingUsers}
-              className="text-xs gap-1 bg-amber-700 hover:bg-amber-800 text-white"
-            >
-              {isGeneratingUsers ? '正在生成...' : '立即批量创建账号'}
-            </Button>
+            {seatMode === 'prefix' ? (
+              <Button
+                size="sm"
+                onClick={handleBatchGenerateExamUsers}
+                disabled={isGeneratingUsers}
+                className="text-xs gap-1 bg-amber-700 hover:bg-amber-800 text-white"
+              >
+                {isGeneratingUsers ? '正在生成...' : '立即批量创建账号'}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                onClick={() => void handleGenerateCSPTickets()}
+                disabled={isGeneratingCSP}
+                className="text-xs gap-1 bg-amber-700 hover:bg-amber-800 text-white"
+              >
+                {isGeneratingCSP ? '正在发号...' : selectedUserIds.length > 0 ? `给选中的 ${selectedUserIds.length} 人发号` : '批量创建考生并发号'}
+              </Button>
+            )}
           </>
         }
       >
         <div className="space-y-4">
+          <div className="flex gap-2" role="radiogroup" aria-label="准考证号模式">
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              aria-pressed={seatMode === 'csp'}
+              onClick={() => setSeatMode('csp')}
+              className={seatMode === 'csp' ? 'text-xs border-[#14283d] bg-[#14283d] text-white' : 'text-xs'}
+            >
+              CSP 准考证号（省份-组别+序号）
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              type="button"
+              aria-pressed={seatMode === 'prefix'}
+              onClick={() => setSeatMode('prefix')}
+              className={seatMode === 'prefix' ? 'text-xs border-[#14283d] bg-[#14283d] text-white' : 'text-xs'}
+            >
+              自定义前缀学号
+            </Button>
+          </div>
+
+          {seatMode === 'csp' && (
+            <div className="grid gap-3 rounded-xl border border-blue-200 bg-blue-50/60 p-3 text-xs sm:grid-cols-4">
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">省份</label>
+                <Select
+                  aria-label="CSP 省份"
+                  value={cspProvince}
+                  onChange={(e) => setCspProvince(e.target.value)}
+                  className="h-8 bg-white text-xs"
+                >
+                  <option value="">选择省份…</option>
+                  {enabledProvinces.map((p) => (
+                    <option key={p.code} value={p.code}>
+                      {p.code} · {p.name}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">组别</label>
+                <Select
+                  aria-label="CSP 组别"
+                  value={cspGroup}
+                  onChange={(e) => setCspGroup(e.target.value as 'J' | 'S')}
+                  className="h-8 bg-white text-xs"
+                >
+                  <option value="J">J · 入门级（CSP-J）</option>
+                  <option value="S">S · 提高级（CSP-S）</option>
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">序号位数</label>
+                <Select
+                  aria-label="CSP 序号位数"
+                  value={String(cspDigits)}
+                  onChange={(e) => setCspDigits(parseInt(e.target.value) || 5)}
+                  className="h-8 bg-white text-xs"
+                >
+                  {[3, 4, 5, 6, 7, 8].map((d) => (
+                    <option key={d} value={d}>
+                      {d} 位（{`${cspProvince || 'HA'}-${cspGroup}${'0'.repeat(Math.max(0, d - 1))}1`}）
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div>
+                <label className="mb-1 block font-semibold text-slate-700">
+                  {selectedUserIds.length > 0 ? '发号对象' : '考生人数'}
+                </label>
+                {selectedUserIds.length > 0 ? (
+                  <p className="flex h-8 items-center rounded border border-slate-300 bg-white px-2 text-xs text-slate-600">
+                    选中的 {selectedUserIds.length} 名学生
+                  </p>
+                ) : (
+                  <Input
+                    aria-label="CSP 考生人数"
+                    type="number"
+                    min={1}
+                    max={500}
+                    value={cspCount}
+                    onChange={(e) => setCspCount(parseInt(e.target.value) || 1)}
+                    className="h-8 bg-white text-xs"
+                  />
+                )}
+              </div>
+              <p className="sm:col-span-4 rounded-lg bg-white px-3 py-2 text-[11px] leading-5 text-slate-600">
+                预览号段：<span className="font-mono font-bold text-blue-800">
+                  {cspProvince || '省份'}-{cspGroup}{'0'.repeat(Math.max(0, cspDigits - 1))}1
+                </span>
+                ～ 按本省本组当前最大序号续发，永不重号；统一初始密码只作用于新建账号。
+              </p>
+            </div>
+          )}
+
           <div className="grid gap-3 rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-xs sm:grid-cols-3">
+            {seatMode === 'prefix' && (
             <div>
               <label className="mb-1 block font-semibold text-slate-700">准考证号前缀</label>
               <Input
@@ -3409,6 +3867,8 @@ export function TeacherConsole() {
                 className="h-8 bg-white text-xs"
               />
             </div>
+            )}
+            {seatMode === 'prefix' && (
             <div>
               <label className="mb-1 block font-semibold text-slate-700">考生人数</label>
               <Input
@@ -3421,9 +3881,10 @@ export function TeacherConsole() {
                 className="h-8 bg-white text-xs"
               />
             </div>
+            )}
             <div>
               <label className="mb-1 block font-semibold text-slate-700">
-                统一初始密码（留空自动生成）
+                统一初始密码（留空自动生成；仅新建账号生效）
               </label>
               <Input
                 aria-label="初始默认密码"
@@ -3455,10 +3916,10 @@ export function TeacherConsole() {
                     </span>
                   </div>
                   <div className="font-semibold text-slate-800">
-                    准考证号: {entry.username}
+                    准考证号: {entry.ticket || entry.username}
                   </div>
                   <div className="font-mono text-[10px] text-slate-500">
-                    姓名: {entry.name} · 初始密码: {entry.password}
+                    姓名: {entry.name} · 登录: {entry.username} · 初始密码: {entry.password}
                   </div>
                 </div>
               ))}
