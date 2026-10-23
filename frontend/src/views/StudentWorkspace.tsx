@@ -30,6 +30,12 @@ import {
   X,
   ShieldAlert,
 } from 'lucide-react'
+
+const CodeDiffViewer = React.lazy(() =>
+  import('../components/CodeDiffViewer').then((module) => ({
+    default: module.CodeDiffViewer,
+  }))
+)
 import {
   api,
   newIdempotencyKey,
@@ -502,6 +508,18 @@ export function StudentWorkspace() {
   const paperReady = Boolean(contest) && !zipLocked
   // NOI 全真模拟进行中：服务端已对判定/榜单脱敏，前端同步隐藏入口并提示。
   const noiMasked = contest?.mode === 'noi' && contest?.status === 'running'
+
+  // 版本历史（历史面板打开时拉取，供版本对比与回滚）。
+  const [diffVerA, setDiffVerA] = useState(0)
+  const [diffVerB, setDiffVerB] = useState(1)
+  const versionsQuery = useQuery({
+    queryKey: ['code-versions', cid, activePid, session?.userId],
+    queryFn: () => api.codeVersions(cid, activePid!, session!.userId),
+    enabled: activePanel === 'history' && Boolean(activePid) && Boolean(session?.userId),
+  })
+  const versions = versionsQuery.data ?? []
+  const versionLabel = (v: (typeof versions)[number]) =>
+    `v${v.seq}${v.source === 'submit' ? ' · 提交' : ' · 保存'}`
   const problemsQuery = useQuery({
     queryKey: ['problems', cid],
     queryFn: () => api.problems(cid),
@@ -697,6 +715,39 @@ export function StudentWorkspace() {
     if (!activeProblem) return
     setDraft(contestProblemDraftKey(session?.userId, cid, activeProblem.id), value)
   }
+
+  // ---- 代码版本：保存即版本（防抖自动保存 + 提交由后端落库） ----
+  const [autoSave, setAutoSave] = useState<{ state: 'idle' | 'saving' | 'saved' | 'error'; seq: number }>({
+    state: 'idle',
+    seq: 0,
+  })
+  const activeProblemId = activeProblem?.id
+  const activeTaskType = activeProblem?.taskType
+  useEffect(() => {
+    if (!activeProblemId || activeTaskType === 'choice') return
+    if (!session?.userId || !cid) return
+    if (phase === 'finished') return
+    const timer = setTimeout(() => {
+      setAutoSave((current) => ({ ...current, state: 'saving' }))
+      api
+        .saveCodeVersion(
+          cid,
+          activeProblemId,
+          answerOnly ? draftValue : code,
+          answerOnly ? 'answer' : language,
+          'save'
+        )
+        .then((version) => {
+          setAutoSave({ state: 'saved', seq: version.seq })
+          void queryClient.invalidateQueries({
+            queryKey: ['code-versions', cid, activeProblemId],
+          })
+        })
+        .catch(() => setAutoSave((current) => ({ ...current, state: 'error' })))
+    }, 2500)
+    return () => clearTimeout(timer)
+    // 依赖：内容/题目/语言变化即重置防抖计时。
+  }, [cid, session?.userId, activeProblemId, activeTaskType, draftValue, code, answerOnly, language, phase, queryClient])
 
   const copySamples = async () => {
     if (!activeProblem?.examples) return
@@ -916,6 +967,12 @@ export function StudentWorkspace() {
     } catch (cause) {
       toast.error('载入失败', cause instanceof Error ? cause.message : '请重试。')
     }
+  }
+
+  const loadVersionIntoEditor = (codeText: string) => {
+    if (!activeProblem) return
+    setDraft(contestProblemDraftKey(session?.userId, cid, activeProblem.id), codeText)
+    toast.success('已载入历史版本', '可以继续修改后再提交。')
   }
 
   const loadSubmission = (submission: Submission) => {
@@ -1168,6 +1225,21 @@ export function StudentWorkspace() {
                 <span className="text-[11px] font-semibold text-white/45">
                   {contest?.rankingMode === 'acm' ? 'ACM 赛制' : 'OI 赛制'}
                 </span>
+                {activeTaskType !== 'choice' && (
+                  <span
+                    role="status"
+                    aria-live="polite"
+                    className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60"
+                  >
+                    {autoSave.state === 'saving'
+                      ? '自动保存中…'
+                      : autoSave.state === 'saved'
+                        ? `已自动保存 v${autoSave.seq}`
+                        : autoSave.state === 'error'
+                          ? '自动保存失败，将在下次修改后重试'
+                          : '保存即版本'}
+                  </span>
+                )}
                 <span
                   role="status"
                   className={
@@ -1619,8 +1691,81 @@ export function StudentWorkspace() {
             )}
 
             {activePanel === 'history' && (
-              <div className="min-h-0 flex-1 overflow-y-auto bg-[#fbfaf6] p-3 scrollbar-slim">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#fbfaf6] p-3 scrollbar-slim">
                 <HistoryPanel submissions={problemSubmissions} onLoad={loadSubmission} />
+
+                {activeTaskType !== 'choice' && (
+                  <section className="rounded-xl border border-[#e4e7ec] bg-white p-3">
+                    <h3 className="mb-2 text-xs font-bold text-[#14283d]">
+                      代码版本（保存/提交即版本，共 {versions.length} 个）
+                    </h3>
+                    {versions.length === 0 ? (
+                      <p className="rounded-lg border border-dashed border-slate-200 px-3 py-4 text-center text-[11px] text-slate-400">
+                        暂无版本：编辑器停留 2.5 秒会自动保存，提交也会生成版本。
+                      </p>
+                    ) : (
+                      <>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {versions.map((v, idx) => (
+                            <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => {
+                                if (diffVerA === idx) return
+                                if (diffVerB === idx) return
+                                setDiffVerA(diffVerB)
+                                setDiffVerB(idx)
+                              }}
+                              className={
+                                diffVerA === idx
+                                  ? 'rounded-lg border border-rose-400 bg-rose-50 px-2 py-1 text-[11px] font-semibold text-rose-700 ring-1 ring-rose-300'
+                                  : diffVerB === idx
+                                    ? 'rounded-lg border border-emerald-400 bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-700 ring-1 ring-emerald-300'
+                                    : 'rounded-lg border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-600 hover:bg-slate-50'
+                              }
+                            >
+                              {versionLabel(v)}
+                              <span className="ml-1 text-[10px] text-slate-400">
+                                {new Date(v.createdAt).toLocaleTimeString()}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                        {versions.length >= 2 && (
+                          <div className="mt-3">
+                            <p className="mb-1.5 text-[11px] font-semibold text-slate-600">
+                              对比 {versionLabel(versions[diffVerA])} → {versionLabel(versions[diffVerB])}
+                              （红色=较早，绿色=较晚）
+                            </p>
+                            <React.Suspense fallback={<EditorLoading />}>
+                              <CodeDiffViewer
+                                original={versions[Math.min(diffVerA, versions.length - 1)]?.code || ''}
+                                modified={versions[Math.min(diffVerB, versions.length - 1)]?.code || ''}
+                                originalTitle={versionLabel(versions[Math.min(diffVerA, versions.length - 1)])}
+                                modifiedTitle={versionLabel(versions[Math.min(diffVerB, versions.length - 1)])}
+                                language={versions[Math.min(diffVerB, versions.length - 1)]?.language || 'cpp'}
+                                height="360px"
+                              />
+                            </React.Suspense>
+                          </div>
+                        )}
+                        {versions[diffVerB] && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="mt-2 text-[11px]"
+                            onClick={() => {
+                              const target = versions[Math.min(diffVerB, versions.length - 1)]
+                              if (target) loadVersionIntoEditor(target.code)
+                            }}
+                          >
+                            载入 {versionLabel(versions[Math.min(diffVerB, versions.length - 1)])} 到编辑器
+                          </Button>
+                        )}
+                      </>
+                    )}
+                  </section>
+                )}
               </div>
             )}
 

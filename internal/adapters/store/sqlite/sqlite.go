@@ -20,7 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 7
+const schemaVersion = 8
 
 type dbExecutor interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -218,6 +218,30 @@ func migrate(db *sql.DB) error {
 			}
 		}
 		v = 7
+	}
+	if v < 8 {
+		ddl := []string{
+			// 代码版本仓：专用表便于按（比赛,题目,用户）取号与裁剪。
+			`CREATE TABLE IF NOT EXISTS code_versions (
+				id TEXT PRIMARY KEY,
+				contest_id TEXT NOT NULL,
+				problem_id TEXT NOT NULL,
+				user_id TEXT NOT NULL,
+				seq INTEGER NOT NULL,
+				source TEXT NOT NULL,
+				language TEXT NOT NULL DEFAULT '',
+				code BLOB NOT NULL,
+				created_at TIMESTAMP NOT NULL
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_code_versions_scope
+			 ON code_versions(contest_id, problem_id, user_id, seq DESC)`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v8: %w", err)
+			}
+		}
+		v = 8
 	}
 	if v != schemaVersion {
 		return fmt.Errorf("unsupported sqlite schema version %d (want %d)", v, schemaVersion)
@@ -498,6 +522,70 @@ func (s *Store) SetProvinceState(code string, enabled bool) error {
 		canonical.Code, flag,
 	)
 	return err
+}
+
+// CreateCodeVersion 追加代码版本：seq 取该（比赛,题目,用户）当前最大值+1，
+// 写入后裁剪只保留最近 MaxCodeVersionsPerProblem 个。
+func (s *Store) CreateCodeVersion(v domain.CodeVersion) (domain.CodeVersion, error) {
+	var seq int64
+	err := s.ex.QueryRow(
+		`SELECT COALESCE(MAX(seq), 0) + 1 FROM code_versions
+		 WHERE contest_id=? AND problem_id=? AND user_id=?`,
+		v.ContestID, v.ProblemID, v.UserID,
+	).Scan(&seq)
+	if err != nil {
+		return domain.CodeVersion{}, err
+	}
+	v.Seq = int(seq)
+	if v.ID == "" {
+		v.ID = s.NextID("ver")
+	}
+	_, err = s.ex.Exec(
+		`INSERT INTO code_versions(id, contest_id, problem_id, user_id, seq, source, language, code, created_at)
+		 VALUES(?,?,?,?,?,?,?,?,?)`,
+		v.ID, v.ContestID, v.ProblemID, v.UserID, v.Seq, v.Source, v.Language, v.Code, v.CreatedAt,
+	)
+	if err != nil {
+		return domain.CodeVersion{}, err
+	}
+	_, err = s.ex.Exec(
+		`DELETE FROM code_versions
+		 WHERE contest_id=? AND problem_id=? AND user_id=?
+		   AND seq <= ? - ?`,
+		v.ContestID, v.ProblemID, v.UserID, v.Seq, domain.MaxCodeVersionsPerProblem,
+	)
+	if err != nil {
+		return domain.CodeVersion{}, err
+	}
+	return v, nil
+}
+
+// ListCodeVersions 按 seq 降序（最新在前）返回至多 limit 个版本。
+func (s *Store) ListCodeVersions(contestID, problemID, userID string, limit int) ([]domain.CodeVersion, error) {
+	q := `SELECT id, contest_id, problem_id, user_id, seq, source, language, code, created_at
+	      FROM code_versions
+	      WHERE contest_id=? AND problem_id=? AND user_id=?
+	      ORDER BY seq DESC`
+	args := []any{contestID, problemID, userID}
+	if limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.ex.Query(q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.CodeVersion{}
+	for rows.Next() {
+		var v domain.CodeVersion
+		if err := rows.Scan(&v.ID, &v.ContestID, &v.ProblemID, &v.UserID,
+			&v.Seq, &v.Source, &v.Language, &v.Code, &v.CreatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }
 
 func (s *Store) CreateGroup(g domain.Group) (domain.Group, error) {

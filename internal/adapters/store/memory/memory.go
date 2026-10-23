@@ -28,6 +28,8 @@ type Store struct {
 	sessions    map[string]domain.Session
 	// provinceStates 省份启用状态覆盖（编号 → 是否启用）；nil 视为全部启用。
 	provinceStates map[string]bool
+	// codeVersions 代码版本仓，按 "cid|pid|uid" 分桶，追加序即 Seq。
+	codeVersions map[string][]domain.CodeVersion
 }
 
 // Ping always succeeds: an in-memory store has no external connection to lose.
@@ -44,6 +46,7 @@ func New() *Store {
 		passwords:      map[string]string{},
 		sessions:       map[string]domain.Session{},
 		provinceStates: map[string]bool{},
+		codeVersions:   map[string][]domain.CodeVersion{},
 	}
 }
 
@@ -111,6 +114,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 		passwords:      cloneMap(s.passwords),
 		sessions:       cloneMap(s.sessions),
 		provinceStates: cloneMap(s.provinceStates),
+		codeVersions:   cloneCodeVersions(s.codeVersions),
 	}
 
 	if err := fn(tx); err != nil {
@@ -128,6 +132,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 	s.passwords = tx.passwords
 	s.sessions = tx.sessions
 	s.provinceStates = tx.provinceStates
+	s.codeVersions = tx.codeVersions
 	return nil
 }
 
@@ -137,6 +142,55 @@ func cloneMap[K comparable, V any](m map[K]V) map[K]V {
 		out[k] = v
 	}
 	return out
+}
+
+func cloneCodeVersions(m map[string][]domain.CodeVersion) map[string][]domain.CodeVersion {
+	out := make(map[string][]domain.CodeVersion, len(m))
+	for k, v := range m {
+		out[k] = append([]domain.CodeVersion(nil), v...)
+	}
+	return out
+}
+
+func codeVersionBucket(contestID, problemID, userID string) string {
+	return contestID + "|" + problemID + "|" + userID
+}
+
+// CreateCodeVersion 追加版本：Seq 按桶内条数递增，超出上限裁剪最旧版本。
+func (s *Store) CreateCodeVersion(v domain.CodeVersion) (domain.CodeVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if v.ID == "" {
+		v.ID = s.nextLocked("ver")
+	}
+	key := codeVersionBucket(v.ContestID, v.ProblemID, v.UserID)
+	bucket := s.codeVersions[key]
+	// 裁剪后桶长会小于最大 seq；seq 必须取桶内最大值 +1，避免与被保留的旧版本撞号。
+	maxSeq := 0
+	for _, x := range bucket {
+		if x.Seq > maxSeq {
+			maxSeq = x.Seq
+		}
+	}
+	v.Seq = maxSeq + 1
+	bucket = append(bucket, v)
+	if len(bucket) > domain.MaxCodeVersionsPerProblem {
+		bucket = bucket[len(bucket)-domain.MaxCodeVersionsPerProblem:]
+	}
+	s.codeVersions[key] = bucket
+	return v, nil
+}
+
+// ListCodeVersions 按 Seq 降序（最新在前）返回至多 limit 个版本。
+func (s *Store) ListCodeVersions(contestID, problemID, userID string, limit int) ([]domain.CodeVersion, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	bucket := s.codeVersions[codeVersionBucket(contestID, problemID, userID)]
+	out := make([]domain.CodeVersion, 0, len(bucket))
+	for i := len(bucket) - 1; i >= 0 && (limit <= 0 || len(out) < limit); i-- {
+		out = append(out, bucket[i])
+	}
+	return out, nil
 }
 
 func (s *Store) ListUsers() ([]domain.User, error) {

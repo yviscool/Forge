@@ -118,6 +118,42 @@ describe('StudentWorkspace answer-only workflow', () => {
     expect(screen.queryByText('纯文本答案 · 不编译')).toBeInTheDocument()
   })
 
+  it('autosaves the draft as a code version after the debounce window', async () => {
+    const user = userEvent.setup()
+    const saveSpy = vi.fn((info: { request: Request }) =>
+      HttpResponse.json({
+        id: 'ver-1',
+        contestId: 'contest-1',
+        problemId: 'answer-problem-1',
+        userId: 'user-1',
+        seq: 7,
+        language: 'answer',
+        code: '1/2',
+        source: 'save',
+        createdAt: new Date().toISOString(),
+      })
+    )
+    installStudentRoutes()
+    server.use(
+      apiRoutes.post(
+        '/contests/contest-1/problems/answer-problem-1/versions',
+        saveSpy
+      )
+    )
+    renderWorkspace()
+
+    const answer = await screen.findByRole('textbox', { name: '答案内容' })
+    await user.type(answer, '1/2')
+    // 2.5s 防抖到期后自动保存一个版本。
+    await waitFor(
+      () => expect(saveSpy).toHaveBeenCalledTimes(1),
+      { timeout: 6000 }
+    )
+    const body = await saveSpy.mock.calls[0][0].request.clone().json()
+    expect(body).toMatchObject({ code: '1/2', source: 'save' })
+    expect(await screen.findByText(/已自动保存 v7/)).toBeInTheDocument()
+  })
+
   it('loads answer files verbatim and submits them as an answer language', async () => {
     const user = userEvent.setup()
     installStudentRoutes()

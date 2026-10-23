@@ -1036,6 +1036,12 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 
+	// /contests/{cid}/problems/{pid}/versions（代码版本：保存/提交即版本）
+	if len(rest) == 4 && rest[1] == "problems" && rest[3] == "versions" {
+		h.codeVersionsRoute(w, r, cid, rest[2])
+		return
+	}
+
 	// /contests/{cid}/problems/{pid}/files...（测试数据文件仓）
 	if len(rest) >= 4 && rest[1] == "problems" && rest[3] == "files" {
 		h.filesRoutes(w, r, cid, rest[2], rest[3:])
@@ -1603,6 +1609,68 @@ func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []strin
 		return
 	}
 	http.NotFound(w, r)
+}
+
+// codeVersionsRoute 代码版本读写：POST 保存/提交版本，GET 查看历史（含代码，用于对比）。
+// 学生只能写/读自己的；教师可代写与查看任意考生；zip 锁定的试卷同样要过纸面访问闸。
+func (h *Server) codeVersionsRoute(w http.ResponseWriter, r *http.Request, cid, pid string) {
+	r2, _, ok := h.requirePaperAccess(w, r, cid)
+	if !ok {
+		return
+	}
+	sess, sessOK := sessionOf(r2)
+	if !sessOK {
+		WriteError(w, r, http.StatusUnauthorized, "unauthorized", "login required")
+		return
+	}
+	switch r.Method {
+	case "POST":
+		var v struct {
+			Code     string `json:"code"`
+			Language string `json:"language"`
+			Source   string `json:"source"`
+			UserID   string `json:"userId"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		uid := sess.UserID
+		if isTeacher(r2) && v.UserID != "" {
+			uid = v.UserID
+		}
+		if uid == "" {
+			WriteError(w, r, http.StatusForbidden, "forbidden", "participant login required")
+			return
+		}
+		version, err := h.svc.SaveCodeVersion(cid, pid, uid, v.Language, v.Code, v.Source)
+		if err != nil {
+			h.err(w, r, 400, err)
+			return
+		}
+		writeOut(w, version, 201)
+	case "GET":
+		uid := sess.UserID
+		if q := r.URL.Query().Get("userId"); q != "" {
+			if !isTeacher(r2) && q != uid {
+				WriteError(w, r, 403, "forbidden", "students may only list their own versions")
+				return
+			}
+			uid = q
+		}
+		limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
+		if err != nil {
+			limit = 50
+		}
+		versions, err := h.svc.ListCodeVersions(sess.Role, uid, cid, pid, uid, limit)
+		if err != nil {
+			writeAppError(w, r, err)
+			return
+		}
+		writeOut(w, versions, 200)
+	default:
+		h.err(w, r, 405, fmt.Errorf("method not allowed"))
+	}
 }
 
 // redactSubmissions is the student submission-history boundary. Students only

@@ -275,6 +275,32 @@ type Submission struct {
 	JudgedAt       time.Time    `json:"judgedAt,omitempty"`
 }
 
+// CodeVersionSource 版本来源：手动/自动保存，或随提交落库。
+const (
+	VersionSourceSave   = "save"
+	VersionSourceSubmit = "submit"
+)
+
+// CodeVersion 代码版本：一次保存或一次提交即一个版本。
+// Seq 在（比赛, 题目, 用户）维度连续递增，从 1 起；每个维度仅保留最近 MaxCodeVersionsPerProblem 个版本。
+type CodeVersion struct {
+	ID        string    `json:"id"`
+	ContestID string    `json:"contestId"`
+	ProblemID string    `json:"problemId"`
+	UserID    string    `json:"userId"`
+	Seq       int       `json:"seq"`
+	Language  string    `json:"language"`
+	Code      string    `json:"code"`
+	Source    string    `json:"source"`
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// MaxCodeVersionsPerProblem 每人每题保留的版本数上限（超出裁剪最旧的）。
+const MaxCodeVersionsPerProblem = 100
+
+// MaxCodeVersionBytes 单个版本体积上限，与提交体积上限一致。
+const MaxCodeVersionBytes = 64 << 10
+
 type RankEntry struct {
 	UserID        string         `json:"userId"`
 	UserName      string         `json:"userName"`

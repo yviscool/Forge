@@ -4,6 +4,7 @@ package storetest
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -390,5 +391,72 @@ func ProvinceStates(t *testing.T, s ports.Store) {
 	states, _ = s.ProvinceStates()
 	if !states["HA"] {
 		t.Fatal("HA should be re-enabled")
+	}
+}
+
+// CodeVersions 代码版本仓契约：seq 连续递增、降序列出、超限裁剪最旧。
+func CodeVersions(t *testing.T, s ports.Store) {
+	t.Helper()
+	mk := func(seq1 int) domain.CodeVersion {
+		return domain.CodeVersion{
+			ContestID: "c1", ProblemID: "p1", UserID: "u1",
+			Language: "cpp", Source: domain.VersionSourceSave,
+			Code: fmt.Sprintf("int main(){return %d;}", seq1),
+		}
+	}
+	// 三个版本：seq 1..3。
+	var last domain.CodeVersion
+	for i := 1; i <= 3; i++ {
+		v, err := s.CreateCodeVersion(mk(i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if v.Seq != i {
+			t.Fatalf("seq = %d, want %d", v.Seq, i)
+		}
+		last = v
+	}
+	// 另一个用户独立计数。
+	other, err := s.CreateCodeVersion(domain.CodeVersion{
+		ContestID: "c1", ProblemID: "p1", UserID: "u2", Code: "x",
+	})
+	if err != nil || other.Seq != 1 {
+		t.Fatalf("independent seq = %+v err=%v", other, err)
+	}
+
+	versions, err := s.ListCodeVersions("c1", "p1", "u1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 3 || versions[0].Seq != 3 || versions[2].Seq != 1 {
+		t.Fatalf("list order = %+v", versions)
+	}
+	if versions[0].ID != last.ID {
+		t.Fatal("latest version must round-trip")
+	}
+	limited, err := s.ListCodeVersions("c1", "p1", "u1", 2)
+	if err != nil || len(limited) != 2 || limited[0].Seq != 3 {
+		t.Fatalf("limited list = %+v err=%v", limited, err)
+	}
+
+	// 裁剪：把上限调小不可行（常量），这里验证写入大量版本后列表保持上限内。
+	for i := 4; i <= domain.MaxCodeVersionsPerProblem+10; i++ {
+		if _, err := s.CreateCodeVersion(mk(i)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	versions, err = s.ListCodeVersions("c1", "p1", "u1", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != domain.MaxCodeVersionsPerProblem {
+		t.Fatalf("pruned len = %d, want %d", len(versions), domain.MaxCodeVersionsPerProblem)
+	}
+	if versions[0].Seq != domain.MaxCodeVersionsPerProblem+10 {
+		t.Fatalf("latest seq = %d", versions[0].Seq)
+	}
+	// 最旧 seq 应已裁掉（总数恒等于上限，说明窗口滑动）。
+	if versions[len(versions)-1].Seq != 11 {
+		t.Fatalf("oldest surviving seq = %d, want 11", versions[len(versions)-1].Seq)
 	}
 }

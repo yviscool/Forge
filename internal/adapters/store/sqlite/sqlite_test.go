@@ -66,6 +66,7 @@ func TestStoreConformance(t *testing.T) {
 	storetest.PasswordsAndSessions(t, s)
 	storetest.TransactionSemantics(t, s)
 	storetest.ProvinceStates(t, s)
+	storetest.CodeVersions(t, s)
 }
 
 func TestPersistenceAcrossReopen(t *testing.T) {

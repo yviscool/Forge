@@ -396,7 +396,12 @@ func (s *Service) submit(
 			autoJudged = true
 		}
 		created, err = tx.CreateSubmission(x)
-		return err
+		if err != nil {
+			return err
+		}
+		// 提交即版本：与学生手动保存共用一个版本仓（尽力而为）。
+		s.recordSubmitVersion(tx, created)
+		return nil
 	})
 	if err != nil {
 		return domain.Submission{}, false, err

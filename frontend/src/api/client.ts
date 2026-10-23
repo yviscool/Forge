@@ -123,6 +123,18 @@ export interface ProvinceView {
   hasUsers: boolean
 }
 
+export interface CodeVersion {
+  id: string
+  contestId: string
+  problemId: string
+  userId: string
+  seq: number
+  language: string
+  code: string
+  source: 'save' | 'submit' | string
+  createdAt: string
+}
+
 export interface CSPTicketAssignment {
   user: User
   ticket: string
@@ -585,6 +597,23 @@ export const api = {
       body: JSON.stringify(req),
     }),
   provinces: () => request<ProvinceView[]>('/provinces'),
+  saveCodeVersion: (
+    cid: string,
+    pid: string,
+    code: string,
+    language: string,
+    source: 'save' | 'submit' = 'save'
+  ) =>
+    request<CodeVersion>(`/contests/${encoded(cid)}/problems/${encoded(pid)}/versions`, {
+      method: 'POST',
+      body: JSON.stringify({ code, language, source }),
+    }),
+  codeVersions: (cid: string, pid: string, userId?: string) =>
+    request<CodeVersion[]>(
+      `/contests/${encoded(cid)}/problems/${encoded(pid)}/versions${
+        userId ? `?userId=${encoded(userId)}` : ''
+      }`
+    ),
   setProvinceEnabled: (code: string, enabled: boolean) =>
     request<ProvinceView>(`/provinces/${encoded(code)}`, {
       method: 'PUT',

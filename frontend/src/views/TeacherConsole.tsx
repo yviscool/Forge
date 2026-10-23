@@ -1234,9 +1234,16 @@ export function TeacherConsole() {
   }
 
   // Code Diff Versions for selected student & problem
-  const filteredSubmissions = submissions
-    .filter((s) => s.userId === selectedStudentId && s.problemID === selectedProblemId)
-    .sort((a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime()) // chronological
+
+  // 做题演进升级为服务端代码版本仓：保存/提交都是版本（seq 连续、内容完整）。
+  const versionsQuery = useQuery({
+    queryKey: ['code-versions', cid, selectedStudentId, selectedProblemId],
+    queryFn: () => api.codeVersions(cid, selectedProblemId, selectedStudentId),
+    enabled: Boolean(cid) && Boolean(selectedStudentId) && Boolean(selectedProblemId),
+  })
+  const evolutionVersions = versionsQuery.data ?? []
+  const versionLabel = (v: (typeof evolutionVersions)[number]) =>
+    `v${v.seq}${v.source === 'submit' ? ' · 提交' : ' · 保存'}`
 
   // Detect duplicate student names to highlight them
   const duplicateNames = React.useMemo(() => {
@@ -3318,15 +3325,15 @@ export function TeacherConsole() {
                 <div className="space-y-4">
                   <div>
                     <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">
-                      做题演进历程 (共 {filteredSubmissions.length} 次版本提交)
+                      做题演进历程 (共 {evolutionVersions.length} 个代码版本)
                     </h4>
-                    {filteredSubmissions.length === 0 ? (
+                    {evolutionVersions.length === 0 ? (
                       <div className="py-8 text-center text-xs text-slate-400 border border-dashed rounded-lg">
-                        该学生针对该题目暂无提交记录
+                        该学生针对该题目暂无代码版本（保存或提交都会生成版本）
                       </div>
                     ) : (
                       <div className="flex flex-wrap items-center gap-2">
-                        {filteredSubmissions.map((s, idx) => (
+                        {evolutionVersions.map((s, idx) => (
                           <div
                             key={s.id}
                             className={`p-2 rounded-lg border text-xs flex items-center gap-2 cursor-pointer transition-all ${
@@ -3348,10 +3355,11 @@ export function TeacherConsole() {
                             }}
                           >
                             <span className="font-mono font-bold text-blue-700 bg-blue-100 px-1 py-0.5 rounded text-[10px]">
-                              v{idx + 1}
+                              {versionLabel(s)}
                             </span>
-                            <span className="font-semibold">{s.score}分</span>
-                            <span className="text-[10px] text-slate-400">{s.verdict}</span>
+                            <span className="text-[10px] text-slate-500">
+                              {new Date(s.createdAt).toLocaleTimeString()}
+                            </span>
                           </div>
                         ))}
                       </div>
@@ -3359,24 +3367,24 @@ export function TeacherConsole() {
                   </div>
 
                   {/* Monaco Diff Viewer */}
-                  {filteredSubmissions.length >= 2 && (
+                  {evolutionVersions.length >= 2 && (
                     <div className="pt-2">
                       <div className="flex items-center justify-between text-xs mb-2">
                         <span className="font-semibold text-slate-700 flex items-center gap-1.5">
                           <GitCompare className="w-4 h-4 text-blue-600" />
-                          对比版本: v{diffVerA + 1} ({filteredSubmissions[diffVerA]?.score}分) vs v{diffVerB + 1} ({filteredSubmissions[diffVerB]?.score}分)
+                          对比版本: {versionLabel(evolutionVersions[diffVerA])} vs {versionLabel(evolutionVersions[diffVerB])}
                         </span>
                         <span className="text-slate-400 text-[11px]">
-                          左侧为较早提交版本，右侧为演进后版本，高亮显示算法修改与调试差异
+                          左侧为较早版本，右侧为演进后版本，高亮显示算法修改与调试差异
                         </span>
                       </div>
                       <React.Suspense fallback={<EditorLoading />}>
                         <CodeDiffViewer
-                          original={filteredSubmissions[diffVerA]?.code || ''}
-                          modified={filteredSubmissions[diffVerB]?.code || ''}
-                          originalTitle={`版本 v${diffVerA + 1}`}
-                          modifiedTitle={`版本 v${diffVerB + 1}`}
-                          language="cpp"
+                          original={evolutionVersions[diffVerA]?.code || ''}
+                          modified={evolutionVersions[diffVerB]?.code || ''}
+                          originalTitle={versionLabel(evolutionVersions[diffVerA])}
+                          modifiedTitle={versionLabel(evolutionVersions[diffVerB])}
+                          language={evolutionVersions[diffVerB]?.language || 'cpp'}
                           height="440px"
                         />
                       </React.Suspense>

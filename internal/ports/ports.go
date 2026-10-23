@@ -67,6 +67,12 @@ type Store interface {
 	ListQueuedSubmissions() ([]domain.Submission, error)
 	UpdateSubmission(s domain.Submission) error
 
+	// CodeVersions 代码版本仓：Seq 在（比赛, 题目, 用户）维度从 1 连续递增，
+	// 每维度只保留最近 MaxCodeVersionsPerProblem 个（写入时自动裁剪）。
+	// ListCodeVersions 按 Seq 降序返回（最新在前）。
+	CreateCodeVersion(v domain.CodeVersion) (domain.CodeVersion, error)
+	ListCodeVersions(contestID, problemID, userID string, limit int) ([]domain.CodeVersion, error)
+
 	// Credentials & sessions（auth 端口：hash 永不进 domain.User JSON）。
 	SetPasswordHash(userID, hash string) error
 	GetPasswordHash(userID string) (string, error)
