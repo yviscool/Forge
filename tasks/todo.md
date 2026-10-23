@@ -28,3 +28,14 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
 - [x] 前端：「省份与考号」管理表（用户数/状态/启停，仅管理员可操作）、名册省份与准考证列、批量改省份、准考证对话框 CSP 模式（预览号段/选中发号）
 - [x] CSV 导出对齐导入列序（name,role,group,password,username,province,examTicket），可回导
 - [x] 无障碍：管理表全部文本对比度 ≥ 4.5:1，E2E axe 扫描覆盖新面板
+
+# LemonNext 对齐升级 + native 端（2026-10 完成）
+
+- [x] 功能对齐：LemonNext 的在线提交服务 / GESP 机考 / NOI 全真模拟三种开展方式全部落地
+      （比赛 mode 字段 + NOI 赛中反馈屏蔽 + 最后一次提交计分）
+- [x] 升级：实时监考大屏（SSE 在线状态、机位冲突告警、每题作答动态、编辑动态投屏）
+- [x] 升级：代码版本化（保存/提交即版本、版本对比、教师演进历程走真实版本仓）
+- [x] native 端：magpie 式桌面壳（LAN 地址发现、扫码加入卡片、浏览器自启、
+      `-tags desktop` 系统托盘，headless 服务器部署不受影响）
+- [x] 测试完备：Go 全量 + storetest 契约 + HTTP 集成 + vitest 101 用例 + Playwright E2E 9/9
+      （E2E 抓出并修复：监考快照 JSON null 击穿前端、Monaco diff 编辑器销毁时序、深色大屏对比度）

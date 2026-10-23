@@ -45,24 +45,25 @@ export function CodeDiffViewer({
     void ensureMonacoLanguage(language)
 
     return () => {
+      // 销毁顺序：先编辑器、后模型。反过来会让 Monaco 的异步 diff 计算
+      // 在模型销毁后继续引用，抛 "TextModel got disposed before
+      // DiffEditorWidget model got reset"，成为页面级 pageerror。
+      diffEditor.dispose()
       origModel.dispose()
       modModel.dispose()
-      diffEditor.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    if (diffEditorRef.current) {
-      const model = diffEditorRef.current.getModel()
-      if (model) {
-        if (model.original.getValue() !== original) {
-          model.original.setValue(original)
-        }
-        if (model.modified.getValue() !== modified) {
-          model.modified.setValue(modified)
-        }
-      }
+    const model = diffEditorRef.current?.getModel()
+    // 复位后的 getModel() 返回 {original:null, modified:null}（真值），必须逐字段判空。
+    if (!model?.original || !model.modified) return
+    if (model.original.getValue() !== original) {
+      model.original.setValue(original)
+    }
+    if (model.modified.getValue() !== modified) {
+      model.modified.setValue(modified)
     }
   }, [original, modified])
 
@@ -71,7 +72,7 @@ export function CodeDiffViewer({
     void ensureMonacoLanguage(language).then((id) => {
       if (cancelled) return
       const model = diffEditorRef.current?.getModel()
-      if (!model) return
+      if (!model?.original || !model.modified) return
       monaco.editor.setModelLanguage(model.original, id)
       monaco.editor.setModelLanguage(model.modified, id)
     })

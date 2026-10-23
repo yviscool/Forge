@@ -161,6 +161,8 @@ func (s *Service) ContestMonitor(cid string, presence map[string]time.Time) (*Mo
 		Mode:        domain.NormalizeMode(c.Mode),
 		Status:      c.Status,
 		GeneratedAt: now,
+		// 无授权选手时也必须是空数组（JSON null 会击穿前端 map/length）。
+		Participants: []MonitorParticipant{},
 	}
 	for uid := range authorized {
 		u := byID[uid]
@@ -171,6 +173,8 @@ func (s *Service) ContestMonitor(cid string, presence map[string]time.Time) (*Mo
 			ExamTicket:       u.ExamTicket,
 			Province:         u.Province,
 			ExtensionMinutes: c.Extensions[uid],
+			// 无题比赛也要给空数组：JSON null 会击穿前端 map/length。
+			Problems: []MonitorProblemStat{},
 		}
 		if ip := c.BoundIPs[uid]; ip != "" {
 			p.IP = ip

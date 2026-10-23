@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Maximize2, Radar, ShieldAlert } from 'lucide-react'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useState } from 'react'
 import type { MonitorParticipant, MonitorProblemStat } from '../api/client'
 import { api } from '../api/client'
 import { EditorLoading } from './ui/editor-loading'
@@ -41,7 +41,7 @@ function VerdictDots({ stat }: { stat: MonitorProblemStat }) {
     >
       <i aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${color}`} />
       {stat.code}
-      {stat.attempts > 0 && <span className="text-slate-400">×{stat.attempts}</span>}
+      {stat.attempts > 0 && <span className="text-slate-300">×{stat.attempts}</span>}
     </span>
   )
 }
@@ -72,7 +72,7 @@ function ParticipantCard({
           className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-bold ${
             p.online
               ? 'bg-emerald-400/10 text-emerald-300'
-              : 'bg-white/5 text-slate-400'
+              : 'bg-white/5 text-slate-300'
           }`}
         >
           <i
@@ -83,7 +83,7 @@ function ParticipantCard({
         </span>
       </div>
 
-      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-400">
+      <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-slate-300">
         <span className="font-mono">{p.username}</span>
         {p.ip && (
           <span
@@ -108,16 +108,16 @@ function ParticipantCard({
       </div>
 
       <div className="flex flex-wrap gap-1.5">
-        {p.problems.length > 0 ? (
-          p.problems.map((stat) => <VerdictDots key={stat.problemId} stat={stat} />)
+        {p.problems?.length > 0 ? (
+          p.problems?.map((stat) => <VerdictDots key={stat.problemId} stat={stat} />)
         ) : (
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-slate-300">
             {problemCount > 0 ? '暂无作答' : '本场暂无试题'}
           </span>
         )}
       </div>
 
-      <div className="mt-auto space-y-0.5 border-t border-white/5 pt-2 text-[11px] text-slate-400">
+      <div className="mt-auto space-y-0.5 border-t border-white/5 pt-2 text-[11px] text-slate-300">
         <p>
           提交 {p.submissionCount} 次 · 最近活动 {relativeTime(p.lastActivityAt, now)}
         </p>
@@ -128,7 +128,7 @@ function ParticipantCard({
             {relativeTime(p.lastVersionAt, now)}
           </p>
         ) : (
-          <p className="text-slate-500">暂无编辑动态</p>
+          <p className="text-slate-300">暂无编辑动态</p>
         )}
       </div>
     </li>
@@ -160,9 +160,13 @@ export function MonitorBoard({ cid }: { cid: string }) {
   }, [cid, queryClient])
 
   const snapshot = snapshotQuery.data
+  const participants = snapshot?.participants ?? []
   const generatedAt = snapshot?.generatedAt
   // 快照到达时固定一次基准时间，避免相对时间随帧漂移。
-  const now = useMemo(() => Date.now(), [generatedAt])
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    setNow(Date.now())
+  }, [generatedAt])
 
   if (!cid) {
     return (
@@ -190,8 +194,8 @@ export function MonitorBoard({ cid }: { cid: string }) {
   }
   if (!snapshot) return null
 
-  const online = snapshot.participants.filter((p) => p.online).length
-  const conflicts = snapshot.participants.filter((p) => p.ipConflict).length
+  const online = participants.filter((p) => p.online).length
+  const conflicts = participants.filter((p) => p.ipConflict).length
 
   return (
     <div className="space-y-4">
@@ -205,14 +209,14 @@ export function MonitorBoard({ cid }: { cid: string }) {
             {snapshot.mode === 'noi' ? 'NOI 全真模拟' : snapshot.mode === 'gesp' ? 'GESP 机考' : '在线提交'}
           </span>
           <span className="rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[11px] font-bold text-emerald-300">
-            在线 {online}/{snapshot.participants.length}
+            在线 {online}/{participants.length}
           </span>
           {conflicts > 0 && (
             <span className="rounded-full bg-rose-500/15 px-2 py-0.5 text-[11px] font-bold text-rose-300">
               机位冲突 {conflicts}
             </span>
           )}
-          <span className="text-[11px] text-slate-500">
+          <span className="text-[11px] text-slate-300">
             快照 {new Date(snapshot.generatedAt).toLocaleTimeString()} · 10s 自动刷新
           </span>
         </div>
@@ -226,18 +230,18 @@ export function MonitorBoard({ cid }: { cid: string }) {
         </button>
       </div>
 
-      {snapshot.participants.length === 0 ? (
-        <p className="rounded-2xl border border-dashed border-white/15 px-6 py-10 text-center text-xs text-slate-400">
+      {participants.length === 0 ? (
+        <p className="rounded-2xl border border-dashed border-white/15 px-6 py-10 text-center text-xs text-slate-300">
           本场还没有授权参赛选手。
         </p>
       ) : (
         <ul className="flex flex-wrap gap-3">
-          {snapshot.participants.map((p) => (
+          {participants.map((p) => (
             <ParticipantCard
               key={p.userId}
               p={p}
               now={now}
-              problemCount={snapshot.participants[0]?.problems.length ?? 0}
+              problemCount={participants[0]?.problems?.length ?? 0}
             />
           ))}
         </ul>
