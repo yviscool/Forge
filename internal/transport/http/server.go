@@ -37,6 +37,7 @@ type Server struct {
 	// host-specific filesystem and toolchain policy.
 	readinessMu     sync.RWMutex
 	readinessChecks map[string]func(context.Context) error
+	presenceSource  func(cid string) map[string]time.Time
 	// LoginLimiter protects the public credential endpoint. Tests may replace
 	// it with a limiter driven by a fake clock.
 	LoginLimiter *auth.LoginLimiter
@@ -86,6 +87,11 @@ func NewServer(svc *app.Service, log *slog.Logger) *Server {
 	mux.HandleFunc("/", h.root)
 	h.handler = WithMiddleware(mux, log, func() bool { return h.TrustProxy }, metrics)
 	return h
+}
+
+// SetPresenceSource 注入 SSE 在线注册表（监考大屏用）：比赛 → userID → 连接建立时间。
+func (h *Server) SetPresenceSource(source func(cid string) map[string]time.Time) {
+	h.presenceSource = source
 }
 
 // AddReadinessCheck registers a startup-injected operational dependency.
@@ -1059,6 +1065,24 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		h.subtasksRoute(w, r, cid, rest[2])
 		return
 	}
+	// /contests/{cid}/monitor（监考大屏快照，教师专用）
+	if len(rest) == 2 && rest[1] == "monitor" && r.Method == "GET" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		presence := map[string]time.Time{}
+		if h.presenceSource != nil {
+			presence = h.presenceSource(cid)
+		}
+		snapshot, err := h.svc.ContestMonitor(cid, presence)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		writeOut(w, snapshot, 200)
+		return
+	}
+
 	if len(rest) == 4 && rest[1] == "problems" {
 		pid, action := rest[2], rest[3]
 		r2, _, ok := h.requirePaperAccess(w, r, cid)
@@ -1293,7 +1317,11 @@ func (h *Server) events(w http.ResponseWriter, r *http.Request) {
 	}
 	r = r2
 	sess, _ := sessionOf(r)
-	ch, cancel := h.svc.Subscribe(cid)
+	streamUser := ""
+	if sess, ok := sessionOf(r); ok {
+		streamUser = sess.UserID
+	}
+	ch, cancel := h.svc.Subscribe(cid, streamUser)
 	defer cancel()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")

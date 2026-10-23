@@ -25,9 +25,10 @@ type IDGenerator interface {
 }
 
 // Broadcaster 实时事件端口，支持按比赛过滤订阅。
+// Subscribe 的 userID 是不透明的在线标识（可空）：SSE 断连时用于注销监考在线状态。
 type Broadcaster interface {
 	Publish(e domain.Event)
-	Subscribe(contestID string) (<-chan domain.Event, func())
+	Subscribe(contestID, userID string) (<-chan domain.Event, func())
 }
 
 // Store 持久化端口。Phase0 由 memory 实现，Phase1 由 sqlite 实现同一接口。

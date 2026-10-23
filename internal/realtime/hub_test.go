@@ -8,9 +8,9 @@ import (
 
 func TestHubFilter(t *testing.T) {
 	h := NewHub()
-	chAll, un1 := h.Subscribe("")
+	chAll, un1 := h.Subscribe("", "")
 	defer un1()
-	chC1, un2 := h.Subscribe("c1")
+	chC1, un2 := h.Subscribe("c1", "")
 	defer un2()
 	if got := h.SubscriberCount(); got != 2 {
 		t.Fatalf("subscriber count = %d, want 2", got)
@@ -35,7 +35,7 @@ func TestHubFilter(t *testing.T) {
 
 func TestHubSignalsOverflowInsteadOfSilentlyDropping(t *testing.T) {
 	h := NewHub()
-	ch, cancel := h.Subscribe("c1")
+	ch, cancel := h.Subscribe("c1", "")
 	defer cancel()
 
 	for i := 0; i < 32; i++ {
@@ -55,5 +55,21 @@ func TestHubSignalsOverflowInsteadOfSilentlyDropping(t *testing.T) {
 	}
 	if !sawOverflow {
 		t.Fatal("slow subscriber must receive an explicit overflow marker")
+	}
+}
+
+func TestHubPresence(t *testing.T) {
+	h := NewHub()
+	_, unregister := h.Subscribe("c1", "u1")
+	if got := h.PresenceMap("c1"); len(got) != 1 || got["u1"].Since.IsZero() {
+		t.Fatalf("presence = %+v", got)
+	}
+	// 其它比赛不受影响。
+	if got := h.PresenceMap("c2"); len(got) != 0 {
+		t.Fatalf("cross-contest presence leaked: %+v", got)
+	}
+	unregister()
+	if got := h.PresenceMap("c1"); len(got) != 0 {
+		t.Fatalf("presence must be removed on unsubscribe: %+v", got)
 	}
 }

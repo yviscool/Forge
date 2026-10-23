@@ -120,7 +120,7 @@ describe('StudentWorkspace answer-only workflow', () => {
 
   it('autosaves the draft as a code version after the debounce window', async () => {
     const user = userEvent.setup()
-    const saveSpy = vi.fn((info: { request: Request }) =>
+    const saveSpy = vi.fn((_info: { request: Request }) =>
       HttpResponse.json({
         id: 'ver-1',
         contestId: 'contest-1',

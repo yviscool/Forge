@@ -135,6 +135,48 @@ export interface CodeVersion {
   createdAt: string
 }
 
+export interface MonitorProblemStat {
+  problemId: string
+  code: string
+  title: string
+  attempts: number
+  lastVerdict: string
+  lastScore: number
+  lastLanguage?: string
+  lastAt?: string
+}
+
+export interface MonitorParticipant {
+  userId: string
+  name: string
+  username: string
+  examTicket?: string
+  province?: string
+  ip?: string
+  ipConflict?: boolean
+  online: boolean
+  lastSeenAt?: string
+  extensionMinutes?: number
+  windowEndsAt?: string
+  submissionCount: number
+  problems: MonitorProblemStat[]
+  lastVersionProblemId?: string
+  lastVersionSeq?: number
+  lastVersionSource?: string
+  lastVersionLines?: number
+  lastVersionAt?: string
+  lastActivityAt?: string
+}
+
+export interface MonitorSnapshot {
+  contestId: string
+  name: string
+  mode: ContestMode
+  status: string
+  generatedAt: string
+  participants: MonitorParticipant[]
+}
+
 export interface CSPTicketAssignment {
   user: User
   ticket: string
@@ -608,6 +650,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ code, language, source }),
     }),
+  monitor: (cid: string) =>
+    request<MonitorSnapshot>(`/contests/${encoded(cid)}/monitor`),
   codeVersions: (cid: string, pid: string, userId?: string) =>
     request<CodeVersion[]>(
       `/contests/${encoded(cid)}/problems/${encoded(pid)}/versions${

@@ -371,12 +371,12 @@ func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf fun
 }
 
 // Subscribe 暴露事件订阅给传输层。
-func (s *Service) Subscribe(contestID string) (<-chan domain.Event, func()) {
+func (s *Service) Subscribe(contestID, userID string) (<-chan domain.Event, func()) {
 	if s.bus == nil {
 		ch := make(chan domain.Event)
 		return ch, func() {}
 	}
-	return s.bus.Subscribe(contestID)
+	return s.bus.Subscribe(contestID, userID)
 }
 
 // Store 暴露底层存储（auth 会话等端口用；业务仍走用例方法）。

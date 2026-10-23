@@ -21,6 +21,7 @@ import { useToast } from '../components/ui/toast'
 import { Scoreboard } from '../components/Scoreboard'
 import { MarkdownView } from '../components/MarkdownView'
 import { ChoicePaperEditor } from '../components/ChoicePaperEditor'
+import { MonitorBoard } from '../components/MonitorBoard'
 import { ProvincesPanel } from '../components/ProvincesPanel'
 import { useStore } from '../store/useStore'
 import { EditorLoading } from '../components/ui/editor-loading'
@@ -55,6 +56,7 @@ import {
   Info,
   MapPin,
   UserPen,
+  Radar,
 } from 'lucide-react'
 import { TeacherSecurityPanel } from '../components/TeacherSecurityPanel'
 
@@ -64,7 +66,7 @@ const CodeDiffViewer = React.lazy(() =>
   }))
 )
 
-type TeacherTab = 'contests' | 'users' | 'provinces' | 'problems' | 'analytics' | 'submissions' | 'security'
+type TeacherTab = 'contests' | 'users' | 'provinces' | 'problems' | 'analytics' | 'submissions' | 'security' | 'monitor'
 
 const TAB_ITEMS: Array<{
   key: TeacherTab
@@ -78,6 +80,7 @@ const TAB_ITEMS: Array<{
   { key: 'analytics', label: '学情分析', icon: GitCompare },
   { key: 'submissions', label: '实时提交', icon: Activity },
   { key: 'security', label: '考务安全', icon: ShieldCheck },
+  { key: 'monitor', label: '监考大屏', icon: Radar },
 ]
 
 const errorText = (cause: unknown) =>
@@ -725,6 +728,13 @@ export function TeacherConsole() {
       refetchRanks()
       refetchContests()
       if (activeTab === 'analytics') void statisticsQuery.refetch()
+    }
+    if (
+      type === 'code.saved' ||
+      type === 'submission.created' ||
+      type === 'submission.judged'
+    ) {
+      window.dispatchEvent(new CustomEvent('forge:monitor-refresh'))
     }
     if (
       type === 'problem.created' ||
@@ -1606,6 +1616,18 @@ export function TeacherConsole() {
             users={users}
             refetchContest={refetchContests}
           />
+        </div>
+      )}
+
+      {/* TAB: 监考大屏 */}
+      {activeTab === 'monitor' && (
+        <div
+          role="tabpanel"
+          id="teacher-panel-monitor"
+          aria-labelledby="teacher-tab-monitor"
+          className="rounded-[1.75rem] bg-[#0b1520] p-5"
+        >
+          <MonitorBoard cid={cid} />
         </div>
       )}
 

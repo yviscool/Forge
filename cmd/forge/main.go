@@ -171,6 +171,14 @@ func main() {
 		)
 		log.Info("autojudge ready", "workers", cfg.JudgeWorkers)
 	}
+	srv.SetPresenceSource(func(cid string) map[string]time.Time {
+		presence := hub.PresenceMap(cid)
+		out := make(map[string]time.Time, len(presence))
+		for uid, p := range presence {
+			out[uid] = p.Since
+		}
+		return out
+	})
 	srv.SetRuntimeStatsProvider(func() observability.RuntimeStats {
 		stats := observability.RuntimeStats{SSESubscriberCount: hub.SubscriberCount()}
 		if judgePool != nil {

@@ -2,6 +2,7 @@ package realtime
 
 import (
 	"sync"
+	"time"
 
 	"github.com/yviscool/forge/internal/domain"
 )
@@ -9,16 +10,29 @@ import (
 type subscription struct {
 	ch        chan domain.Event
 	contestID string
+	userID    string
 }
 
-// Hub SSE 事件中心：非阻塞广播 + 按 contestId 过滤。
+// Presence 单个 SSE 连接的在线快照：考生身份 + 连接建立时间。
+type Presence struct {
+	UserID    string    `json:"userId"`
+	Since     time.Time `json:"since"`
+	ContestID string    `json:"contestId"`
+}
+
+// Hub SSE 事件中心：非阻塞广播 + 按 contestId 过滤 + 考生在线注册表。
+// 在线注册表服务监考大屏：SSE 连接建立即视为在线，断开即离线。
 type Hub struct {
-	mu   sync.RWMutex
-	subs map[chan domain.Event]subscription
+	mu       sync.RWMutex
+	subs     map[chan domain.Event]subscription
+	presence map[string]map[string]Presence // contestID -> userID -> Presence
 }
 
 func NewHub() *Hub {
-	return &Hub{subs: map[chan domain.Event]subscription{}}
+	return &Hub{
+		subs:     map[chan domain.Event]subscription{},
+		presence: map[string]map[string]Presence{},
+	}
 }
 
 func (h *Hub) Publish(e domain.Event) {
@@ -51,17 +65,44 @@ func (h *Hub) Publish(e domain.Event) {
 	}
 }
 
-func (h *Hub) Subscribe(contestID string) (<-chan domain.Event, func()) {
+// Subscribe 注册一个事件订阅；userID 非空时同步登记考生在线状态。
+func (h *Hub) Subscribe(contestID, userID string) (<-chan domain.Event, func()) {
 	ch := make(chan domain.Event, 32)
 	h.mu.Lock()
-	h.subs[ch] = subscription{ch: ch, contestID: contestID}
+	h.subs[ch] = subscription{ch: ch, contestID: contestID, userID: userID}
+	if userID != "" && contestID != "" {
+		if h.presence[contestID] == nil {
+			h.presence[contestID] = map[string]Presence{}
+		}
+		h.presence[contestID][userID] = Presence{UserID: userID, ContestID: contestID, Since: time.Now()}
+	}
 	h.mu.Unlock()
 	return ch, func() {
 		h.mu.Lock()
 		delete(h.subs, ch)
+		if userID != "" && contestID != "" {
+			if bucket := h.presence[contestID]; bucket != nil {
+				delete(bucket, userID)
+				if len(bucket) == 0 {
+					delete(h.presence, contestID)
+				}
+			}
+		}
 		close(ch)
 		h.mu.Unlock()
 	}
+}
+
+// PresenceMap 返回某场比赛的在线考生快照（userID → Presence 副本）。
+func (h *Hub) PresenceMap(contestID string) map[string]Presence {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	bucket := h.presence[contestID]
+	out := make(map[string]Presence, len(bucket))
+	for uid, p := range bucket {
+		out[uid] = p
+	}
+	return out
 }
 
 // SubscriberCount reports the active SSE stream count without exposing the
