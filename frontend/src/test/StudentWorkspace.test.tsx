@@ -166,4 +166,39 @@ describe('StudentWorkspace answer-only workflow', () => {
     expect(submit.mock.calls[0][2]).toEqual(expect.any(String))
     expect(submit.mock.calls[1][2]).toBe(submit.mock.calls[0][2])
   })
+
+  it('hides ranking and shows masked verdicts during a NOI contest', async () => {
+    const noiContest: Contest = { ...contest, mode: 'noi' }
+    const rankingSpy = vi.fn(() => HttpResponse.json([]))
+    server.use(
+      apiRoutes.get('/time', () =>
+        HttpResponse.json({ serverTime: new Date().toISOString() })
+      ),
+      apiRoutes.get('/contests/contest-1', () => HttpResponse.json(noiContest)),
+      apiRoutes.get('/contests/contest-1/problems', () =>
+        HttpResponse.json([answerProblem])
+      ),
+      apiRoutes.get('/contests/contest-1/submissions', () =>
+        HttpResponse.json([{ ...acceptedSubmission, verdict: 'submitted', score: 0 }])
+      ),
+      apiRoutes.get('/contests/contest-1/ranking', rankingSpy),
+      apiRoutes.get('/contests/contest-1/messages', () => HttpResponse.json([]))
+    )
+    renderWorkspace()
+
+    // NOI 横幅提示赛中不公布结果。
+    expect(
+      await screen.findByText(/NOI 全真模拟进行中/)
+    ).toBeInTheDocument()
+    // 切到提交面板，确认只显示脱敏判定。
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /提交 1/ }))
+    expect(await screen.findByText(/已提交 · 赛后公布/)).toBeInTheDocument()
+    // 榜单请求根本不发（启停门控），切换到榜单页只看到赛后公布提示。
+    await user.click(screen.getByRole('button', { name: /排名/ }))
+    expect(
+      await screen.findByText(/榜单将在比赛结束后统一公布/)
+    ).toBeInTheDocument()
+    expect(rankingSpy).not.toHaveBeenCalled()
+  })
 })

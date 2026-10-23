@@ -28,6 +28,7 @@ import {
   Upload,
   UserRound,
   X,
+  ShieldAlert,
 } from 'lucide-react'
 import {
   api,
@@ -102,6 +103,8 @@ const verdictMeta: Record<
   skipped: { label: 'Skipped', variant: 'default' },
   queued: { label: 'Queued', variant: 'info' },
   judging: { label: 'Judging', variant: 'info' },
+  // NOI 全真模拟进行中的脱敏判定：只承认「已提交」，细节赛后公布。
+  submitted: { label: '已提交 · 赛后公布', variant: 'info' },
 }
 
 function VerdictBadge({ submission }: { submission: Pick<Submission, 'verdict' | 'score'> }) {
@@ -497,6 +500,8 @@ export function StudentWorkspace() {
   // storage must never override a missing/expired server grant.
   const zipLocked = Boolean(contest?.zipProtected) && !contest?.zipUnlocked
   const paperReady = Boolean(contest) && !zipLocked
+  // NOI 全真模拟进行中：服务端已对判定/榜单脱敏，前端同步隐藏入口并提示。
+  const noiMasked = contest?.mode === 'noi' && contest?.status === 'running'
   const problemsQuery = useQuery({
     queryKey: ['problems', cid],
     queryFn: () => api.problems(cid),
@@ -510,7 +515,7 @@ export function StudentWorkspace() {
   const rankingQuery = useQuery({
     queryKey: ['ranking', cid],
     queryFn: () => api.ranking(cid),
-    enabled: Boolean(cid) && paperReady,
+    enabled: Boolean(cid) && paperReady && !noiMasked,
   })
   const messagesQuery = useQuery({
     queryKey: ['messages', cid],
@@ -535,7 +540,7 @@ export function StudentWorkspace() {
     submissionsQuery.isError
       ? { key: 'submissions', label: '提交记录', cause: submissionsQuery.error }
       : null,
-    rankingQuery.isError
+    rankingQuery.isError && !noiMasked
       ? { key: 'ranking', label: '排行榜', cause: rankingQuery.error }
       : null,
     messagesQuery.isError
@@ -545,7 +550,7 @@ export function StudentWorkspace() {
   const retrySecondaryQueries = () => {
     const jobs: Array<Promise<unknown>> = []
     if (submissionsQuery.isError) jobs.push(submissionsQuery.refetch())
-    if (rankingQuery.isError) jobs.push(rankingQuery.refetch())
+    if (rankingQuery.isError && !noiMasked) jobs.push(rankingQuery.refetch())
     if (messagesQuery.isError) jobs.push(messagesQuery.refetch())
     void Promise.all(jobs)
   }
@@ -1096,6 +1101,14 @@ export function StudentWorkspace() {
 
   return (
     <div className="space-y-4">
+      {noiMasked && (
+        <div className="mx-auto mb-3 flex max-w-6xl items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs leading-5 text-amber-900">
+          <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" aria-hidden="true" />
+          <span>
+            NOI 全真模拟进行中：提交已记录（每题以最后一次提交为准），评测结果与榜单将在比赛结束后统一公布。
+          </span>
+        </div>
+      )}
       {secondaryFailures.length > 0 && (
         <InlineError
           title="部分考试数据加载失败"
@@ -1613,6 +1626,11 @@ export function StudentWorkspace() {
 
             {activePanel === 'ranking' && (
               <div className="min-h-0 flex-1 overflow-y-auto bg-[#fbfaf6] p-3 scrollbar-slim">
+                {noiMasked && (
+                  <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
+                    NOI 全真模拟：排名区在比赛结束后开放。
+                  </p>
+                )}
                 <Scoreboard
                   ranks={ranks as RankEntry[] | ACMRankEntry[]}
                   rankingMode={contest?.rankingMode}

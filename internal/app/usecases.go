@@ -894,6 +894,27 @@ func (s *Service) SetContestLanguages(cid string, langs []string) (domain.Contes
 	return c, nil
 }
 
+// SetContestMode 切换比赛组织方式（online/noi/gesp）。
+// 与榜单赛制一样属于开赛前可调的设置：启动后冻结，保证全场口径一致。
+func (s *Service) SetContestMode(cid, mode string) (domain.Contest, error) {
+	if !domain.ValidMode(mode) {
+		return domain.Contest{}, fmt.Errorf("unknown contest mode %q", mode)
+	}
+	c, err := s.store.GetContest(cid)
+	if err != nil {
+		return domain.Contest{}, err
+	}
+	if !c.CanModifySettings() {
+		return domain.Contest{}, errors.New("contest settings are frozen once the contest starts")
+	}
+	c.Mode = domain.NormalizeMode(mode)
+	if err := s.store.UpdateContest(c); err != nil {
+		return domain.Contest{}, err
+	}
+	s.emit("contest.updated", cid, c)
+	return c, nil
+}
+
 // SetRankingMode 切换榜单模式（oi/acm）。
 func (s *Service) SetRankingMode(cid, mode string) (domain.Contest, error) {
 	if mode != "oi" && mode != "acm" {

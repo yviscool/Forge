@@ -18,12 +18,16 @@ export type CompareMode =
   | 'real_number'
   | 'special_judge'
 
+export type ContestMode = 'online' | 'noi' | 'gesp'
+
 export interface Contest {
   id: string
   name: string
   description: string
   status: ContestStatus
   rankingMode?: RankingMode
+  /** 比赛组织方式：online 在线提交 / noi NOI 全真模拟 / gesp GESP 机考。 */
+  mode?: ContestMode
   allowedLanguages?: string[]
   problemIds?: string[]
   groupIds?: string[]
@@ -390,11 +394,12 @@ export const api = {
     name: string,
     description: string,
     rankingMode: RankingMode = 'oi',
-    allowedLanguages: string[] = []
+    allowedLanguages: string[] = [],
+    mode: ContestMode = 'online'
   ) =>
     request<Contest>('/contests', {
       method: 'POST',
-      body: JSON.stringify({ name, description, rankingMode, allowedLanguages }),
+      body: JSON.stringify({ name, description, rankingMode, allowedLanguages, mode }),
     }),
   startContest: (cid: string) =>
     request<Contest>(`/contests/${encoded(cid)}/start`, { method: 'POST' }),

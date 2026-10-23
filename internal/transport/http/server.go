@@ -266,13 +266,14 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 				Name             string   `json:"name"`
 				Description      string   `json:"description"`
 				RankingMode      string   `json:"rankingMode"`
+				Mode             string   `json:"mode"`
 				AllowedLanguages []string `json:"allowedLanguages"`
 			}
 			if decode(r, &v) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
 				return
 			}
-			c, err := h.svc.CreateContest(v.Name, v.Description, v.RankingMode)
+			c, err := h.svc.CreateContestWithMode(v.Name, v.Description, v.RankingMode, v.Mode)
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
@@ -792,10 +793,22 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 	if len(rest) == 2 && rest[1] == "ranking" && r.Method == "GET" {
-		if _, _, ok := h.requirePaperAccess(w, r, cid); !ok {
+		r2, _, ok := h.requirePaperAccess(w, r, cid)
+		if !ok {
 			return
 		}
-		if c, err := h.svc.GetContest(cid); err == nil && c.RankingMode == "acm" {
+		c, err := h.svc.GetContest(cid)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		// NOI 全真模拟：榜单赛后公布，赛中对选手隐藏（教师台不受限）。
+		if !isTeacher(r2) && !domain.StudentResultsVisible(c.Mode, domain.Status(c.Status)) {
+			WriteError(w, r, http.StatusForbidden, "ranking_hidden",
+				"ranking is published after the NOI contest finishes")
+			return
+		}
+		if c.RankingMode == "acm" {
 			writeOut(w, h.svc.RankingACM(cid), 200)
 			return
 		}
@@ -974,6 +987,7 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		var v struct {
 			RankingMode      *string   `json:"rankingMode"`
+			Mode             *string   `json:"mode"`
 			AllowedLanguages *[]string `json:"allowedLanguages"`
 		}
 		if decode(r, &v) != nil {
@@ -987,6 +1001,12 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		if v.RankingMode != nil {
 			if c, err = h.svc.SetRankingMode(cid, *v.RankingMode); err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+		}
+		if v.Mode != nil {
+			if c, err = h.svc.SetContestMode(cid, *v.Mode); err != nil {
 				h.err(w, r, 400, err)
 				return
 			}
@@ -1142,7 +1162,7 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			}
 			feed := h.svc.ListSubmissionFeed(cid, userID, limit)
 			w.Header().Set("X-Result-Limit", strconv.Itoa(limit))
-			writeOut(w, h.redactSubmissions(r2, feed), 200)
+			writeOut(w, h.redactSubmissions(r2, cid, feed), 200)
 		case "POST":
 			r2, _, ok := h.requirePaperAccess(w, r, cid)
 			if !ok {
@@ -1199,6 +1219,12 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 				if err := h.OnSubmit(x); err != nil {
 					h.log.Error("judge enqueue failed", "submissionId", x.ID, "err", err)
 					h.metrics.IncJudgeEnqueueFailure()
+				}
+			}
+			if !isTeacher(r2) {
+				if c, gerr := h.svc.GetContest(cid); gerr == nil &&
+					!domain.StudentResultsVisible(c.Mode, domain.Status(c.Status)) {
+					x = domain.MaskSubmissionForStudent(x)
 				}
 			}
 			writeOut(w, x, 202)
@@ -1583,7 +1609,7 @@ func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []strin
 // receive their own attempts: exposing peers' timestamps, scores, and verdicts
 // during a running contest enables live answer inference even when source code
 // itself is redacted. Teachers retain the full operational feed.
-func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []domain.Submission {
+func (h *Server) redactSubmissions(r *http.Request, cid string, subs []domain.Submission) []domain.Submission {
 	if isTeacher(r) {
 		return subs
 	}
@@ -1597,6 +1623,12 @@ func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []
 			continue
 		}
 		out = append(out, s)
+	}
+	// NOI 全真模拟：比赛进行中学生只能看到「已提交」，判定随成绩一并公布。
+	if c, err := h.svc.GetContest(cid); err == nil && !domain.StudentResultsVisible(c.Mode, domain.Status(c.Status)) {
+		for i := range out {
+			out[i] = domain.MaskSubmissionForStudent(out[i])
+		}
 	}
 	return out
 }

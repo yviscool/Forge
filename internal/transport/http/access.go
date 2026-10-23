@@ -190,9 +190,23 @@ func (h *Server) eventForSession(e domain.Event, sess domain.Session) (domain.Ev
 			}
 		}
 	case "submission.created", "submission.judged":
-		if s, ok := e.Data.(domain.Submission); ok && s.UserID != sess.UserID {
-			// Peer attempts stay out of the candidate event stream entirely.
-			// Ranking updates still arrive through their own redacted event.
+		if s, ok := e.Data.(domain.Submission); ok {
+			if s.UserID != sess.UserID {
+				// Peer attempts stay out of the candidate event stream entirely.
+				// Ranking updates still arrive through their own redacted event.
+				return e, false
+			}
+			// NOI 全真模拟：赛中连本人收到的判定事件也只保留「已提交」形态，
+			// 判定与分点在比赛结束后的 REST 视图统一公布。
+			if c, err := h.svc.GetContest(s.ContestID); err == nil &&
+				!domain.StudentResultsVisible(c.Mode, domain.Status(c.Status)) {
+				e.Data = domain.MaskSubmissionForStudent(s)
+			}
+		}
+	case "ranking.updated":
+		// NOI 全真模拟：榜单更新不在赛中对选手广播（快照接口同样对学生关闭）。
+		if c, err := h.svc.GetContest(e.ContestID); err == nil &&
+			!domain.StudentResultsVisible(c.Mode, domain.Status(c.Status)) {
 			return e, false
 		}
 	case "problem.created", "problem.updated":

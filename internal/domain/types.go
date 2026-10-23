@@ -78,6 +78,9 @@ type Contest struct {
 	Description string `json:"description"`
 	Status      string `json:"status"`
 	RankingMode string `json:"rankingMode,omitempty"`
+	// Mode 比赛组织方式（domain/contest_mode.go）：online 在线提交（默认）、
+	// noi NOI 全真模拟（赛中屏蔽反馈、以最后一次提交计分）、gesp GESP 机考。
+	Mode string `json:"mode,omitempty"`
 	// AllowedLanguages 允许提交的语言白名单（空=不限；复赛填 ["cpp"]）。
 	AllowedLanguages   []string  `json:"allowedLanguages,omitempty"`
 	ProblemIDs         []string  `json:"problemIds"`

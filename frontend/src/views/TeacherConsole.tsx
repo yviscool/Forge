@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   api,
+  type ContestMode,
   type CompareMode,
   type ChoiceQuestion,
   type TestFileInventory,
@@ -214,8 +215,9 @@ export function TeacherConsole() {
   const [newContestForm, setNewContestForm] = useState<{
     name: string
     description: string
+    mode: ContestMode
     rankingMode: RankingMode
-  }>({ name: '', description: '', rankingMode: 'oi' })
+  }>({ name: '', description: '', rankingMode: 'oi', mode: 'online' })
 
   // Problem Editor State
   const [editingProblem, setEditingProblem] = useState<Partial<Problem> | null>(null)
@@ -746,9 +748,11 @@ export function TeacherConsole() {
       const created = await api.createContest(
         newContestForm.name.trim(),
         newContestForm.description.trim(),
-        newContestForm.rankingMode
+        newContestForm.rankingMode,
+        [],
+        newContestForm.mode
       )
-      setNewContestForm({ name: '', description: '', rankingMode: 'oi' })
+      setNewContestForm({ name: '', description: '', rankingMode: 'oi', mode: 'online' })
       setShowCreateContest(false)
       setCid(created.id)
       await refetchContests()
@@ -1450,6 +1454,22 @@ export function TeacherConsole() {
             >
               <option value="oi">OI · 按题得分累计</option>
               <option value="acm">ACM · 通过题数与罚时</option>
+            </Select>
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-700">比赛方式</span>
+            <Select
+              value={newContestForm.mode}
+              onChange={(event) =>
+                setNewContestForm({
+                  ...newContestForm,
+                  mode: event.target.value as ContestMode,
+                })
+              }
+            >
+              <option value="online">在线提交 · 边赛边评实时反馈</option>
+              <option value="noi">NOI 全真模拟 · 赛中屏蔽反馈，赛后统一公布</option>
+              <option value="gesp">GESP 机考 · 客观题交卷即判</option>
             </Select>
           </label>
           <p className="rounded-xl bg-slate-50 px-4 py-3 text-[11px] leading-5 text-slate-500">

@@ -244,6 +244,11 @@ paths:
                 rankingMode:
                   type: string
                   enum: [oi, acm]
+                mode:
+                  type: string
+                  enum: [online, noi, gesp]
+                  default: online
+                  description: online in-contest feedback / noi full-simulation (results after finish) / gesp objective exam.
                 allowedLanguages:
                   type: array
                   items:
@@ -354,6 +359,9 @@ paths:
                 rankingMode:
                   type: string
                   enum: [oi, acm]
+                mode:
+                  type: string
+                  enum: [online, noi, gesp]
                 allowedLanguages:
                   type: array
                   items:
@@ -1921,6 +1929,9 @@ components:
         rankingMode:
           type: string
           enum: [oi, acm]
+        mode:
+          type: string
+          enum: [online, noi, gesp]
         allowedLanguages:
           type: array
           items:

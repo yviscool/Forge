@@ -142,20 +142,33 @@ func (s *Service) AddUserToGroup(uid, gid string) error {
 }
 
 func (s *Service) CreateContest(name, desc string, mode ...string) (domain.Contest, error) {
+	ranking := ""
+	if len(mode) > 0 {
+		ranking = mode[0]
+	}
+	return s.CreateContestWithMode(name, desc, ranking, "")
+}
+
+// CreateContestWithMode 创建比赛：rankingMode 为 oi/acm 榜单赛制，
+// contestMode 为组织方式（domain.ModeOnline / ModeNOI / ModeGESP，空=online）。
+func (s *Service) CreateContestWithMode(name, desc, rankingMode, contestMode string) (domain.Contest, error) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return domain.Contest{}, errors.New("name is required")
 	}
 	ranking := "oi"
-	if len(mode) > 0 && mode[0] != "" {
-		ranking = mode[0]
+	if strings.TrimSpace(rankingMode) != "" {
+		ranking = rankingMode
 	}
 	if ranking != "oi" && ranking != "acm" {
 		return domain.Contest{}, errors.New("unknown ranking mode")
 	}
+	if !domain.ValidMode(contestMode) {
+		return domain.Contest{}, fmt.Errorf("unknown contest mode %q", contestMode)
+	}
 	c := domain.Contest{
 		ID: s.store.NextID("cnt"), Name: name, Description: strings.TrimSpace(desc),
-		Status: string(domain.Draft), RankingMode: ranking,
+		Status: string(domain.Draft), RankingMode: ranking, Mode: domain.NormalizeMode(contestMode),
 		ProblemIDs: []string{}, GroupIDs: []string{},
 		ParticipantUserIDs: []string{}, CreatedAt: s.clock.Now(),
 	}

@@ -1,6 +1,9 @@
 package domain
 
-import "sort"
+import (
+	"sort"
+	"time"
+)
 
 // ComputeRanking OI 式榜单纯函数：每人每题取最高分，总分降序、满题数降序、姓名升序、用户ID升序。
 // fullScores 可选传题目满分映射（默认满分 100）。
@@ -49,6 +52,31 @@ func ComputeRanking(users []User, contest Contest, subs []Submission, fullScores
 		e := scores[x.UserID]
 		if x.Score > e.ProblemScores[x.ProblemID] {
 			e.ProblemScores[x.ProblemID] = x.Score
+		}
+	}
+
+	// NOI 全真模拟计分：每题以最后一次提交为准，后续提交覆盖既有更高分。
+	// 时间并列时按提交 ID 决出先后，保证榜单确定性。
+	if NormalizeMode(contest.Mode) == ModeNOI {
+		type scoreKey struct{ uid, pid string }
+		at := map[scoreKey]time.Time{}
+		tie := map[scoreKey]string{}
+		for i := range subs {
+			s := &subs[i]
+			if s.ContestID != contest.ID || !allowedMap[s.UserID] {
+				continue
+			}
+			if len(validProblems) > 0 && !validProblems[s.ProblemID] {
+				continue
+			}
+			k := scoreKey{s.UserID, s.ProblemID}
+			if prev, ok := at[k]; !ok || s.SubmittedAt.After(prev) || (s.SubmittedAt.Equal(prev) && s.ID > tie[k]) {
+				at[k] = s.SubmittedAt
+				tie[k] = s.ID
+				if e := scores[s.UserID]; e != nil {
+					e.ProblemScores[s.ProblemID] = s.Score
+				}
+			}
 		}
 	}
 
