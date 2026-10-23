@@ -100,11 +100,12 @@ jobs:
             local goos="$1"
             local goarch="$2"
             local suffix=""
-            if [ "$goos" = "windows" ]; then suffix=".exe"; fi
+            local tags=""
+            if [ "$goos" = "windows" ]; then suffix=".exe"; tags="-tags desktop"; fi
 
             rm -rf dist/stage/*
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-              go build -trimpath \
+              go build $tags -trimpath \
               -ldflags="-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA} -X main.buildDate=${build_date}" \
               -o "dist/stage/forge${suffix}" ./cmd/forge
             cp README.md SPEC.md AGENTS.md dist/stage/

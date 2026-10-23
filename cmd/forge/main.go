@@ -20,6 +20,7 @@ import (
 	"github.com/yviscool/forge/internal/domain"
 	"github.com/yviscool/forge/internal/judge"
 	"github.com/yviscool/forge/internal/observability"
+	"github.com/yviscool/forge/internal/platform/desktop"
 	"github.com/yviscool/forge/internal/platform/diskfree"
 	"github.com/yviscool/forge/internal/ports"
 	"github.com/yviscool/forge/internal/realtime"
@@ -34,7 +35,11 @@ var (
 )
 
 func main() {
+	desktopMode := false
 	for _, arg := range os.Args[1:] {
+		if arg == "--desktop" {
+			desktopMode = true
+		}
 		if arg == "--version" || arg == "version" {
 			fmt.Printf("forge %s commit=%s built=%s\n", version, commit, buildDate)
 			return
@@ -209,6 +214,11 @@ func main() {
 		}
 	}()
 
+	if desktopMode {
+		runDesktopShell(cfg, log, httpSrv, stopWorkers)
+		return
+	}
+
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
@@ -260,6 +270,51 @@ func localAppURL(addr string) string {
 		host = "localhost"
 	}
 	return "http://" + net.JoinHostPort(host, port) + "/app"
+}
+
+// runDesktopShell 教师机桌面模式：等服务就绪 → 打印加入卡片（含扫码二维码）→
+// 自动打开教师台 → 常驻系统托盘。托盘「退出」触发与 Ctrl+C 相同的优雅停机。
+func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, stopWorkers func()) {
+	healthz := desktop.LocalURL(cfg.Addr, "/healthz")
+	if !desktop.WaitForReady(healthz, 10*time.Second) {
+		log.Warn("desktop shell: health probe not ready; continuing without auto-open")
+	}
+	joinURLs := desktop.LANURLs(cfg.Addr, "/app")
+	_ = desktop.PrintJoinCard(os.Stdout, desktop.LANURLs(cfg.Addr, ""), "/app")
+	teacherURL := desktop.LocalURL(cfg.Addr, "/teacher")
+	log.Info("desktop shell ready", "teacher", teacherURL)
+
+	browser := desktop.SystemBrowser{}
+	if err := browser.Open(teacherURL); err != nil {
+		log.Warn("auto-open teacher console failed; please open the URL manually", "url", teacherURL, "err", err)
+	}
+
+	trayURLs := desktop.TrayURLs{
+		Teacher:   teacherURL,
+		Student:   desktop.LocalURL(cfg.Addr, "/app"),
+		StudentQR: firstLANURL(cfg.Addr),
+		LAN:       joinURLs,
+	}
+	hooks := desktop.TrayHooks{
+		Browser: browser,
+		OnQuit: func() {
+			stopWorkers()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = httpSrv.Shutdown(ctx)
+			log.Info("forge stopped (desktop)")
+			os.Exit(0)
+		},
+	}
+	desktop.RunTray(trayURLs, hooks, log)
+}
+
+func firstLANURL(listenAddr string) string {
+	urls := desktop.LANURLs(listenAddr, "/app")
+	if len(urls) == 0 {
+		return desktop.LocalURL(listenAddr, "/app")
+	}
+	return urls[0]
 }
 
 func pruneExpiredSessions(ctx context.Context, store ports.Store, log *slog.Logger) {

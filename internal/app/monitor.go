@@ -35,9 +35,9 @@ type MonitorParticipant struct {
 	Online     bool       `json:"online"`
 	LastSeenAt *time.Time `json:"lastSeenAt,omitempty"`
 
-	ExtensionMinutes int                `json:"extensionMinutes,omitempty"`
-	WindowEndsAt     *time.Time         `json:"windowEndsAt,omitempty"`
-	SubmissionCount  int                `json:"submissionCount"`
+	ExtensionMinutes int                  `json:"extensionMinutes,omitempty"`
+	WindowEndsAt     *time.Time           `json:"windowEndsAt,omitempty"`
+	SubmissionCount  int                  `json:"submissionCount"`
 	Problems         []MonitorProblemStat `json:"problems"`
 
 	// LastVersion 选手正在编辑的题目（最新代码版本），SSE code.saved 事件推送更新。

@@ -19,6 +19,20 @@ React 19、TypeScript、Vite、Tailwind CSS 与 Monaco Editor 构建。
 
 要求 Go 1.27.3+（含标准库安全修复）。仅在需要重新构建前端时需要 Node.js 24.15+（仓库固定为 24.21.0）。
 
+### 桌面模式（教师机推荐）
+
+```powershell
+go build -tags desktop -o forge.exe ./cmd/forge
+./forge.exe --desktop
+```
+
+桌面模式在服务就绪后自动：打印学生加入卡片（局域网地址 + 扫码二维码）、
+打开教师台、常驻系统托盘（打开教师台 / 学生大厅 / 退出，退出即优雅停机）。
+未以 `-tags desktop` 构建时托盘降级为「Ctrl+C 退出」，其余桌面体验不变；
+Linux/Darwin 服务器部署继续使用 headless 方式（托盘需要 CGO/GTK）。
+
+### 服务模式（服务器 / 机房主机）
+
 ```powershell
 cd frontend
 npm.cmd ci
