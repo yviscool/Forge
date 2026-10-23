@@ -1,1 +1,1 @@
-PLACEHOLDER: run `npm run build` in frontend/ to generate the SPA bundle.
+This directory is populated by `npm run build` in frontend/.

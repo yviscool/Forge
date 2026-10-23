@@ -4,20 +4,32 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   go:
     name: go-${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          go-version: stable
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
       - name: judge doctor (toolchain facts for fixture debugging)
+        if: runner.os == 'Linux'
         shell: bash
         run: |
           g++ --version | head -1
@@ -34,6 +46,8 @@ jobs:
         run: test -z "$(gofmt -l internal cmd)"
       - name: vet
         run: go vet ./...
+      - name: module verification
+        run: go mod verify
       - name: build
         run: go build ./...
       - name: cross-compile (linux/darwin guard for platform files)
@@ -43,22 +57,116 @@ jobs:
           GOOS=darwin go build ./...
       - name: test
         run: go test ./...
+      - name: backup script tests
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash scripts/backup_test.sh
       - name: race (fast packages)
         run: go test -race ./internal/domain/ ./internal/app/ ./internal/auth/ ./internal/realtime/ ./internal/adapters/store/...
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
-          node-version: 20
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: frontend/.nvmrc
           cache: npm
           cache-dependency-path: frontend/package-lock.json
+      - name: pin npm
+        run: |
+          corepack enable
+          corepack prepare npm@11.19.0 --activate
       - run: npm ci
+        working-directory: frontend
+      - name: typecheck
+        run: npm run typecheck
+        working-directory: frontend
+      - name: lint
+        run: npm run lint
+        working-directory: frontend
+      - name: unit tests
+        run: npm run test:coverage
+        working-directory: frontend
+      - name: production dependency audit
+        run: npm audit --audit-level=high
         working-directory: frontend
       - run: npm run build:only
         working-directory: frontend
       - name: dist produced
         shell: bash
         run: test -f internal/web/dist/index.html
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: pin npm
+        run: |
+          corepack enable
+          corepack prepare npm@11.19.0 --activate
+      - name: install frontend dependencies
+        run: npm ci
+        working-directory: frontend
+      - name: cache Playwright browser
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
+      - name: install Playwright browsers
+        run: npx playwright install --with-deps chromium firefox webkit
+        working-directory: frontend
+      - name: browser acceptance
+        run: npm run test:e2e
+        working-directory: frontend
+      - name: upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: playwright-failure
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: frontend/.nvmrc
+      - name: OpenAPI lint
+        run: npx --yes @redocly/cli@2.67.1 lint api/openapi.yaml --format=stylish
+
+  security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

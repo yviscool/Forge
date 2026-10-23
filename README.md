@@ -1,124 +1,101 @@
 # Forge 竞赛工坊
 
-<p align="center">
-  <strong>现代化、跨平台的信息学竞赛与教学评测工作台</strong><br>
-  Modern, Cross-Platform Competitive Programming Contest Hosting & Evaluation Platform
-</p>
+Forge 是面向学校、集训队和竞赛机构的现代信息学竞赛平台。后端使用 Go
+单二进制提供 API、SQLite 持久化、评测调度、SSE 实时事件和嵌入式 SPA；前端使用
+React 19、TypeScript、Vite、Tailwind CSS 与 Monaco Editor 构建。
 
-<p align="center">
-  <a href="SPEC.md">系统规格 (SPEC)</a> •
-  <a href="docs/architecture.md">系统架构</a> •
-  <a href="docs/pdf.md">CCF 试卷排版规范</a> •
-  <a href="AGENTS.md">开发守则</a>
-</p>
+## 产品能力
 
----
+- 多比赛并行管理：草稿、进行中、已结束生命周期相互隔离。
+- 用户与编组：独立账号体系、批量 CSV 导入、临时准考证、密码重置。
+- 多种题型：传统编程题、只交答案题、交互题、GESP 单选/多选/判断题。
+- 题面与数据：Markdown/KaTeX、双语题面、测试数据文件仓、子任务 DAG 与限额。
+- 评测：工具链探测、编译缓存、逐点结果、OI/ACM 榜单、重判与人工复核。
+- 考场安全：严格时间窗、IP 机位绑定、试卷口令、定向广播、提交硬截止。
+- 交付：CCF A4 PDF/HTML、成绩 CSV、完整比赛包导入导出。
+- 可观测性：健康/就绪探针、请求 Trace ID、SSE 实时状态、结构化日志。
 
-## 🌟 核心特性 (Key Features)
+## 快速启动
 
-- **多比赛并发调度 (Multi-Contest Concurrency)**：同时独立配置、启动、管理多场比赛，比赛生命周期（草稿/进行中/已结束）、提交流与实时排行榜相互隔离。
-- **全局独立用户与灵活编组 (Independent Users & Grouping)**：
-  - 用户体系与比赛解耦，一次录入长期有效；
-  - 支持创建全局分组（如“提高组集训A班”、“高一初赛组”），学生可加入多个组；
-  - 比赛支持按「整组批量授权」或「单独添加个人」，支持非授权拦截。
-- **结构化题面校验与多语言版本 (Problem Validation & Multilingual)**：
-  - 强制检验试题必要字段（题目描述、输入格式、输出格式、数据范围与样例成对匹配）；
-  - 支持试题多语言版本（`Problem.Locales`）。
-- **零依赖 CCF CSP 官方规范 A4 PDF 导出 (Zero-Dependency CCF PDF Engine)**：
-  - 自动探测系统原生 Edge / Chrome / Chromium 浏览器（Windows 10/11 开箱即用）；
-  - 一键无头导出标准 CCF A4 试卷（含封面表格、编译选项 `-O2 -std=c++14 -static`、考生守则、跑头、带行号与蓝边框的样例框、数据范围表格）；
-  - **教师机器完全不需要安装 Node.js，也不需要安装 Python！**
-- **全栈五维 i18n (Full-Stack Internationalization)**：
-  - 前端 UI 双语字典 (`zh-CN` / `en-US`)；
-  - 后端 API 响应基于 `Accept-Language` 自动本地化；
-  - 评测专业术语 Verdict 中英映射；
-  - 试题内容双语版与 PDF 模版多语言。
-- **单二进制便携分发 (Zero-Dependency Distribution)**：
-  - 前端网页完全内嵌于 Go 单可执行文件中（`//go:embed`），终端用户无需配置任何前端环境。
-- **实时事件推送 (Real-Time SSE Streaming)**：
-  - 基于 Server-Sent Events，提交流、判题结果与排行榜变动毫秒级向全网广播。
-
----
-
-## 🚀 快速启动 (Quick Start)
-
-### 方式一：直接运行服务
+要求 Go 1.27.3+（含标准库安全修复）。仅在需要重新构建前端时需要 Node.js 24.15+（仓库固定为 24.21.0）。
 
 ```powershell
-# 启动 Forge 核心服务
+cd frontend
+npm.cmd ci
+npm.cmd run build
+cd ..
+
+$env:FORGE_ADMIN_PASSWORD = "change-this-before-first-start"
 go run ./cmd/forge
 ```
 
-服务就绪后，访问对应端点：
-- **学生比赛大厅**：`http://localhost:8080/`
-- **教师管理控制台**：`http://localhost:8080/teacher`
-- **实时事件流**：`http://localhost:8080/api/events`
+打开：
 
-*(说明：`go run ./cmd/arena` 作为历史入口同样保持兼容)*
+- 学生比赛大厅：`http://localhost:8080/`
+- 教师控制台：`http://localhost:8080/teacher`
+- 健康探针：`http://localhost:8080/healthz`
+- 就绪探针：`http://localhost:8080/readyz`
 
----
+首次启动若未设置 `FORGE_ADMIN_PASSWORD`，服务会生成一次性随机管理员密码并写入
+`FORGE_DATA_DIR/bootstrap-admin-password.txt`（权限 0600），启动日志只输出文件路径。
+该密码只应在首次登录时使用；修改密码后应立即删除该文件。
 
-## 📡 核心 API 端点概览 (REST API, `/api/v1`)
+开发前端时可单独运行 Vite；生产环境应由 Go 服务托管 `internal/web/dist` 中的构建产物。
+登录成功后浏览器只保存 `HttpOnly`、`SameSite=Strict` 的 `forge_session` Cookie；
+JavaScript 不接触、不持久化长期会话凭证。服务端数据库只保存会话 token 的 SHA-256
+摘要，泄露数据库也不能直接重放有效会话。
 
-| 模块 | 方法 | 端点 | 描述 |
-|---|---|---|---|
-| **认证** | `POST` | `/api/v1/auth/login` | 登录签发 Bearer token |
-| **认证** | `POST` / `GET` | `/api/v1/auth/logout` `/api/v1/auth/me` | 注销 / 当前用户 |
-| **认证** | `POST` | `/api/v1/auth/password` | 本人改密 |
-| **比赛** | `GET` / `POST` | `/api/v1/contests` | 列表 / 创建（`rankingMode: oi/acm`，`allowedLanguages`） |
-| **比赛** | `GET` | `/api/v1/contests/{cid}` | 详情 |
-| **比赛** | `POST` | `/api/v1/contests/{cid}/start` `/finish` | 启动 / 结束 |
-| **比赛** | `GET` | `/api/v1/contests/{cid}/statistics` | 每题通过率/首 AC 统计 |
-| **比赛** | `GET` | `/api/v1/contests/{cid}/statistics/export` | 成绩单 CSV 下载 |
-| **比赛** | `PUT` | `/api/v1/contests/{cid}/settings` | 榜单模式 / 语言白名单 |
-| **试题** | `GET` / `POST` | `/api/v1/contests/{cid}/problems` | 列表 / 新增（含特判/交互/文件 IO/测试点） |
-| **试题** | `POST` | `/api/v1/contests/{cid}/problems/{pid}/validate` | 题面结构校验 |
-| **试题** | `POST` | `/api/v1/contests/{cid}/problems/{pid}/rejudge` | 全量重判 |
-| **试题** | `PUT` | `/api/v1/contests/{cid}/problems/{pid}/subtasks` | 子任务分数与限额 |
-| **数据** | `PUT/GET/DELETE` | `/api/v1/contests/{cid}/problems/{pid}/files[/{name}]` | 测试数据文件仓 |
-| **试题** | `GET` | `/api/v1/contests/{cid}/problems/{pid}/export` | CCF 打印视图 |
-| **试题** | `GET` | `/api/v1/contests/{cid}/problems/{pid}/pdf` | CCF A4 PDF |
-| **用户** | `GET` / `POST` | `/api/v1/users` | 查询 / 创建（教师） |
-| **用户** | `POST` / `GET` | `/api/v1/users/import` `/export` | CSV 批量导入 / 导出 |
-| **编组** | `GET` / `POST` | `/api/v1/groups` | 查询 / 创建 |
-| **编组** | `POST` / `DELETE`| `/api/v1/groups/{gid}/members` | 添加 / 移除成员 |
-| **授权** | `POST` | `/api/v1/contests/{cid}/groups` `/participants` | 绑定组 / 个人 |
-| **提交** | `POST` / `GET` | `/api/v1/contests/{cid}/submissions` | 提交（身份即归属）/ 提交流（脱敏） |
-| **判题** | `POST` | `/api/v1/submissions/{id}/judge` `/cases` | 总分回写 / 按点回写 |
-| **榜单** | `GET` | `/api/v1/contests/{cid}/ranking` | OI 或 ACM 实时榜 |
-| **事件** | `GET` | `/api/v1/events?contestId=` | SSE 实时流 |
-| **语言** | `GET` | `/api/v1/i18n` | 双语字典 |
+## 配置
 
-## 🔌 环境变量
-
-| 变量 | 缺省 | 说明 |
+| 环境变量 | 默认值 | 说明 |
 |---|---|---|
-| `FORGE_ADDR` | `:8080` | 监听地址 |
-| `FORGE_DATA_DIR` | `./data` | sqlite 文件 + 测试数据仓 |
-| `FORGE_STORE` | `sqlite` | `sqlite` / `memory` |
-| `FORGE_ADMIN_PASSWORD` | `admin123` | 种子管理员（首启即改） |
-| `FORGE_AUTOJUDGE` | `1` | `0` 关闭本地自动评测 |
-| `FORGE_TOOLCHAINS` | 空 | 工具链 JSON 配置路径 |
+| `FORGE_ADDR` | `127.0.0.1:8080` | HTTP 监听地址（局域网部署需显式改为可访问地址） |
+| `FORGE_DATA_DIR` | `./data` | SQLite 与测试数据目录 |
+| `FORGE_STORE` | `sqlite` | `sqlite` 或 `memory` |
+| `FORGE_ADMIN_PASSWORD` | 随机生成 | 首次创建管理员时使用的密码 |
+| `FORGE_LOCALE` | `zh-CN` | 服务端默认区域 |
+| `FORGE_AUTOJUDGE` | `false` | 是否启用本地自动评测 |
+| `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE` | `false` | 明确确认本地评测器没有完整沙箱 |
+| `FORGE_JUDGE_WORKERS` | CPU 数 | 评测并发数，最小为 1 |
+| `FORGE_TOOLCHAINS` | 内置配置 | 工具链 JSON 路径 |
+| `FORGE_TRUST_PROXY` | `false` | 仅可信反向代理后启用转发 IP 头 |
 
-> 沙箱说明：Windows 用 Job Object（内存墙+单进程+关闭即杀树），Linux 用 prlimit 包裹（地址空间/CPU/进程数）；网络隔离请用教室网关控制，判题机勿直连外网。
+`FORGE_AUTOJUDGE=1` 必须同时设置 `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1`。当前本地评测器
+只提供进程/内存/时间限制，不提供文件系统、网络和独立用户级隔离。生产环境若处理
+不可信代码，应接入独立的沙箱评测集群；否则保持自动评测关闭并采用人工评测流程。
 
----
-
-## 🛠️ 测试与构建 (Test & Build)
+## 测试与验收
 
 ```powershell
-# 运行全部单元与集成测试（含 PDF 无头引擎测试）
-go test -v ./...
-
-# 编译全部包为单一独立二进制
+gofmt -l internal cmd
+go mod verify
+go vet ./...
+go test ./...
 go build ./...
+
+cd frontend
+npm.cmd audit --audit-level=high
+npm.cmd run typecheck
+npm.cmd test -- --run
+npx.cmd playwright install chromium
+npm.cmd run test:e2e
+npm.cmd run build
+
+cd ..
+npx.cmd --yes @redocly/cli@2.67.1 lint api/openapi.yaml --format=stylish
 ```
 
----
+当前前端测试覆盖登录门禁、会话恢复、SSE 重连、倒计时、选择答题卡、教师题面与数据
+工作流、答案题、比赛包导入、安全设置、Markdown/KaTeX 与可访问性组件。
 
-## 📚 详细文档导航 (Documentation)
+## 运维与文档
 
-- [SPEC.md](SPEC.md) - 单源真理技术规格书 (V2 定稿版)
-- [docs/architecture.md](docs/architecture.md) - 系统分层架构与数据流蓝图
-- [docs/pdf.md](docs/pdf.md) - CCF CSP 试卷标准与排版规范
-- [AGENTS.md](AGENTS.md) - 智能助手开发守则与安全边界
+- [系统规格](SPEC.md)
+- [架构说明](docs/architecture.md)
+- [部署手册](docs/deployment.md)
+- [CCF 试卷排版](docs/pdf.md)
+- [OpenAPI 契约](api/openapi.yaml)
+- [开发守则](AGENTS.md)
+
+API 统一位于 `/api/v1`。项目尚未承诺预发布兼容性，升级前请先备份 `FORGE_DATA_DIR`，
+并在测试库完成比赛包导入、开赛预检和完整提交链路验证。

@@ -1,100 +1,108 @@
-# Spec: Forge (V2 Architecture Specification)
+# Forge 系统规格
 
-## 1. Objective
+## 1. 目标
 
-Forge is a cross-platform competitive programming contest hosting, training workbench, and live evaluation platform. It fuses the offline judging workflow of [Project LemonLime](https://github.com/Project-LemonLime/Project_LemonLime) with the modern Go/Wails desktop architecture of [yetone/magpie](https://github.com/yetone/magpie).
+Forge 为学校、集训队和竞赛机构提供可独立部署的竞赛与教学评测平台。关键目标是：
 
-Teachers run Forge with one click as a desktop application (with system tray and auto-discovered local network IP/QR code) or in headless server mode. Through the teacher console, they configure multiple concurrent contests, edit and validate problem statements, manage independent users and groups, bind participant groups or individual contestants, monitor real-time submissions, and view live scoreboards.
+- 教师可在一个工作台内完成比赛、题面、测试数据、参赛身份、考场安全与成绩交付。
+- 学生可用普通浏览器参赛，获得实时提交、评测与榜单反馈。
+- 单个 Go 二进制承载 API、持久化和前端静态资源，降低现场部署复杂度。
+- 不可信代码不得在未明确确认的宿主机上自动执行。
 
-Students access Forge via standard web browsers across the local network or internet to view problem statements in their preferred language, submit code, and track their personal evaluation status and public leaderboard updates in real time.
+## 2. 技术边界
 
-Both Chinese (`zh-CN`) and English (`en-US`) are first-class locales across frontend UI, backend API messages, judging verdicts, problem statements, and exported documents. Problem statements are strictly validated for structural completeness and exported as CCF CSP-compliant print-ready A4 PDFs.
-
----
-
-## 2. Architecture Stratification & Review Alignment
-
-### 2.1 Frontend Build vs Runtime Decoupling
-- **Development Mode (`frontend/`):** Built with modern frontend tooling (Vite + Vue 3 / React + Tailwind CSS + Monaco Editor + KaTeX). Provides rich Markdown live preview, syntax highlighting, split-pane editing, and responsive tables.
-- **Runtime Distribution (`internal/web/dist/`):** Pre-compiled production bundles are embedded directly into the Go executable via `//go:embed`. End users and teachers require **zero Node.js or npm dependencies** to run Forge.
-
-### 2.2 Desktop GUI vs Headless Mode
-- **Teacher Desktop Mode (Default):** Runs with a native system tray, auto-detects the local IP/port, shows a QR code/URL for students to join, and automatically opens the teacher console.
-- **Headless Server Mode:** Supports `forge serve --port 8080` for continuous daemon operation on Linux servers or lab hosts.
-
-### 2.3 Full-Stack i18n
-1. **Frontend UI i18n:** Navigation, action buttons, table headers, toasts, and localized date/time.
-2. **Backend API i18n:** REST error messages and notices localized via `Accept-Language` headers.
-3. **Verdict Terminology i18n:** Canonical mapping between standard verdicts (`Accepted`, `Wrong Answer`, `Time Limit Exceeded`) and Chinese equivalents (`答案正确`, `答案错误`, `运行超时`).
-4. **Problem Statement Locales:** Multi-language problem definitions (`Problem.Locales`) supporting seamless language switching.
-5. **PDF Paper i18n:** Localized CCF cover notices, candidate instructions, and headers.
-
-### 2.4 PDF Export Pipeline
-- **Tier 1 (Default / Zero-Dependency):** Pure Go Chrome DevTools Protocol (CDP) controls the pre-installed system Edge or Chrome browser to output CCF-compliant A4 PDFs with TOC outline injection via pure Go PDF tooling.
-- **Tier 2 (Print Fallback):** Web-based `@media print` layout allows direct `Ctrl+P` export.
-- **Tier 3 (Advanced Integration):** External Playwright + PyMuPDF pipeline for batch CLI rendering.
-
----
-
-## 3. Capability Map
-
-| Module ID | Responsibility | Depends On |
+| 层 | 技术 | 约束 |
 |---|---|---|
-| `identity` | Independent global users (admin, teacher, student), passwords, roles, and global user groups (classes/teams) | — |
-| `contests` | Multiple concurrent contest lifecycles (draft, running, finished), binding by group or individual contestant | `identity` |
-| `problems` | Multi-problem management, rich Markdown statements, multi-language statement locales, schema validation, testcase limits | `contests` |
-| `judging` | Submission queue, asynchronous evaluation contract (safe non-host execution), verdict tracking, per-contest scoreboards | `contests`, `identity`, `problems` |
-| `realtime` | SSE event broker for contest-filtered real-time submissions, judge results, rankings, and lifecycle changes | `judging` |
-| `i18n` | Full-stack internationalization: UI dictionaries, localized API error responses, verdict mappings, problem locales | — |
-| `pdf` | CCF CSP-standardized A4 HTML template generation, Chromium/Edge CDP headless PDF rendering, bookmark injection | `problems` |
-| `web` | Embedded modern responsive web applications for both Teacher Console and Student Contest Lobby | all |
+| 前端 | React 19、TypeScript、Vite 8、Tailwind CSS 4、Monaco、KaTeX | 源码只位于 `frontend/` |
+| HTTP | Go `net/http`、`/api/v1`、HttpOnly session cookie / Bearer API token、SSE | 传输层只处理协议与授权 |
+| 应用 | `internal/app` 手工依赖注入 | 事务、生命周期与用例编排 |
+| 领域 | `internal/domain` | 纯函数、无 I/O，覆盖核心规则 |
+| 持久化 | `internal/ports.Store` | `memory` 测试，`sqlite` 生产默认 |
+| 构建 | `internal/web/dist` + `//go:embed` | 禁止手工修改 `dist` |
 
----
+## 3. 核心能力
 
-## 4. Commands
+### 3.1 身份与授权
 
-```bash
-# Run unit and integration tests
+- 角色：`admin`、`teacher`、`student`。
+- 全局用户和编组与比赛解耦；比赛可绑定编组或个人。
+- 学生只能以登录身份提交；教师可人工回写或代提交。
+- 密码使用强哈希保存；登录失败有限流；浏览器会话使用 `HttpOnly`、`SameSite=Strict`
+  Cookie，数据库只保存会话 token 摘要；SSE 使用独立的短时 HttpOnly 票据。
+
+### 3.2 比赛生命周期
+
+- 状态：`draft` -> `running` -> `finished`。
+- 开赛前执行整体预检：
+  - 至少一道题，题目顺序完整且无重复。
+  - 题面和题型特有字段合法。
+  - 测试点存在时总分必须恰好为 100。
+  - 语言白名单、参赛组和参赛个人不存在悬空引用。
+  - 答案题恰好一个答案 key；交互题和特判题包含所需源码。
+- 比赛包导入会创建新草稿并重新分配 ID；环境相关的用户/编组绑定不会跨实例导入。
+
+### 3.3 题型与评测
+
+- 传统题：编译语言、stdio/file IO、逐测试点评测。
+- 只交答案题：纯文本答案，不与编译语言白名单冲突，提交语言规范化为 `answer`。
+- 交互题：教师保存交互器源码，评测端按受控协议运行。
+- 选择题：单选、多选、判断题在服务端纯内存即时判分。
+- 子任务：分值精确拆分到测试点，依赖图拒绝自依赖、缺失依赖、重复依赖和环。
+- 单次提交上限为 64 KiB；服务端强制执行，不能依赖前端校验。
+
+### 3.4 考场安全
+
+- 严格时间窗和按学生加时；提交入口在截止后硬切断。
+- 可选 IP 机位绑定，首次提交锁定，异常机位拒绝提交并留下事件。
+- 试卷口令只用于换取服务端签名的短时解锁凭证。
+- 教室内广播支持全体或定向消息，并通过 SSE 实时推送。
+- 学生读取题面、提交流与榜单前均执行纸张访问检查；评测材料会被脱敏。
+
+### 3.5 交付与导入
+
+- 单题或整卷导出 HTML/PDF。
+- 成绩统计与 CSV 导出。
+- 比赛包包含比赛元数据与全部题目，可用于新环境草稿导入。
+- 测试数据文件仓支持 `.in` / `.out` / `.ans`，答案题仅使用 `.out` / `.ans`。
+
+## 4. 非功能要求
+
+- **可恢复性**：SQLite 使用 WAL；运维必须备份数据库和测试数据目录。
+- **可观测性**：`/healthz` 检查进程，`/readyz` 检查持久化，日志包含 Trace ID。
+- **安全头**：CSP、frame deny、nosniff、same-origin 策略由内置 HTTP 中间件发送。
+- **移动端**：学生大厅、答题卡和主要教师工作流必须可响应式使用。
+- **可访问性**：对话框焦点陷阱、语义化 Tab、键盘导航和可读错误状态纳入测试。
+- **供应链**：CI 执行依赖校验、Go vet/test/race、前端 typecheck/test/build、生产依赖审计。
+
+## 5. 发布门禁
+
+发布候选必须同时满足：
+
+```powershell
+gofmt -l internal cmd
+go mod verify
+go vet ./...
 go test ./...
-
-# Build all binaries
 go build ./...
 
-# Run the Forge contest server
-go run ./cmd/forge
+cd frontend
+npm.cmd audit --omit=dev --audit-level=high
+npm.cmd run typecheck
+npm.cmd test -- --run
+npm.cmd run build
 ```
 
-Default access points:
-- Student Contest Lobby: `http://localhost:8080/`
-- Teacher Management Console: `http://localhost:8080/teacher`
-- Live SSE Event Stream: `http://localhost:8080/api/events`
+此外，发布前必须在一份可丢弃的测试数据库上完成：
 
----
+1. 首次管理员登录并修改密码。
+2. 用户/编组导入，比赛创建，题目与测试数据同步。
+3. 开赛预检失败与成功路径。
+4. 学生登录、答案题或编程题提交、判题回写或人工回写。
+5. 榜单、统计、CSV、PDF、比赛包导入导出。
+6. 服务重启后的数据与会话恢复。
 
-## 5. Domain Models & Relational Architecture
+## 6. 明确不承诺
 
-### 5.1 Identity & Grouping (Independent of Contests)
-- **User**: Global identity with `ID`, `Username`, `Name`, `Role` (`admin`, `teacher`, `student`), and `Groups`.
-- **Group**: Reusable organization entity with `ID`, `Name`, `Description`, and `UserIDs`.
-- Users can belong to multiple groups; groups can be assigned to contests as a whole.
-
-### 5.2 Contests (Multi-Contest Concurrency)
-- **Contest**: Has `ID`, `Name`, `Description`, `Status` (`draft`, `running`, `finished`), `ProblemIDs`, `GroupIDs`, and `ParticipantUserIDs`.
-- Supports configuring, starting, and judging multiple contests in parallel.
-- Participant access control: a user is authorized if their individual ID is in `ParticipantUserIDs` OR if any of their `Groups` is in `GroupIDs`.
-
-### 5.3 Problems & Validation
-- **Problem**: Has `ID`, `ContestID`, `Code` (e.g. "A", "reverse"), `Title`, `Statement`, `Constraints`, `Input`, `Output`, `Examples`, `Locales` (bilingual statements), and `TestData`.
-- **Validation Engine**: Enforces presence of required sections (Description, Input, Output, Constraints, paired Samples), preventing invalid statements from entering contests or PDF exports.
-
-### 5.4 Submissions & Ranking
-- **Submission**: Records `ID`, `ContestID`, `ProblemID`, `UserID`, `Language`, `Code`, `Verdict`, `Score`, and `SubmittedAt`.
-- **Ranking**: Deterministic OI-style scoring per contest (best score per problem aggregated, sorted by score descending, then contestant name ascending).
-
----
-
-## 6. Boundaries & Rules
-
-- **Always:** Validate inputs, keep user identity independent of contests, broadcast state changes via SSE, run tests and build before claiming completion.
-- **Ask First:** Modifying persistence schema, adding heavyweight runtime dependencies, altering PDF layout contracts.
-- **Never:** Execute untrusted code directly on the host machine without sandboxing; commit sensitive credentials; overwrite upstream reference clones.
+- 预发布 API 不做向后兼容。
+- 本地自动评测器不提供完整多租户沙箱；不可信代码必须部署到独立隔离执行环境。
+- 前端单元测试不能替代真实浏览器 E2E、容量压测和故障演练。

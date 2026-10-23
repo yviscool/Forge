@@ -1,3 +1,260 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+@import 'tailwindcss';
+@config "../tailwind.config.js";
+
+:root {
+  color-scheme: light;
+  --forge-ink: #101828;
+  --forge-muted: #667085;
+  --forge-line: #e4e7ec;
+  --forge-paper: #f7f5ef;
+  --forge-panel: #fffefa;
+  --forge-accent: #c2410c;
+  --forge-accent-dark: #9a3412;
+  --forge-navy: #14283d;
+  --forge-mint: #0f766e;
+  font-family: 'Manrope Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  font-synthesis: weight;
+  text-rendering: optimizeLegibility;
+}
+
+.font-display {
+  font-family: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
+  font-variation-settings: 'SOFT' 40, 'WONK' 1, 'opsz' 32;
+}
+
+html {
+  background: var(--forge-paper);
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  background:
+    radial-gradient(1200px 600px at 8% -10%, rgba(194, 65, 12, 0.09), transparent 65%),
+    radial-gradient(900px 500px at 100% 0%, rgba(15, 118, 110, 0.08), transparent 58%),
+    linear-gradient(180deg, #fbfaf6 0%, #f5f2e9 100%);
+  color: var(--forge-ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+code,
+pre,
+kbd,
+.font-mono {
+  font-family: 'JetBrains Mono Variable', 'Cascadia Code', Consolas, monospace;
+}
+
+::selection {
+  background: rgba(194, 65, 12, 0.2);
+}
+
+*:focus-visible {
+  outline: 2px solid rgba(194, 65, 12, 0.65);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .app-surface {
+    @apply border border-[#e4e7ec] bg-[#fffefa] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.16)];
+  }
+
+  .app-panel {
+    @apply rounded-2xl border border-[#e4e7ec] bg-white/90 shadow-[0_1px_2px_rgba(16,24,40,0.03)];
+  }
+
+  .app-eyebrow {
+    @apply text-[11px] font-bold uppercase tracking-[0.16em] text-[#667085];
+  }
+
+  .app-field {
+    @apply h-10 w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 text-sm text-slate-800 shadow-[0_1px_1px_rgba(16,24,40,0.03)] transition placeholder:text-slate-400 hover:border-[#b8c0cc] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+  }
+
+  .app-select {
+    @apply h-10 w-full cursor-pointer appearance-none rounded-xl border border-[#d0d5dd] bg-white bg-[linear-gradient(45deg,transparent_50%,#667085_50%),linear-gradient(135deg,#667085_50%,transparent_50%)] bg-[length:5px_5px,5px_5px] bg-[position:calc(100%-16px)_50%,calc(100%-11px)_50%] bg-no-repeat px-3.5 pr-9 text-sm text-slate-800 shadow-[0_1px_1px_rgba(16,24,40,0.03)] transition placeholder:text-slate-400 hover:border-[#b8c0cc] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+  }
+
+  .app-textarea {
+    @apply w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-[0_1px_1px_rgba(16,24,40,0.03)] transition placeholder:text-slate-400 hover:border-[#b8c0cc] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10;
+  }
+
+  .forge-grid {
+    background-image:
+      linear-gradient(rgba(16, 40, 61, 0.035) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(16, 40, 61, 0.035) 1px, transparent 1px);
+    background-size: 30px 30px;
+  }
+}
+
+@layer utilities {
+  .animate-rise {
+    animation: forge-rise 480ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+
+  .animate-fade {
+    animation: forge-fade 240ms ease-out both;
+  }
+
+  .scrollbar-slim {
+    scrollbar-width: thin;
+    scrollbar-color: #cbd5e1 transparent;
+  }
+}
+
+@keyframes forge-rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes forge-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 前庭安全：用户偏好减少动效时冻结入场动画与过渡，
+   也保证自动化无障碍扫描不会读到淡入的中间态颜色。 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+.katex-display {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem 0;
+}
+
+.prose-forge > :first-child {
+  margin-top: 0;
+}
+
+.prose-forge > :last-child {
+  margin-bottom: 0;
+}
+
+.prose-forge h1,
+.prose-forge h2,
+.prose-forge h3,
+.prose-forge h4 {
+  color: #14283d;
+  font-weight: 800;
+  line-height: 1.35;
+  margin: 1.4em 0 0.55em;
+}
+
+.prose-forge h1 {
+  font-size: 1.5rem;
+}
+
+.prose-forge h2 {
+  font-size: 1.2rem;
+}
+
+.prose-forge h3 {
+  font-size: 1.05rem;
+}
+
+.prose-forge p {
+  margin: 0.75em 0;
+}
+
+.prose-forge ul,
+.prose-forge ol {
+  margin: 0.75em 0;
+  padding-left: 1.5rem;
+}
+
+.prose-forge ul {
+  list-style: disc;
+}
+
+.prose-forge ol {
+  list-style: decimal;
+}
+
+.prose-forge li {
+  margin: 0.28em 0;
+}
+
+.prose-forge code {
+  border-radius: 0.35rem;
+  background: #f1f3f7;
+  padding: 0.12rem 0.35rem;
+  font-size: 0.86em;
+  color: #b42318;
+}
+
+.prose-forge pre {
+  overflow-x: auto;
+  border-radius: 0.75rem;
+  border: 1px solid #e4e7ec;
+  background: #101828;
+  padding: 1rem;
+  color: #e6e9ef;
+}
+
+.prose-forge pre code {
+  background: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+.prose-forge blockquote {
+  margin: 1em 0;
+  border-left: 3px solid #c2410c;
+  background: #fff7ed;
+  padding: 0.65rem 1rem;
+  color: #7c2d12;
+}
+
+.prose-forge table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1em 0;
+  font-size: 0.9em;
+}
+
+.prose-forge th,
+.prose-forge td {
+  border: 1px solid #e4e7ec;
+  padding: 0.5rem 0.65rem;
+  text-align: left;
+}
+
+.prose-forge th {
+  background: #f8fafc;
+  font-weight: 700;
+}
+
+.prose-forge a {
+  color: #b45309;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+@media print {
+  body {
+    background: white;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}

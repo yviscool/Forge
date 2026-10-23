@@ -18,17 +18,98 @@ const (
 	CompareSpecialJudge ComparisonMode = "special_judge"
 )
 
+// NormalizeSubmissionVerdict maps API input onto the canonical persistence
+// vocabulary. Unknown values are preserved so callers can reject them instead
+// of silently accepting a typo.
+func NormalizeSubmissionVerdict(verdict string) string {
+	return strings.ToLower(strings.TrimSpace(verdict))
+}
+
+// ValidManualVerdict excludes queue/transient states from teacher grading.
+func ValidManualVerdict(verdict string) bool {
+	switch NormalizeSubmissionVerdict(verdict) {
+	case VerdictAccepted,
+		VerdictWrongAnswer,
+		VerdictPresentationError,
+		VerdictTimeLimit,
+		VerdictMemoryLimit,
+		VerdictOutputLimit,
+		VerdictRuntimeError,
+		VerdictCompileError,
+		VerdictCheckerError,
+		VerdictSystemError,
+		VerdictSkipped:
+		return true
+	default:
+		return false
+	}
+}
+
+// ValidCaseVerdict validates judge-worker case results.
+func ValidCaseVerdict(verdict CaseVerdict) bool {
+	switch verdict {
+	case CaseAC, CaseWA, CasePE, CaseTLE, CaseMLE, CaseRE, CaseCE,
+		CaseOLE, CaseSkipped, CaseCheckerError, CaseSystemError:
+		return true
+	default:
+		return false
+	}
+}
+
+// ProblemTotalScore is the maximum score a single submission can receive.
+// Legacy/manual problems without configured points remain on the 100-point
+// convention.
+func ProblemTotalScore(p Problem) int {
+	total := 0
+	for _, tc := range p.TestCases {
+		if tc.Score > 0 {
+			total += tc.Score
+		}
+	}
+	if total == 0 {
+		for _, q := range p.ChoiceQuestions {
+			if q.Score > 0 {
+				total += q.Score
+			}
+		}
+	}
+	if total == 0 {
+		return 100
+	}
+	return total
+}
+
+// NormalizeComparisonMode keeps persisted bundles and older API clients on the
+// canonical judge vocabulary. Unknown values are preserved so validation can
+// reject them instead of silently changing judging semantics.
+func NormalizeComparisonMode(mode ComparisonMode) ComparisonMode {
+	switch strings.ToLower(strings.TrimSpace(string(mode))) {
+	case "":
+		return ""
+	case string(CompareLineByLine), "exact", "strict":
+		return CompareLineByLine
+	case string(CompareIgnoreSpace), "token", "tokens", "ignore_whitespace":
+		return CompareIgnoreSpace
+	case string(CompareRealNumber), "float_eps", "real_eps", "float":
+		return CompareRealNumber
+	case string(CompareSpecialJudge), "custom_checker", "checker":
+		return CompareSpecialJudge
+	default:
+		return mode
+	}
+}
+
 // CaseVerdict 单测试点结论。
 type CaseVerdict string
 
 const (
-	CaseAC           CaseVerdict = "AC"
-	CaseWA           CaseVerdict = "WA"
-	CasePE           CaseVerdict = "PE"
-	CaseTLE          CaseVerdict = "TLE"
-	CaseMLE          CaseVerdict = "MLE"
-	CaseRE           CaseVerdict = "RE"
-	CaseCE           CaseVerdict = "CE"
+	CaseAC  CaseVerdict = "AC"
+	CaseWA  CaseVerdict = "WA"
+	CasePE  CaseVerdict = "PE"
+	CaseTLE CaseVerdict = "TLE"
+	CaseMLE CaseVerdict = "MLE"
+	CaseRE  CaseVerdict = "RE"
+	CaseCE  CaseVerdict = "CE"
 	// CaseOLE 输出超限（stdout 命中上限被截断）。
 	CaseOLE          CaseVerdict = "OLE"
 	CaseSkipped      CaseVerdict = "Skipped"

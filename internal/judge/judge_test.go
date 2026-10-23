@@ -83,6 +83,32 @@ func TestSubtaskMapsEmpty(t *testing.T) {
 	}
 }
 
+func TestResolveIOOnlyReadsRegularFilesInsideConfiguredRoot(t *testing.T) {
+	root := t.TempDir()
+	if err := SetTestDataRoot(root); err != nil {
+		t.Fatal(err)
+	}
+	inside := filepath.Join(root, "case.in")
+	if err := os.WriteFile(inside, []byte("inside-data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveIO(inside); got != "inside-data" {
+		t.Fatalf("inside file = %q", got)
+	}
+
+	outsideDir := t.TempDir()
+	outside := filepath.Join(outsideDir, "secret.txt")
+	if err := os.WriteFile(outside, []byte("host-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := resolveIO(outside); got != outside {
+		t.Fatalf("outside path must remain opaque, got %q", got)
+	}
+	if got := resolveIO("3 4\n"); got != "3 4\n" {
+		t.Fatalf("inline input changed: %q", got)
+	}
+}
+
 // ---------- integration: 真实工具链（缺失则跳过） ----------
 
 func requireTool(t *testing.T, name string) {
@@ -302,5 +328,52 @@ func TestPoolReportsAll(t *testing.T) {
 	defer mu.Unlock()
 	if len(reported) != 5 {
 		t.Fatalf("want 5 reports, got %v", reported)
+	}
+}
+
+func TestPoolDeduplicatesSubmissionWhileQueuedOrRunning(t *testing.T) {
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	reported := make(chan string, 2)
+	pool := NewPool(4, func(ctx context.Context, _ Request) (domain.JudgeOutcome, error) {
+		started <- struct{}{}
+		select {
+		case <-release:
+		case <-ctx.Done():
+		}
+		return domain.JudgeOutcome{Cases: []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseAC}}}, nil
+	}, func(subID string, _ domain.JudgeOutcome) {
+		reported <- subID
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	pool.Start(ctx, 1)
+
+	job := Job{SubID: "same-submission", Req: Request{Cases: []CaseInput{{}}}}
+	if !pool.Submit(job) || !pool.Submit(job) {
+		t.Fatal("duplicate active submission must be accepted idempotently")
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker did not start")
+	}
+	if stats := pool.Stats(); stats.Active != 1 || stats.Queued != 0 {
+		t.Fatalf("duplicate reached the queue: %+v", stats)
+	}
+	close(release)
+	select {
+	case got := <-reported:
+		if got != job.SubID {
+			t.Fatalf("reported %q, want %q", got, job.SubID)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("submission was not processed")
+	}
+	cancel()
+	pool.Wait()
+	select {
+	case extra := <-reported:
+		t.Fatalf("submission ran more than once: %q", extra)
+	default:
 	}
 }

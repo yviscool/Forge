@@ -10,6 +10,8 @@ import (
 
 const sessKey ctxKey = "session"
 
+const sessionCookieName = "forge_session"
+
 // bearer 从 Authorization 头提取 token。
 func bearer(r *http.Request) string {
 	h := r.Header.Get("Authorization")
@@ -23,6 +25,20 @@ func bearer(r *http.Request) string {
 	return strings.TrimSpace(parts[1])
 }
 
+// authToken accepts both the browser's HttpOnly session cookie and an
+// explicit bearer credential for API clients. The header wins so a controlled
+// client can verify a fresh login before the browser cookie is rotated.
+func authToken(r *http.Request) string {
+	if token := bearer(r); token != "" {
+		return token
+	}
+	cookie, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cookie.Value)
+}
+
 func withSession(r *http.Request, s domain.Session) *http.Request {
 	return r.WithContext(context.WithValue(r.Context(), sessKey, s))
 }
@@ -34,7 +50,7 @@ func sessionOf(r *http.Request) (domain.Session, bool) {
 
 // currentSession 解析并校验 token（中间件式：失败返回 401 由调用方决定）。
 func (h *Server) currentSession(r *http.Request) (domain.Session, bool) {
-	tok := bearer(r)
+	tok := authToken(r)
 	if tok == "" {
 		return domain.Session{}, false
 	}

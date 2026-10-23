@@ -1,8 +1,14 @@
 package judge
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
 	"os"
+	"os/exec"
+	"strings"
 )
 
 // ToolSpec 单语言工具链配置（对标 LemonLime Compiler 名称/路径/参数）。
@@ -35,19 +41,37 @@ func DefaultToolchainConfig() ToolchainConfig {
 	}
 }
 
-// LoadToolchainConfig 从 JSON 文件加载；path 为空或读失败返回默认。
-func LoadToolchainConfig(path string) ToolchainConfig {
+// ParseToolchainConfig loads and strictly validates a toolchain JSON file.
+// Configuration errors must be reported to the operator instead of silently
+// falling back to a different compiler than the one they requested.
+func ParseToolchainConfig(path string) (ToolchainConfig, error) {
 	def := DefaultToolchainConfig()
 	if path == "" {
-		return def
+		return def, nil
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return def
+		return def, fmt.Errorf("read FORGE_TOOLCHAINS: %w", err)
 	}
 	var c ToolchainConfig
-	if err := json.Unmarshal(b, &c); err != nil {
-		return def
+	decoder := json.NewDecoder(bytes.NewReader(b))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&c); err != nil {
+		return def, fmt.Errorf("parse FORGE_TOOLCHAINS: %w", err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return def, errors.New("parse FORGE_TOOLCHAINS: trailing JSON value")
+	}
+	specs := map[string]ToolSpec{
+		"cpp": c.CPP, "c": c.C, "go": c.Go, "python": c.Python,
+	}
+	for name, spec := range specs {
+		if spec.CompileTimeoutSec < 0 {
+			return def, fmt.Errorf("toolchain %s compileTimeoutSec cannot be negative", name)
+		}
+		if spec.CompileMemoryMiB < 0 {
+			return def, fmt.Errorf("toolchain %s compileMemoryMib cannot be negative", name)
+		}
 	}
 	merge := func(d, o ToolSpec) ToolSpec {
 		if o.Command != "" {
@@ -71,5 +95,32 @@ func LoadToolchainConfig(path string) ToolchainConfig {
 	def.C = merge(def.C, c.C)
 	def.Go = merge(def.Go, c.Go)
 	def.Python = merge(def.Python, c.Python)
-	return def
+	return def, nil
+}
+
+// LoadToolchainConfig retains the forgiving helper for fixtures. Production
+// startup must call ParseToolchainConfig and surface its error.
+func LoadToolchainConfig(path string) ToolchainConfig {
+	cfg, err := ParseToolchainConfig(path)
+	if err != nil {
+		return DefaultToolchainConfig()
+	}
+	return cfg
+}
+
+// CheckCommands verifies that every configured compiler/interpreter is
+// resolvable before readiness advertises automatic judging.
+func (c ToolchainConfig) CheckCommands() error {
+	seen := make(map[string]bool)
+	for _, spec := range []ToolSpec{c.CPP, c.C, c.Go, c.Python} {
+		command := strings.TrimSpace(spec.Command)
+		if command == "" || seen[command] {
+			continue
+		}
+		seen[command] = true
+		if _, err := exec.LookPath(command); err != nil {
+			return fmt.Errorf("judge toolchain %q is unavailable: %w", command, err)
+		}
+	}
+	return nil
 }

@@ -22,8 +22,8 @@ func NewHub() *Hub {
 }
 
 func (h *Hub) Publish(e domain.Event) {
-	h.mu.RLock()
-	defer h.mu.RUnlock()
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	for ch, sub := range h.subs {
 		if sub.contestID != "" && e.ContestID != "" && sub.contestID != e.ContestID {
 			continue
@@ -31,6 +31,22 @@ func (h *Hub) Publish(e domain.Event) {
 		select {
 		case ch <- e:
 		default:
+			// A slow browser must not cause an undetectable gap in ranking or
+			// submission state. Evict the oldest queued event and enqueue an
+			// explicit resynchronization marker. The frontend handles this by
+			// refetching authoritative REST state.
+			select {
+			case <-ch:
+			default:
+			}
+			marker := domain.Event{
+				Type: "stream.overflow", ContestID: e.ContestID,
+				Data: map[string]any{"resync": true}, At: e.At,
+			}
+			select {
+			case ch <- marker:
+			default:
+			}
 		}
 	}
 }
@@ -46,6 +62,14 @@ func (h *Hub) Subscribe(contestID string) (<-chan domain.Event, func()) {
 		close(ch)
 		h.mu.Unlock()
 	}
+}
+
+// SubscriberCount reports the active SSE stream count without exposing the
+// subscription map.
+func (h *Hub) SubscriberCount() int {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return len(h.subs)
 }
 
 // Broadcaster 适配 ports.Broadcaster 接口（结构鸭子类型由 app 层直接使用）。

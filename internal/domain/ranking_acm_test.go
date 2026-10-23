@@ -45,3 +45,37 @@ func TestComputeRankingACMTieBreak(t *testing.T) {
 		t.Fatalf("name tiebreak: %+v", r)
 	}
 }
+
+func TestComputeRankingACMExcludesStaff(t *testing.T) {
+	base := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	c := Contest{ID: "c", StartedAt: base, ParticipantUserIDs: []string{"u1", "teacher"}}
+	users := []User{
+		{ID: "u1", Name: "Ada", Role: RoleStudent},
+		{ID: "teacher", Name: "Prof", Role: RoleTeacher},
+	}
+	subs := []Submission{
+		{ContestID: "c", ProblemID: "p1", UserID: "teacher", Verdict: VerdictAccepted, SubmittedAt: base.Add(time.Minute)},
+	}
+	r := ComputeRankingACM(users, c, subs)
+	if len(r) != 1 || r[0].UserID != "u1" || r[0].Solved != 0 {
+		t.Fatalf("teacher must not appear on ACM board: %+v", r)
+	}
+}
+
+func TestComputeRankingACMIgnoresDeletedProblems(t *testing.T) {
+	base := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	c := Contest{
+		ID:         "c",
+		StartedAt:  base,
+		ProblemIDs: []string{"p1"},
+	}
+	users := []User{{ID: "u1", Name: "Ada", Role: RoleStudent}}
+	subs := []Submission{
+		{ContestID: c.ID, ProblemID: "deleted", UserID: "u1", Verdict: VerdictAccepted, SubmittedAt: base.Add(2 * time.Minute)},
+		{ContestID: c.ID, ProblemID: "p1", UserID: "u1", Verdict: VerdictAccepted, SubmittedAt: base.Add(10 * time.Minute)},
+	}
+	r := ComputeRankingACM(users, c, subs)
+	if len(r) != 1 || r[0].Solved != 1 || r[0].Penalty != 10 {
+		t.Fatalf("deleted problem leaked into ACM board: %+v", r)
+	}
+}

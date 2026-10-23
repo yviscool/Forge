@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
+	"time"
 
 	"github.com/yviscool/forge/internal/domain"
 	"github.com/yviscool/forge/internal/ports"
@@ -21,9 +23,13 @@ type Store struct {
 	contests    map[string]domain.Contest
 	problems    map[string]domain.Problem
 	submissions map[string]domain.Submission
+	subByReqID  map[string]string
 	passwords   map[string]string
 	sessions    map[string]domain.Session
 }
+
+// Ping always succeeds: an in-memory store has no external connection to lose.
+func (s *Store) Ping(context.Context) error { return nil }
 
 func New() *Store {
 	return &Store{
@@ -32,6 +38,7 @@ func New() *Store {
 		contests:    map[string]domain.Contest{},
 		problems:    map[string]domain.Problem{},
 		submissions: map[string]domain.Submission{},
+		subByReqID:  map[string]string{},
 		passwords:   map[string]string{},
 		sessions:    map[string]domain.Session{},
 	}
@@ -55,8 +62,24 @@ func (s *Store) CreateUser(u domain.User) (domain.User, error) {
 	if u.ID == "" {
 		u.ID = s.nextLocked("usr")
 	}
+	if s.usernameTakenLocked(u.Username, u.ID) {
+		return domain.User{}, errors.New("username already exists")
+	}
 	s.users[u.ID] = u
 	return u, nil
+}
+
+func (s *Store) usernameTakenLocked(username, excludeID string) bool {
+	username = strings.TrimSpace(username)
+	if username == "" {
+		return false
+	}
+	for id, existing := range s.users {
+		if id != excludeID && strings.EqualFold(existing.Username, username) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) GetUser(id string) (domain.User, error) {
@@ -81,6 +104,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 		contests:    cloneMap(s.contests),
 		problems:    cloneMap(s.problems),
 		submissions: cloneMap(s.submissions),
+		subByReqID:  cloneMap(s.subByReqID),
 		passwords:   cloneMap(s.passwords),
 		sessions:    cloneMap(s.sessions),
 	}
@@ -96,6 +120,7 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 	s.contests = tx.contests
 	s.problems = tx.problems
 	s.submissions = tx.submissions
+	s.subByReqID = tx.subByReqID
 	s.passwords = tx.passwords
 	s.sessions = tx.sessions
 	return nil
@@ -125,6 +150,9 @@ func (s *Store) UpdateUser(u domain.User) error {
 	defer s.mu.Unlock()
 	if _, ok := s.users[u.ID]; !ok {
 		return errors.New("user not found")
+	}
+	if s.usernameTakenLocked(u.Username, u.ID) {
+		return errors.New("username already exists")
 	}
 	s.users[u.ID] = u
 	return nil
@@ -177,8 +205,9 @@ func (s *Store) CreateContest(c domain.Contest) (domain.Contest, error) {
 	if c.ID == "" {
 		c.ID = s.nextLocked("cnt")
 	}
-	s.contests[c.ID] = c
-	return c, nil
+	stored := cloneContest(c)
+	s.contests[c.ID] = stored
+	return cloneContest(stored), nil
 }
 
 func (s *Store) GetContest(id string) (domain.Contest, error) {
@@ -188,7 +217,7 @@ func (s *Store) GetContest(id string) (domain.Contest, error) {
 	if !ok {
 		return domain.Contest{}, errors.New("contest not found")
 	}
-	return c, nil
+	return cloneContest(c), nil
 }
 
 func (s *Store) ListContests() ([]domain.Contest, error) {
@@ -196,7 +225,7 @@ func (s *Store) ListContests() ([]domain.Contest, error) {
 	defer s.mu.RUnlock()
 	out := make([]domain.Contest, 0, len(s.contests))
 	for _, c := range s.contests {
-		out = append(out, c)
+		out = append(out, cloneContest(c))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
 	return out, nil
@@ -208,8 +237,32 @@ func (s *Store) UpdateContest(c domain.Contest) error {
 	if _, ok := s.contests[c.ID]; !ok {
 		return errors.New("contest not found")
 	}
-	s.contests[c.ID] = c
+	s.contests[c.ID] = cloneContest(c)
 	return nil
+}
+
+func cloneContest(c domain.Contest) domain.Contest {
+	c.AllowedLanguages = append([]string(nil), c.AllowedLanguages...)
+	c.ProblemIDs = append([]string(nil), c.ProblemIDs...)
+	c.GroupIDs = append([]string(nil), c.GroupIDs...)
+	c.ParticipantUserIDs = append([]string(nil), c.ParticipantUserIDs...)
+	c.Broadcasts = append([]domain.BroadcastMessage(nil), c.Broadcasts...)
+	if c.BoundIPs != nil {
+		c.BoundIPs = cloneMap(c.BoundIPs)
+	}
+	if c.Extensions != nil {
+		c.Extensions = cloneMap(c.Extensions)
+	}
+	if c.FinalRanking != nil {
+		ranking := make([]domain.RankEntry, len(c.FinalRanking))
+		for i, entry := range c.FinalRanking {
+			entry.ProblemScores = cloneMap(entry.ProblemScores)
+			ranking[i] = entry
+		}
+		c.FinalRanking = ranking
+	}
+	c.FinalACM = append([]domain.ACMRankEntry(nil), c.FinalACM...)
+	return c
 }
 
 func (s *Store) CreateProblem(p domain.Problem) (domain.Problem, error) {
@@ -259,11 +312,27 @@ func (s *Store) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 	return p, nil
 }
 
+func (s *Store) DeleteProblem(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.problems[id]; !ok {
+		return errors.New("problem not found")
+	}
+	delete(s.problems, id)
+	return nil
+}
+
 func (s *Store) CreateSubmission(x domain.Submission) (domain.Submission, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if x.ID == "" {
 		x.ID = s.nextLocked("sub")
+	}
+	if x.RequestID != "" {
+		if _, exists := s.subByReqID[x.RequestID]; exists {
+			return domain.Submission{}, errors.New("request id already exists")
+		}
+		s.subByReqID[x.RequestID] = x.ID
 	}
 	s.submissions[x.ID] = x
 	return x, nil
@@ -279,6 +348,23 @@ func (s *Store) GetSubmission(id string) (domain.Submission, error) {
 	return x, nil
 }
 
+func (s *Store) FindSubmissionByRequestID(requestID string) (*domain.Submission, error) {
+	if requestID == "" {
+		return nil, nil
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	id, ok := s.subByReqID[requestID]
+	if !ok {
+		return nil, nil
+	}
+	x, ok := s.submissions[id]
+	if !ok {
+		return nil, nil
+	}
+	return &x, nil
+}
+
 func (s *Store) ListSubmissions(contestID string) ([]domain.Submission, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -292,11 +378,67 @@ func (s *Store) ListSubmissions(contestID string) ([]domain.Submission, error) {
 	return out, nil
 }
 
+func (s *Store) ListSubmissionFeed(contestID, userID string, limit int) ([]domain.Submission, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Submission{}
+	for _, x := range s.submissions {
+		if x.ContestID != contestID || (userID != "" && x.UserID != userID) {
+			continue
+		}
+		out = append(out, x)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SubmittedAt.Equal(out[j].SubmittedAt) {
+			return out[i].ID > out[j].ID
+		}
+		return out[i].SubmittedAt.After(out[j].SubmittedAt)
+	})
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
+func (s *Store) ListQueuedSubmissions() ([]domain.Submission, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []domain.Submission{}
+	for _, x := range s.submissions {
+		if x.Verdict == domain.VerdictQueued {
+			out = append(out, x)
+		}
+	}
+	// Recovery is FIFO so an old submission cannot be starved by a busy queue.
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].SubmittedAt.Equal(out[j].SubmittedAt) {
+			return out[i].ID < out[j].ID
+		}
+		return out[i].SubmittedAt.Before(out[j].SubmittedAt)
+	})
+	return out, nil
+}
+
 func (s *Store) UpdateSubmission(x domain.Submission) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.submissions[x.ID]; !ok {
+	existing, ok := s.submissions[x.ID]
+	if !ok {
 		return errors.New("submission not found")
+	}
+	if x.RequestID == "" {
+		x.RequestID = existing.RequestID
+	}
+	if existing.RequestID != x.RequestID {
+		if existing.RequestID != "" {
+			delete(s.subByReqID, existing.RequestID)
+		}
+		if x.RequestID != "" {
+			if owner, exists := s.subByReqID[x.RequestID]; exists && owner != x.ID {
+				return errors.New("request id already exists")
+			}
+			s.subByReqID[x.RequestID] = x.ID
+		}
 	}
 	s.submissions[x.ID] = x
 	return nil
@@ -354,4 +496,17 @@ func (s *Store) DeleteSessionsForUser(userID string) error {
 		}
 	}
 	return nil
+}
+
+func (s *Store) DeleteExpiredSessions(now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	deleted := 0
+	for token, sess := range s.sessions {
+		if sess.Expired(now) {
+			delete(s.sessions, token)
+			deleted++
+		}
+	}
+	return deleted, nil
 }

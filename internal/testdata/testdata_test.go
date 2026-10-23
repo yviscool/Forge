@@ -1,6 +1,8 @@
 package testdata
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -40,6 +42,14 @@ func TestFiles(t *testing.T) {
 			t.Fatalf("traversal %q must fail", bad)
 		}
 	}
+	for _, badID := range []string{"..", "../c", `..\\c`, ""} {
+		if err := s.Put(badID, "p", "x.in", []byte("x")); err == nil {
+			t.Fatalf("traversal contest id %q must fail", badID)
+		}
+		if err := s.Put("c", badID, "x.in", []byte("x")); err == nil {
+			t.Fatalf("traversal problem id %q must fail", badID)
+		}
+	}
 	if err := s.Put("c", "p", "big.in", make([]byte, MaxFileSize+1)); err == nil {
 		t.Fatal("oversize must fail")
 	}
@@ -63,5 +73,43 @@ func TestFiles(t *testing.T) {
 	}
 	if matched[0].BaseName != "a01" || matched[1].BaseName != "c01" {
 		t.Fatalf("matched cases order: %+v", matched)
+	}
+
+	// Answer-only tasks use .out/.ans as standalone answer keys and must not
+	// be blocked by orphaned .in files from an earlier task type.
+	if err := s.Put("c", "answer", "key.ans", []byte("42")); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Put("c", "answer", "stale.in", []byte("ignored")); err != nil {
+		t.Fatal(err)
+	}
+	keys, err := s.AnswerKeys("c", "answer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keys) != 1 || keys[0].BaseName != "key" || keys[0].InputFile != "" {
+		t.Fatalf("answer keys: %+v", keys)
+	}
+}
+
+func TestSymlinkEscapeIsRejected(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	secret := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secret, []byte("host-secret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "c", "p"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(root, "c", "p", "escape.out")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	s := New(root)
+	if got, err := s.Get("c", "p", "escape.out"); err == nil {
+		t.Fatalf("symlink escape returned host data: %q", got)
+	}
+	if err := s.Put("c", "p", "escape.out", []byte("overwrite")); err == nil {
+		t.Fatal("must not overwrite through a symlink")
 	}
 }

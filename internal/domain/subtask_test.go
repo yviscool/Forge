@@ -160,8 +160,8 @@ func TestContestStateMachineTransitions(t *testing.T) {
 	}
 
 	cRunning := Contest{Status: string(Running)}
-	if !cRunning.CanModifySettings() {
-		t.Fatal("Running should allow emergency settings adjustment")
+	if cRunning.CanModifySettings() {
+		t.Fatal("Running must freeze the published paper")
 	}
 	if !cRunning.CanSubmit() {
 		t.Fatal("Running should allow submit")

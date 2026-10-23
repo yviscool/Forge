@@ -1,9 +1,25 @@
 /upstream/
+/data/
+/dist/
+*.db
+*.db-wal
+*.db-shm
 *.exe
 *.test
+coverage
 coverage.out
+lint-output.txt
+.commandcode/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
+.env
+.env.*
+!.env.example
 .DS_Store
 # frontend dev/build artifacts (rebuild via `npm run build` in frontend/)
 frontend/node_modules/
+frontend/*.tsbuildinfo
+frontend/src/**/*.js
 internal/web/dist/*
 !internal/web/dist/placeholder.txt

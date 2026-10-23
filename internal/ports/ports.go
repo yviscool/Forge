@@ -51,10 +51,14 @@ type Store interface {
 	GetProblem(id string) (domain.Problem, error)
 	ListProblems(contestID string) ([]domain.Problem, error)
 	UpdateProblem(p domain.Problem) (domain.Problem, error)
+	DeleteProblem(id string) error
 
 	CreateSubmission(s domain.Submission) (domain.Submission, error)
 	GetSubmission(id string) (domain.Submission, error)
+	FindSubmissionByRequestID(requestID string) (*domain.Submission, error)
 	ListSubmissions(contestID string) ([]domain.Submission, error)
+	ListSubmissionFeed(contestID, userID string, limit int) ([]domain.Submission, error)
+	ListQueuedSubmissions() ([]domain.Submission, error)
 	UpdateSubmission(s domain.Submission) error
 
 	// Credentials & sessions（auth 端口：hash 永不进 domain.User JSON）。
@@ -64,8 +68,16 @@ type Store interface {
 	GetSession(token string) (domain.Session, error)
 	DeleteSession(token string) error
 	DeleteSessionsForUser(userID string) error
+	DeleteExpiredSessions(now time.Time) (int, error)
 
 	NextID(prefix string) string
+}
+
+// HealthChecker is implemented by stores that can verify their backing
+// datastore is still reachable. Readiness endpoints use this optional port so
+// an open file descriptor alone never reports a broken database as healthy.
+type HealthChecker interface {
+	Ping(ctx context.Context) error
 }
 
 // Transactor 事务边界接口：支持在事务内执行原子操作并在报错时回滚。

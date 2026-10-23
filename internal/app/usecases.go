@@ -1,8 +1,10 @@
 package app
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/yviscool/forge/internal/domain"
@@ -36,6 +38,11 @@ func (s *Service) FinishContest(id string) (domain.Contest, error) {
 		}
 		c.Status = string(domain.Finished)
 		c.FinishedAt = s.clock.Now()
+		// Snapshot the board before marking the contest closed. Once finished,
+		// all read paths return this immutable result rather than recomputing
+		// from mutable user/profile state.
+		c.FinalRanking = s.finalizeRanking(tx, c)
+		c.FinalACM = s.finalizeACM(tx, c)
 		return tx.UpdateContest(c)
 	})
 	if err != nil {
@@ -52,6 +59,9 @@ func (s *Service) AddGroupToContest(cid, gid string) error {
 		c, err = tx.GetContest(cid)
 		if err != nil {
 			return err
+		}
+		if !c.CanModifySettings() {
+			return errors.New("participant groups and participants are frozen once the contest starts")
 		}
 		if _, err := tx.GetGroup(gid); err != nil {
 			return err
@@ -79,8 +89,15 @@ func (s *Service) AddParticipantToContest(cid, uid string) error {
 		if err != nil {
 			return err
 		}
-		if _, err := tx.GetUser(uid); err != nil {
+		if !c.CanModifySettings() {
+			return errors.New("participant groups and participants are frozen once the contest starts")
+		}
+		u, err := tx.GetUser(uid)
+		if err != nil {
 			return err
+		}
+		if domain.NormalizeRole(u.Role) != domain.RoleStudent {
+			return errors.New("only student accounts can be contest participants")
 		}
 		for _, x := range c.ParticipantUserIDs {
 			if x == uid {
@@ -145,6 +162,16 @@ func (s *Service) RemoveUserFromGroup(uid, gid string) error {
 }
 
 func (s *Service) CreateProblem(p domain.Problem) (domain.Problem, error) {
+	// Problem IDs are routing and filesystem identifiers. Never accept a
+	// client-supplied value: a forged global ID could overwrite another
+	// contest's problem, and traversal-shaped values would reach the data layer.
+	p.ID = ""
+	if p.CompareMode != "" {
+		p.CompareMode = domain.NormalizeComparisonMode(p.CompareMode)
+	}
+	if p.TaskType == domain.TaskChoice && p.ChoiceKeyJSON == "" {
+		p.ChoiceKeyJSON = choiceKeyJSON(p.ChoiceQuestions)
+	}
 	if err := domain.ValidateProblem(p); err != nil {
 		return domain.Problem{}, err
 	}
@@ -172,7 +199,7 @@ func (s *Service) CreateProblem(p domain.Problem) (domain.Problem, error) {
 			return errors.New("contest not found")
 		}
 		if !c.CanModifySettings() {
-			return errors.New("cannot add problems to finished contest")
+			return errors.New("problem paper is frozen once the contest starts")
 		}
 		created, err = tx.CreateProblem(p)
 		if err != nil {
@@ -216,8 +243,53 @@ func (s *Service) GetProblem(cid, pid string) (domain.Problem, error) {
 	return p, nil
 }
 
+// DeleteProblem removes a problem from a contest and detaches it from the
+// contest manifest. Historical submissions stay intact for audit/statistics.
+func (s *Service) DeleteProblem(cid, pid string) error {
+	var c domain.Contest
+	err := s.withTx(func(tx ports.Store) error {
+		var err error
+		c, err = tx.GetContest(cid)
+		if err != nil {
+			return err
+		}
+		p, err := tx.GetProblem(pid)
+		if err != nil || p.ContestID != cid {
+			return errors.New("problem not found")
+		}
+		if !c.CanModifySettings() {
+			return errors.New("problem paper is frozen once the contest starts")
+		}
+		kept := make([]string, 0, len(c.ProblemIDs))
+		for _, id := range c.ProblemIDs {
+			if id != pid {
+				kept = append(kept, id)
+			}
+		}
+		c.ProblemIDs = kept
+		if err := tx.UpdateContest(c); err != nil {
+			return err
+		}
+		return tx.DeleteProblem(pid)
+	})
+	if err != nil {
+		return err
+	}
+	s.emit("problem.deleted", cid, map[string]string{"problemId": pid})
+	s.emit("contest.updated", cid, c)
+	return nil
+}
+
 func (s *Service) ListSubmissions(cid string) []domain.Submission {
 	subs, err := s.store.ListSubmissions(cid)
+	if err != nil || subs == nil {
+		return []domain.Submission{}
+	}
+	return subs
+}
+
+func (s *Service) ListSubmissionFeed(cid, userID string, limit int) []domain.Submission {
+	subs, err := s.store.ListSubmissionFeed(cid, userID, limit)
 	if err != nil || subs == nil {
 		return []domain.Submission{}
 	}
@@ -231,49 +303,67 @@ func (s *Service) GetSubmission(id string) (domain.Submission, error) {
 // JudgeCases 按点回写：聚合子任务分（LemonLime dependence 语义）后落总分，
 // verdict 取最差点结论映射；编译信息（CE 原文）一并落库。
 func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf func(int) int, fullOf func(int) int) (domain.Submission, error) {
-	x, err := s.store.GetSubmission(subID)
+	var x domain.Submission
+	stale := false
+	err := s.withTx(func(tx ports.Store) error {
+		current, err := tx.GetSubmission(subID)
+		if err != nil {
+			return err
+		}
+		// A manual decision or a newer rejudge generation wins over a late
+		// worker result. This check and the write share one transaction.
+		if current.Verdict != domain.VerdictQueued {
+			x = current
+			stale = true
+			return nil
+		}
+		cases := oc.Cases
+		score := domain.AggregateScore(cases, subtaskOf, fullOf)
+		verdict := domain.VerdictAccepted
+		for _, c := range cases {
+			if c.Verdict != domain.CaseAC {
+				verdict = string(c.Verdict)
+				break
+			}
+		}
+		// CaseVerdict(AC/WA/...) → 服务 verdict 命名归一。
+		switch domain.CaseVerdict(verdict) {
+		case domain.CaseAC:
+			verdict = domain.VerdictAccepted
+		case domain.CaseWA:
+			verdict = domain.VerdictWrongAnswer
+		case domain.CaseTLE:
+			verdict = domain.VerdictTimeLimit
+		case domain.CaseMLE:
+			verdict = domain.VerdictMemoryLimit
+		case domain.CaseRE:
+			verdict = domain.VerdictRuntimeError
+		case domain.CaseCE:
+			verdict = domain.VerdictCompileError
+		case domain.CaseOLE:
+			verdict = domain.VerdictOutputLimit
+		case domain.CasePE:
+			verdict = domain.VerdictPresentationError
+		case domain.CaseCheckerError:
+			verdict = domain.VerdictCheckerError
+		case domain.CaseSystemError:
+			verdict = domain.VerdictSystemError
+		case domain.CaseSkipped:
+			verdict = domain.VerdictSkipped
+		}
+		current.Verdict = verdict
+		current.Score = score
+		current.JudgedAt = s.clock.Now()
+		current.Cases = cases
+		current.CompileMessage = oc.CompileMessage
+		x = current
+		return tx.UpdateSubmission(current)
+	})
 	if err != nil {
 		return domain.Submission{}, err
 	}
-	cases := oc.Cases
-	score := domain.AggregateScore(cases, subtaskOf, fullOf)
-	verdict := domain.VerdictAccepted
-	for _, c := range cases {
-		if c.Verdict != domain.CaseAC {
-			verdict = string(c.Verdict)
-			break
-		}
-	}
-	// CaseVerdict(AC/WA/...) → 服务 verdict 命名归一。
-	switch domain.CaseVerdict(verdict) {
-	case domain.CaseAC:
-		verdict = domain.VerdictAccepted
-	case domain.CaseWA:
-		verdict = domain.VerdictWrongAnswer
-	case domain.CaseTLE:
-		verdict = domain.VerdictTimeLimit
-	case domain.CaseMLE:
-		verdict = domain.VerdictMemoryLimit
-	case domain.CaseRE:
-		verdict = domain.VerdictRuntimeError
-	case domain.CaseCE:
-		verdict = domain.VerdictCompileError
-	case domain.CaseOLE:
-		verdict = domain.VerdictOutputLimit
-	case domain.CasePE:
-		verdict = domain.VerdictPresentationError
-	case domain.CaseCheckerError:
-		verdict = domain.VerdictCheckerError
-	case domain.CaseSystemError:
-		verdict = domain.VerdictSystemError
-	case domain.CaseSkipped:
-		verdict = domain.VerdictSkipped
-	}
-	x.Verdict, x.Score, x.JudgedAt = verdict, score, s.clock.Now()
-	x.Cases = cases
-	x.CompileMessage = oc.CompileMessage
-	if err := s.store.UpdateSubmission(x); err != nil {
-		return domain.Submission{}, err
+	if stale {
+		return x, nil
 	}
 	s.emit("submission.judged", x.ContestID, x)
 	s.emit("ranking.updated", x.ContestID, s.Ranking(x.ContestID))
@@ -331,17 +421,37 @@ func (s *Service) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 	if p.MemoryLimitMiB > 0 {
 		cur.MemoryLimitMiB = p.MemoryLimitMiB
 	}
+	if p.OutputLimitKiB > 0 {
+		cur.OutputLimitKiB = p.OutputLimitKiB
+	}
+	if p.CompileTimeoutSec > 0 {
+		cur.CompileTimeoutSec = p.CompileTimeoutSec
+	}
 	if p.CompareMode != "" {
-		cur.CompareMode = p.CompareMode
+		cur.CompareMode = domain.NormalizeComparisonMode(p.CompareMode)
+		// Switching away from a custom checker must remove the old source;
+		// otherwise BuildRequest would keep forcing special-judge mode.
+		if cur.CompareMode != domain.CompareSpecialJudge {
+			cur.CheckerCode = ""
+			cur.CheckerLang = ""
+		}
 	}
 	if p.RealEps != 0 {
 		cur.RealEps = p.RealEps
 	}
 	if p.TaskType != "" {
 		cur.TaskType = p.TaskType
+		if p.TaskType != domain.TaskInteraction {
+			cur.InteractorCode = ""
+			cur.InteractorLang = ""
+		}
 	}
 	if p.IOMode != "" {
 		cur.IOMode = p.IOMode
+		if p.IOMode == domain.IOStdio {
+			cur.InFile = ""
+			cur.OutFile = ""
+		}
 	}
 	if p.InFile != "" {
 		cur.InFile = p.InFile
@@ -360,6 +470,15 @@ func (s *Service) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 	if p.Locales != nil {
 		cur.Locales = p.Locales
 	}
+	if p.ChoiceQuestions != nil {
+		cur.ChoiceQuestions = p.ChoiceQuestions
+		// Keep the legacy key JSON in sync so bundles and older clients that
+		// still read choiceKeyJson grade the same paper.
+		cur.ChoiceKeyJSON = choiceKeyJSON(p.ChoiceQuestions)
+	}
+	if p.ChoiceQuestions == nil && p.ChoiceKeyJSON != "" {
+		cur.ChoiceKeyJSON = p.ChoiceKeyJSON
+	}
 	if p.TestCases != nil {
 		cur.TestCases = p.TestCases
 	}
@@ -368,7 +487,10 @@ func (s *Service) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 		return domain.Problem{}, err
 	}
 	if !c.CanModifySettings() {
-		return domain.Problem{}, errors.New("cannot update problem of finished contest")
+		return domain.Problem{}, errors.New("problem paper is frozen once the contest starts")
+	}
+	if err := domain.ValidateProblem(cur); err != nil {
+		return domain.Problem{}, err
 	}
 	cur.UpdatedAt = s.clock.Now()
 	updated, err := s.store.UpdateProblem(cur)
@@ -379,12 +501,90 @@ func (s *Service) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 	return updated, nil
 }
 
+// choiceKeyJSON serializes only question IDs and answers. It is a compatibility
+// artifact for import/export, never returned to students.
+func choiceKeyJSON(questions []domain.ChoiceQuestion) string {
+	keys := make(map[string]any, len(questions))
+	for _, q := range questions {
+		keys[strconv.Itoa(q.ID)] = q.Answer
+	}
+	b, err := json.Marshal(keys)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// ReorderProblems 比赛内试题顺序重排（自动更新 A/B/C/D 编号与 Contest.ProblemIDs）。
+func (s *Service) ReorderProblems(cid string, problemIDs []string) ([]domain.Problem, error) {
+	var ordered []domain.Problem
+	err := s.withTx(func(tx ports.Store) error {
+		c, err := tx.GetContest(cid)
+		if err != nil {
+			return err
+		}
+		if !c.CanModifySettings() {
+			return errors.New("problem order is frozen once the contest starts")
+		}
+		if len(problemIDs) == 0 || len(problemIDs) > 26 {
+			return errors.New("problem order must contain between 1 and 26 problems")
+		}
+		current := make(map[string]bool, len(c.ProblemIDs))
+		for _, pid := range c.ProblemIDs {
+			current[pid] = true
+		}
+		seen := make(map[string]bool, len(problemIDs))
+		for _, pid := range problemIDs {
+			if !current[pid] {
+				return fmt.Errorf("problem %s does not belong to this contest", pid)
+			}
+			if seen[pid] {
+				return fmt.Errorf("duplicate problem in order: %s", pid)
+			}
+			seen[pid] = true
+		}
+		if len(seen) != len(current) {
+			return errors.New("problem order must contain every problem exactly once")
+		}
+		// Validate ownership and mutate problem codes before publishing the
+		// manifest. The surrounding transaction rolls every change back if a
+		// later item fails.
+		for i, pid := range problemIDs {
+			p, err := tx.GetProblem(pid)
+			if err != nil {
+				return err
+			}
+			if p.ContestID != cid {
+				return fmt.Errorf("problem %s belongs to another contest", pid)
+			}
+			p.Code = string(rune('A' + i))
+			p.UpdatedAt = s.clock.Now()
+			updated, err := tx.UpdateProblem(p)
+			if err != nil {
+				return err
+			}
+			ordered = append(ordered, updated)
+		}
+		c.ProblemIDs = append([]string(nil), problemIDs...)
+		if err := tx.UpdateContest(c); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	s.emit("problems.reordered", cid, ordered)
+	return ordered, nil
+}
+
 // SubtaskConfig 子任务配置项（分数/分点限额打包设置）。
 type SubtaskConfig struct {
-	Subtask     int `json:"subtask"`
-	Score       int `json:"score"`
-	TimeLimitMs int `json:"timeLimitMs"`
-	MemoryMiB   int `json:"memoryMib"`
+	Subtask     int   `json:"subtask"`
+	Score       int   `json:"score"`
+	TimeLimitMs int   `json:"timeLimitMs"`
+	MemoryMiB   int   `json:"memoryMib"`
+	DependsOn   []int `json:"dependsOn,omitempty"`
 }
 
 // ConfigureSubtasks 按子任务号批量设置测试点分数与限额。
@@ -393,21 +593,61 @@ func (s *Service) ConfigureSubtasks(pid string, cfgs []SubtaskConfig) (domain.Pr
 	if err != nil {
 		return domain.Problem{}, err
 	}
+	// Store implementations may return a shallow copy. Work on a detached
+	// slice so a rejected dependency edit cannot leak into memory storage.
+	p.TestCases = append([]domain.TestCase(nil), p.TestCases...)
 	c, err := s.store.GetContest(p.ContestID)
 	if err != nil {
 		return domain.Problem{}, err
 	}
 	if !c.CanModifySettings() {
-		return domain.Problem{}, errors.New("cannot configure subtasks of finished contest")
+		return domain.Problem{}, errors.New("subtask scoring is frozen once the contest starts")
 	}
 	bySub := map[int]SubtaskConfig{}
 	for _, cfg := range cfgs {
+		if cfg.Score < 0 || cfg.TimeLimitMs < 0 || cfg.MemoryMiB < 0 {
+			return domain.Problem{}, errors.New("subtask score and limits cannot be negative")
+		}
+		if _, duplicate := bySub[cfg.Subtask]; duplicate {
+			return domain.Problem{}, fmt.Errorf("duplicate subtask %d", cfg.Subtask)
+		}
 		bySub[cfg.Subtask] = cfg
+	}
+	present := map[int]int{}
+	for _, tc := range p.TestCases {
+		present[tc.Subtask]++
+	}
+	for subtask := range bySub {
+		if present[subtask] == 0 {
+			return domain.Problem{}, fmt.Errorf("subtask %d has no test cases", subtask)
+		}
+	}
+	// SubtaskConfig.Score is the total score for the whole subtask. Split it
+	// deterministically across its test points instead of multiplying the score
+	// by the number of cases.
+	scoreByCase := map[int]int{}
+	for subtask, cfg := range bySub {
+		if cfg.Score <= 0 {
+			continue
+		}
+		count := present[subtask]
+		base, remainder := cfg.Score/count, cfg.Score%count
+		seen := 0
+		for i, tc := range p.TestCases {
+			if tc.Subtask != subtask {
+				continue
+			}
+			scoreByCase[i] = base
+			if seen < remainder {
+				scoreByCase[i]++
+			}
+			seen++
+		}
 	}
 	for i, tc := range p.TestCases {
 		if cfg, ok := bySub[tc.Subtask]; ok {
 			if cfg.Score > 0 {
-				tc.Score = cfg.Score
+				tc.Score = scoreByCase[i]
 			}
 			if cfg.TimeLimitMs > 0 {
 				tc.TimeLimitMs = cfg.TimeLimitMs
@@ -415,8 +655,14 @@ func (s *Service) ConfigureSubtasks(pid string, cfgs []SubtaskConfig) (domain.Pr
 			if cfg.MemoryMiB > 0 {
 				tc.MemoryMiB = cfg.MemoryMiB
 			}
+			if cfg.DependsOn != nil {
+				tc.DependsOn = append([]int(nil), cfg.DependsOn...)
+			}
 			p.TestCases[i] = tc
 		}
+	}
+	if err := domain.ValidateProblem(p); err != nil {
+		return domain.Problem{}, err
 	}
 	p.UpdatedAt = s.clock.Now()
 	updated, err := s.store.UpdateProblem(p)
@@ -430,18 +676,35 @@ func (s *Service) ConfigureSubtasks(pid string, cfgs []SubtaskConfig) (domain.Pr
 // RejudgeProblem 重判某题全部提交（对标 LemonLime needRejudge）。
 // 返回待重判提交，调用方逐个入 worker 队列。
 func (s *Service) RejudgeProblem(cid, pid string) ([]domain.Submission, error) {
-	if _, err := s.GetProblem(cid, pid); err != nil {
-		return nil, err
-	}
 	var out []domain.Submission
-	subs, err := s.store.ListSubmissions(cid)
-	if err != nil {
-		return nil, err
-	}
-	for _, x := range subs {
-		if x.ProblemID == pid {
+	err := s.withTx(func(tx ports.Store) error {
+		problem, err := tx.GetProblem(pid)
+		if err != nil {
+			return err
+		}
+		if problem.ContestID != cid {
+			return errors.New("problem not found in contest")
+		}
+		subs, err := tx.ListSubmissions(cid)
+		if err != nil {
+			return err
+		}
+		for _, x := range subs {
+			if x.ProblemID != pid {
+				continue
+			}
+			// Preserve the previous score and case detail for audit and a stable
+			// OI board while the submission is visibly queued for re-evaluation.
+			x.Verdict = domain.VerdictQueued
+			if err := tx.UpdateSubmission(x); err != nil {
+				return err
+			}
 			out = append(out, x)
 		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
 	}
 	s.emit("problem.rejudge", cid, map[string]any{"problemId": pid, "count": len(out)})
 	return out, nil
@@ -471,7 +734,7 @@ func (s *Service) Statistics(cid string) (ContestStats, error) {
 	if _, err := s.store.GetContest(cid); err != nil {
 		return ContestStats{}, err
 	}
-	st := ContestStats{ContestID: cid}
+	st := ContestStats{ContestID: cid, Problems: []ProblemStats{}}
 	subs, err := s.store.ListSubmissions(cid)
 	if err != nil {
 		return ContestStats{}, err
@@ -546,14 +809,12 @@ func (s *Service) ImportBundle(b ContestBundle) (domain.Contest, error) {
 	var out domain.Contest
 	err := s.withTx(func(tx ports.Store) error {
 		c, err := tx.CreateContest(domain.Contest{
-			Name:               name + " (imported)",
-			Description:        b.Contest.Description,
-			Status:             string(domain.Draft),
-			RankingMode:        b.Contest.RankingMode,
-			GroupIDs:           append([]string{}, b.Contest.GroupIDs...),
-			ParticipantUserIDs: append([]string{}, b.Contest.ParticipantUserIDs...),
-			AllowedLanguages:   append([]string{}, b.Contest.AllowedLanguages...),
-			CreatedAt:          s.clock.Now(),
+			Name:             name + " (imported)",
+			Description:      b.Contest.Description,
+			Status:           string(domain.Draft),
+			RankingMode:      b.Contest.RankingMode,
+			AllowedLanguages: append([]string{}, b.Contest.AllowedLanguages...),
+			CreatedAt:        s.clock.Now(),
 		})
 		if err != nil {
 			return err
@@ -576,6 +837,7 @@ func (s *Service) ImportBundle(b ContestBundle) (domain.Contest, error) {
 			if p.CompareMode == "" {
 				p.CompareMode = domain.CompareIgnoreSpace
 			}
+			p.CompareMode = domain.NormalizeComparisonMode(p.CompareMode)
 			if err := domain.ValidateProblem(p); err != nil {
 				return err
 			}
@@ -606,13 +868,23 @@ func (s *Service) SetContestLanguages(cid string, langs []string) (domain.Contes
 		return domain.Contest{}, err
 	}
 	if !c.CanModifySettings() {
-		return domain.Contest{}, errors.New("cannot modify settings of finished contest")
+		return domain.Contest{}, errors.New("contest settings are frozen once the contest starts")
 	}
 	var clean []string
+	seen := map[string]bool{}
 	for _, l := range langs {
-		if l = strings.TrimSpace(l); l != "" {
-			clean = append(clean, l)
+		l = domain.NormalizeLanguage(l)
+		if l == "" {
+			continue
 		}
+		if !domain.SupportedLanguage(l) {
+			return domain.Contest{}, fmt.Errorf("unsupported language: %s", l)
+		}
+		if seen[l] {
+			continue
+		}
+		seen[l] = true
+		clean = append(clean, l)
 	}
 	c.AllowedLanguages = clean
 	if err := s.store.UpdateContest(c); err != nil {
@@ -632,7 +904,7 @@ func (s *Service) SetRankingMode(cid, mode string) (domain.Contest, error) {
 		return domain.Contest{}, err
 	}
 	if !c.CanModifySettings() {
-		return domain.Contest{}, errors.New("cannot modify settings of finished contest")
+		return domain.Contest{}, errors.New("contest settings are frozen once the contest starts")
 	}
 	c.RankingMode = mode
 	if err := s.store.UpdateContest(c); err != nil {

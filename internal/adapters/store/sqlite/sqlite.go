@@ -14,12 +14,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/yviscool/forge/internal/auth"
 	"github.com/yviscool/forge/internal/domain"
 	"github.com/yviscool/forge/internal/ports"
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 2
+const schemaVersion = 6
 
 type dbExecutor interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -35,7 +36,7 @@ type Store struct {
 // Open 打开（不存在则创建）SQLite 文件并执行迁移。
 func Open(path string) (*Store, error) {
 	if dir := filepath.Dir(path); dir != "" {
-		if err := os.MkdirAll(dir, 0755); err != nil {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return nil, err
 		}
 	}
@@ -49,10 +50,47 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	if err := migrateLegacyContestZipPasswords(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return &Store{db: db, ex: db}, nil
 }
 
 func (s *Store) Close() error { return s.db.Close() }
+
+// Ping verifies the connection and schema watermark. Readiness must fail if a
+// database was replaced by an unsupported schema after process startup.
+func (s *Store) Ping(ctx context.Context) error {
+	if err := s.db.PingContext(ctx); err != nil {
+		return err
+	}
+	var v int
+	if err := s.db.QueryRowContext(ctx, `PRAGMA user_version`).Scan(&v); err != nil {
+		return err
+	}
+	if v != schemaVersion {
+		return fmt.Errorf("unsupported sqlite schema version %d (want %d)", v, schemaVersion)
+	}
+	// Verify the main database accepts writes, not merely network/file reads.
+	// The probe is rolled back so readiness remains side-effect free.
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("readiness write transaction: %w", err)
+	}
+	defer tx.Rollback()
+	if _, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO seq(name, val) VALUES('__forge_readiness_probe', 0)
+		 ON CONFLICT(name) DO UPDATE SET val=seq.val`,
+	); err != nil {
+		return fmt.Errorf("readiness write probe: %w", err)
+	}
+	if err := tx.Rollback(); err != nil {
+		return fmt.Errorf("readiness rollback: %w", err)
+	}
+	return nil
+}
 
 // WithTx 开启事务执行闭包，返回错误时自动回滚。若当前已在事务中则复用。
 func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error {
@@ -121,8 +159,123 @@ func migrate(db *sql.DB) error {
 		}
 		v = 3
 	}
+	if v < 4 {
+		ddl := []string{
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase
+			 ON users(lower(trim(json_extract(data, '$.username'))))
+			 WHERE trim(json_extract(data, '$.username')) <> ''`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v4: %w", err)
+			}
+		}
+		v = 4
+	}
+	if v < 5 {
+		ddl := []string{
+			`ALTER TABLE submissions ADD COLUMN request_id TEXT NOT NULL DEFAULT ''`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_submissions_request_id
+			 ON submissions(request_id) WHERE request_id <> ''`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v5: %w", err)
+			}
+		}
+		v = 5
+	}
+	if v < 6 {
+		ddl := []string{
+			`ALTER TABLE submissions ADD COLUMN verdict TEXT NOT NULL DEFAULT ''`,
+			`UPDATE submissions
+			 SET verdict=COALESCE(json_extract(data, '$.verdict'), '')`,
+			`CREATE INDEX IF NOT EXISTS idx_submissions_verdict
+			 ON submissions(verdict)`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v6: %w", err)
+			}
+		}
+		v = 6
+	}
+	if v != schemaVersion {
+		return fmt.Errorf("unsupported sqlite schema version %d (want %d)", v, schemaVersion)
+	}
 	_, err := db.Exec(fmt.Sprintf(`PRAGMA user_version=%d`, v))
 	return err
+}
+
+// migrateLegacyContestZipPasswords removes plaintext values written by early
+// pre-release builds. It runs at startup because a lazy read migration could
+// leave the secret on disk indefinitely.
+func migrateLegacyContestZipPasswords(db *sql.DB) error {
+	rows, err := db.Query(
+		`SELECT id, data FROM contests
+		 WHERE json_type(data, '$.zipPassword') = 'text'`,
+	)
+	if err != nil {
+		return fmt.Errorf("scan legacy zip passwords: %w", err)
+	}
+	type pending struct {
+		id   string
+		data string
+	}
+	var updates []pending
+	for rows.Next() {
+		var id, raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan legacy zip password row: %w", err)
+		}
+		var record map[string]any
+		if err := json.Unmarshal([]byte(raw), &record); err != nil {
+			rows.Close()
+			return fmt.Errorf("decode contest %s for zip migration: %w", id, err)
+		}
+		legacy, _ := record["zipPassword"].(string)
+		delete(record, "zipPassword")
+		if strings.TrimSpace(legacy) != "" {
+			verifier, err := auth.HashZipPassword(strings.TrimSpace(legacy))
+			if err != nil {
+				rows.Close()
+				return fmt.Errorf(
+					"contest %s has an incompatible legacy zip password; rotate it before upgrading: %w",
+					id,
+					err,
+				)
+			}
+			record["zipPasswordHash"] = verifier
+		}
+		encoded, err := json.Marshal(record)
+		if err != nil {
+			rows.Close()
+			return fmt.Errorf("encode contest %s zip migration: %w", id, err)
+		}
+		updates = append(updates, pending{id: id, data: string(encoded)})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate legacy zip password rows: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(updates) == 0 {
+		return nil
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, update := range updates {
+		if _, err := tx.Exec(`UPDATE contests SET data=? WHERE id=?`, update.data, update.id); err != nil {
+			return fmt.Errorf("migrate contest %s zip password: %w", update.id, err)
+		}
+	}
+	return tx.Commit()
 }
 
 func marshal(v any) (string, error) {
@@ -141,6 +294,45 @@ func (s *Store) put(table, id string, v any) error {
 		return err
 	}
 	_, err = s.ex.Exec(fmt.Sprintf(`INSERT INTO %s(id, data) VALUES(?, ?) ON CONFLICT(id) DO UPDATE SET data=excluded.data`, table), id, data)
+	return err
+}
+
+type contestAlias domain.Contest
+
+type contestDisk struct {
+	contestAlias
+	ZipPasswordHash string `json:"zipPasswordHash,omitempty"`
+}
+
+func marshalContest(c domain.Contest) (string, error) {
+	wire := contestDisk{
+		contestAlias:    contestAlias(c),
+		ZipPasswordHash: c.ZipPasswordHash,
+	}
+	return marshal(wire)
+}
+
+func unmarshalContest(raw string) (domain.Contest, error) {
+	var wire contestDisk
+	if err := json.Unmarshal([]byte(raw), &wire); err != nil {
+		return domain.Contest{}, err
+	}
+	c := domain.Contest(wire.contestAlias)
+	c.ZipPasswordHash = wire.ZipPasswordHash
+	return c, nil
+}
+
+func (s *Store) putContest(c domain.Contest) error {
+	data, err := marshalContest(c)
+	if err != nil {
+		return err
+	}
+	_, err = s.ex.Exec(
+		`INSERT INTO contests(id, data) VALUES(?, ?)
+		 ON CONFLICT(id) DO UPDATE SET data=excluded.data`,
+		c.ID,
+		data,
+	)
 	return err
 }
 
@@ -287,20 +479,42 @@ func (s *Store) CreateContest(c domain.Contest) (domain.Contest, error) {
 	if c.ID == "" {
 		c.ID = s.NextID("cnt")
 	}
-	return c, s.put(tContests, c.ID, c)
+	return c, s.putContest(c)
 }
 
 func (s *Store) GetContest(id string) (domain.Contest, error) {
-	var c domain.Contest
-	if err := s.get(tContests, id, &c, "contest"); err != nil {
+	var raw string
+	if err := s.ex.QueryRow(`SELECT data FROM contests WHERE id=?`, id).Scan(&raw); err == sql.ErrNoRows {
+		return domain.Contest{}, notFound("contest")
+	} else if err != nil {
+		return domain.Contest{}, err
+	}
+	c, err := unmarshalContest(raw)
+	if err != nil {
 		return domain.Contest{}, err
 	}
 	return c, nil
 }
 
 func (s *Store) ListContests() ([]domain.Contest, error) {
-	var out []domain.Contest
-	if err := s.listAll(tContests, &out); err != nil {
+	rows, err := s.ex.Query(`SELECT data FROM contests`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]domain.Contest, 0)
+	for rows.Next() {
+		var raw string
+		if err := rows.Scan(&raw); err != nil {
+			return nil, err
+		}
+		c, err := unmarshalContest(raw)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
 		return nil, err
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
@@ -312,7 +526,7 @@ func (s *Store) UpdateContest(c domain.Contest) error {
 	if err := s.get(tContests, c.ID, &cur, "contest"); err != nil {
 		return err
 	}
-	return s.put(tContests, c.ID, c)
+	return s.putContest(c)
 }
 
 func (s *Store) CreateProblem(p domain.Problem) (domain.Problem, error) {
@@ -325,7 +539,7 @@ func (s *Store) CreateProblem(p domain.Problem) (domain.Problem, error) {
 	// 同步比赛 ProblemIDs
 	if c, err := s.GetContest(p.ContestID); err == nil {
 		c.ProblemIDs = append(c.ProblemIDs, p.ID)
-		if err := s.put(tContests, c.ID, c); err != nil {
+		if err := s.putContest(c); err != nil {
 			return domain.Problem{}, err
 		}
 	}
@@ -365,16 +579,43 @@ func (s *Store) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 	return p, nil
 }
 
+func (s *Store) DeleteProblem(id string) error {
+	res, err := s.ex.Exec(`DELETE FROM problems WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return notFound("problem")
+	}
+	return nil
+}
+
 func (s *Store) CreateSubmission(x domain.Submission) (domain.Submission, error) {
 	if x.ID == "" {
 		x.ID = s.NextID("sub")
 	}
-	return x, s.putScoped(tSubs, x.ID, x.ContestID, x)
+	data, err := marshal(x)
+	if err != nil {
+		return domain.Submission{}, err
+	}
+	_, err = s.ex.Exec(
+		`INSERT INTO submissions(id, contest_id, request_id, verdict, data) VALUES(?, ?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET
+			contest_id=excluded.contest_id,
+			request_id=excluded.request_id,
+			verdict=excluded.verdict,
+			data=excluded.data`,
+		x.ID, x.ContestID, x.RequestID, x.Verdict, data,
+	)
+	return x, err
 }
 
 func (s *Store) GetSubmission(id string) (domain.Submission, error) {
 	var raw string
-	if e := s.ex.QueryRow(`SELECT data FROM submissions WHERE id=?`, id).Scan(&raw); e == sql.ErrNoRows {
+	var requestID string
+	if e := s.ex.QueryRow(
+		`SELECT data, request_id FROM submissions WHERE id=?`, id,
+	).Scan(&raw, &requestID); e == sql.ErrNoRows {
 		return domain.Submission{}, notFound("submission")
 	} else if e != nil {
 		return domain.Submission{}, e
@@ -383,7 +624,30 @@ func (s *Store) GetSubmission(id string) (domain.Submission, error) {
 	if err := json.Unmarshal([]byte(raw), &x); err != nil {
 		return domain.Submission{}, err
 	}
+	x.RequestID = requestID
 	return x, nil
+}
+
+func (s *Store) FindSubmissionByRequestID(requestID string) (*domain.Submission, error) {
+	if requestID == "" {
+		return nil, nil
+	}
+	var raw string
+	err := s.ex.QueryRow(
+		`SELECT data FROM submissions WHERE request_id=?`, requestID,
+	).Scan(&raw)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	var x domain.Submission
+	if err := json.Unmarshal([]byte(raw), &x); err != nil {
+		return nil, err
+	}
+	x.RequestID = requestID
+	return &x, nil
 }
 
 func (s *Store) ListSubmissions(contestID string) ([]domain.Submission, error) {
@@ -395,11 +659,89 @@ func (s *Store) ListSubmissions(contestID string) ([]domain.Submission, error) {
 	return out, nil
 }
 
+func (s *Store) ListSubmissionFeed(contestID, userID string, limit int) ([]domain.Submission, error) {
+	query := `SELECT data, request_id FROM submissions WHERE contest_id=?`
+	args := []any{contestID}
+	if userID != "" {
+		query += ` AND json_extract(data, '$.userId')=?`
+		args = append(args, userID)
+	}
+	query += ` ORDER BY json_extract(data, '$.submittedAt') DESC, id DESC`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	rows, err := s.ex.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Submission{}
+	for rows.Next() {
+		var raw, requestID string
+		if err := rows.Scan(&raw, &requestID); err != nil {
+			return nil, err
+		}
+		var x domain.Submission
+		if err := json.Unmarshal([]byte(raw), &x); err != nil {
+			return nil, err
+		}
+		x.RequestID = requestID
+		out = append(out, x)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) ListQueuedSubmissions() ([]domain.Submission, error) {
+	rows, err := s.ex.Query(
+		`SELECT data, request_id FROM submissions
+		 WHERE verdict=?
+		 ORDER BY json_extract(data, '$.submittedAt') ASC, id ASC`,
+		domain.VerdictQueued,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []domain.Submission{}
+	for rows.Next() {
+		var raw, requestID string
+		if err := rows.Scan(&raw, &requestID); err != nil {
+			return nil, err
+		}
+		var x domain.Submission
+		if err := json.Unmarshal([]byte(raw), &x); err != nil {
+			return nil, err
+		}
+		x.RequestID = requestID
+		out = append(out, x)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) UpdateSubmission(x domain.Submission) error {
-	if _, err := s.GetSubmission(x.ID); err != nil {
+	existing, err := s.GetSubmission(x.ID)
+	if err != nil {
 		return err
 	}
-	return s.putScoped(tSubs, x.ID, x.ContestID, x)
+	if x.RequestID == "" {
+		x.RequestID = existing.RequestID
+	}
+	data, err := marshal(x)
+	if err != nil {
+		return err
+	}
+	_, err = s.ex.Exec(
+		`UPDATE submissions SET contest_id=?, request_id=?, verdict=?, data=? WHERE id=?`,
+		x.ContestID, x.RequestID, x.Verdict, data, x.ID,
+	)
+	return err
 }
 
 func (s *Store) SetPasswordHash(userID, hash string) error {
@@ -454,4 +796,36 @@ func (s *Store) DeleteSession(token string) error {
 func (s *Store) DeleteSessionsForUser(userID string) error {
 	_, err := s.ex.Exec(`DELETE FROM sessions WHERE user_id=?`, userID)
 	return err
+}
+
+func (s *Store) DeleteExpiredSessions(now time.Time) (int, error) {
+	rows, err := s.ex.Query(`SELECT token, data FROM sessions`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var expired []string
+	for rows.Next() {
+		var token, data string
+		if err := rows.Scan(&token, &data); err != nil {
+			return 0, err
+		}
+		var sess domain.Session
+		if err := json.Unmarshal([]byte(data), &sess); err != nil {
+			continue
+		}
+		if sess.Expired(now) {
+			expired = append(expired, token)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	_ = rows.Close()
+	for _, token := range expired {
+		if _, err := s.ex.Exec(`DELETE FROM sessions WHERE token=?`, token); err != nil {
+			return 0, err
+		}
+	}
+	return len(expired), nil
 }

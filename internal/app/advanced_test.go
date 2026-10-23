@@ -1,6 +1,8 @@
 package app
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/yviscool/forge/internal/adapters/store/memory"
@@ -38,7 +40,7 @@ func TestUpdateProblemAndSubtasks(t *testing.T) {
 
 	cfg, err := svc.ConfigureSubtasks(p.ID, []SubtaskConfig{
 		{Subtask: 0, Score: 40, TimeLimitMs: 500, MemoryMiB: 128},
-		{Subtask: 1, Score: 60},
+		{Subtask: 1, Score: 60, DependsOn: []int{0}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -49,8 +51,43 @@ func TestUpdateProblemAndSubtasks(t *testing.T) {
 	if cfg.TestCases[1].Score != 60 || cfg.TestCases[1].TimeLimitMs != 0 {
 		t.Fatalf("subtask1 partial: %+v", cfg.TestCases[1])
 	}
+	if len(cfg.TestCases[1].DependsOn) != 1 || cfg.TestCases[1].DependsOn[0] != 0 {
+		t.Fatalf("subtask dependency not applied: %+v", cfg.TestCases[1])
+	}
+	multi, err := svc.CreateProblem(domain.Problem{
+		ContestID: c.ID, Code: "B", Title: "Multi", Statement: "s",
+		Input: "i", Output: "o", Constraints: "k",
+		TestCases: []domain.TestCase{
+			{ID: "m1", Subtask: 1},
+			{ID: "m2", Subtask: 1},
+			{ID: "m3", Subtask: 1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	multi, err = svc.ConfigureSubtasks(multi.ID, []SubtaskConfig{{Subtask: 1, Score: 100}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	total := 0
+	for _, tc := range multi.TestCases {
+		total += tc.Score
+	}
+	if total != 100 || multi.TestCases[0].Score != 34 ||
+		multi.TestCases[1].Score != 33 || multi.TestCases[2].Score != 33 {
+		t.Fatalf("subtask total must not multiply by case count: %+v", multi.TestCases)
+	}
+	if _, err := svc.ConfigureSubtasks(multi.ID, []SubtaskConfig{
+		{Subtask: 1, DependsOn: []int{2}},
+	}); err == nil {
+		t.Fatal("dangling subtask dependency must fail")
+	}
 	if _, err := svc.ConfigureSubtasks("ghost", nil); err == nil {
 		t.Fatal("ghost problem should error")
+	}
+	if _, err := svc.StartContest(c.ID); err != nil {
+		t.Fatalf("contest with a valid paper should start: %v", err)
 	}
 	if _, err := svc.UpdateProblem(domain.Problem{ID: "ghost"}); err == nil {
 		t.Fatal("ghost update should error")
@@ -75,9 +112,19 @@ func TestRejudgeAndStatistics(t *testing.T) {
 	if err != nil || len(subs) != 2 {
 		t.Fatalf("rejudge list: %v %+v", err, subs)
 	}
+	for _, sub := range subs {
+		if sub.Verdict != domain.VerdictQueued {
+			t.Fatalf("rejudge must durably queue the submission: %+v", sub)
+		}
+	}
+	if r := svc.RankingACM(c.ID); len(r) != 1 || r[0].Solved != 0 {
+		t.Fatalf("queued rejudge must not count as solved until a new verdict arrives: %+v", r)
+	}
 	if _, err := svc.RejudgeProblem(c.ID, "ghost"); err == nil {
 		t.Fatal("ghost rejudge should error")
 	}
+	_, _ = svc.Judge(s1.ID, "accepted", 100)
+	_, _ = svc.Judge(s2.ID, "wrong_answer", 0)
 
 	st, err := svc.Statistics(c.ID)
 	if err != nil {
@@ -98,6 +145,29 @@ func TestRejudgeAndStatistics(t *testing.T) {
 	}
 	if r := svc.RankingACM(c.ID); len(r) != 1 || r[0].Solved != 1 {
 		t.Fatalf("acm: %+v", r)
+	}
+}
+
+func TestStatisticsEmptyContestKeepsProblemListAsJSONArray(t *testing.T) {
+	svc := NewService(memory.New(), realtime.NewHub(), nil, nil)
+	c, err := svc.CreateContest("Empty statistics", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	st, err := svc.Statistics(c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Problems == nil {
+		t.Fatal("empty contest statistics must use an empty problem slice, not nil")
+	}
+	raw, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"problems":[]`) {
+		t.Fatalf("statistics JSON = %s, want an empty problems array", raw)
 	}
 }
 
@@ -163,6 +233,64 @@ func TestContestBundleRoundTrip(t *testing.T) {
 	}
 	if _, err := svc.ExportContest("ghost"); err == nil {
 		t.Fatal("ghost export should error")
+	}
+}
+
+func TestImportBundleDropsEnvironmentSpecificParticipantBindings(t *testing.T) {
+	svc := NewService(memory.New(), realtime.NewHub(), nil, nil)
+	bundle := ContestBundle{
+		Contest: domain.Contest{
+			Name:               "Portable paper",
+			GroupIDs:           []string{"group-from-another-deployment"},
+			ParticipantUserIDs: []string{"user-from-another-deployment"},
+		},
+		Problems: []domain.Problem{
+			{
+				ContestID: "source-contest", Code: "A", Title: "T", Statement: "s",
+				Input: "i", Output: "o", Constraints: "k",
+			},
+		},
+	}
+
+	imported, err := svc.ImportBundle(bundle)
+	if err != nil {
+		t.Fatalf("portable bundle import failed: %v", err)
+	}
+	if len(imported.GroupIDs) != 0 || len(imported.ParticipantUserIDs) != 0 {
+		t.Fatalf(
+			"environment-specific bindings must not cross deployments: %+v",
+			imported,
+		)
+	}
+	if _, err := svc.StartContest(imported.ID); err != nil {
+		t.Fatalf("imported draft should be locally launchable: %v", err)
+	}
+}
+
+func TestSubmissionSizeLimitIsEnforcedByService(t *testing.T) {
+	svc := NewService(memory.New(), realtime.NewHub(), nil, nil)
+	u, _ := svc.CreateUser("Size Check", "student")
+	c, _ := svc.CreateContest("Size Limit", "")
+	p, err := svc.CreateProblem(domain.Problem{
+		ContestID: c.ID, Code: "A", Title: "T", Statement: "s",
+		Input: "i", Output: "o", Constraints: "k",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.StartContest(c.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := svc.Submit(
+		c.ID, p.ID, u.ID, "cpp", strings.Repeat("x", domain.MaxSubmissionBytes+1),
+	); err == nil || !strings.Contains(err.Error(), "submission_too_large") {
+		t.Fatalf("oversized submission must be rejected, got %v", err)
+	}
+	if _, err := svc.Submit(
+		c.ID, p.ID, u.ID, "cpp", strings.Repeat("x", domain.MaxSubmissionBytes),
+	); err != nil {
+		t.Fatalf("submission at the byte limit should be accepted: %v", err)
 	}
 }
 

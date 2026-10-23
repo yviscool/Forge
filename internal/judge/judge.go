@@ -73,21 +73,6 @@ type CheckerSpec struct {
 }
 
 // resolveIO 路径存在则读文件，否则按内联文本处理。
-func resolveIO(s string) string {
-	t := strings.TrimSpace(s)
-	if t == "" {
-		return ""
-	}
-	if len(t) < 4096 {
-		if fi, err := os.Stat(t); err == nil && !fi.IsDir() {
-			if b, err := os.ReadFile(t); err == nil {
-				return string(b)
-			}
-		}
-	}
-	return s
-}
-
 // SubtaskMaps 由题目 TestCases 生成子任务映射（与 JudgeCases 聚合语义配套）。
 // 无测试点时返回 nil, nil，调用方应跳过自动评测、保留人工判题。
 func SubtaskMaps(tcs []domain.TestCase) (subtaskOf func(int) int, fullOf func(int) int) {

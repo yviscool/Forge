@@ -1,12 +1,13 @@
 #include <bits/stdc++.h>
 using namespace std;
-// 并行偷钟探针：4 线程各忙等，wall 短但 CPU 爆表，必须按 CPU 判 TLE。
+// 并行偷钟探针：4 线程各烧固定迭代量（约 0.4-1.2s CPU/线程，视主频），
+// 而非固定 wall 忙等——调度受限的宿主上烧不完就撞墙钟 TLE，
+// 烧完则总 CPU 必然超过限额，两种路径都不会误判 AC。
 int main() {
     auto burn = []() {
-        auto t0 = std::chrono::steady_clock::now();
         volatile unsigned long long x = 0;
-        while (std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count() < 600) {
-            x++;
+        for (unsigned long long i = 0; i < 1200000000ULL; ++i) {
+            x += i;
         }
     };
     std::thread t1(burn), t2(burn), t3(burn), t4(burn);
@@ -14,4 +15,3 @@ int main() {
     cout << "done";
     return 0;
 }
-

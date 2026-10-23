@@ -4,6 +4,7 @@ package pdf
 
 import (
 	"bytes"
+	"context"
 	_ "embed"
 	"fmt"
 	"html/template"
@@ -11,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"time"
 
 	"github.com/yviscool/forge/internal/domain"
 )
@@ -18,7 +20,18 @@ import (
 //go:embed template.html
 var templateHTML string
 
-// RenderHTML 渲染 CCF 规范打印 HTML。
+//go:embed contest_template.html
+var contestTemplateHTML string
+
+const (
+	maxConcurrentPDFRenders = 2
+	pdfRenderTimeout        = 90 * time.Second
+	maxBrowserOutputBytes   = 64 << 10
+)
+
+var pdfRenderSlots = make(chan struct{}, maxConcurrentPDFRenders)
+
+// RenderHTML 渲染单题 CCF 规范打印 HTML。
 func RenderHTML(c domain.Contest, p domain.Problem) ([]byte, error) {
 	t, err := template.New("ccf").Parse(templateHTML)
 	if err != nil {
@@ -26,6 +39,19 @@ func RenderHTML(c domain.Contest, p domain.Problem) ([]byte, error) {
 	}
 	var buf bytes.Buffer
 	if err := t.Execute(&buf, map[string]any{"Contest": c, "Problem": p}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+// RenderContestHTML 渲染整场比赛全卷合订本（4 题或多题，带封面与考生守则）HTML。
+func RenderContestHTML(c domain.Contest, probs []domain.Problem) ([]byte, error) {
+	t, err := template.New("ccf_contest").Parse(contestTemplateHTML)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := t.Execute(&buf, map[string]any{"Contest": c, "Problems": probs}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -71,6 +97,13 @@ func FindBrowser() string {
 
 // GeneratePDF HTML → A4 PDF，无浏览器时返回明确错误并由调用方降级到 HTML。
 func GeneratePDF(c domain.Contest, p domain.Problem) ([]byte, error) {
+	return GeneratePDFContext(context.Background(), c, p)
+}
+
+// GeneratePDFContext bounds browser concurrency and respects request
+// cancellation. Chromium is expensive and must never be launched without a
+// finite deadline or a process-wide concurrency ceiling.
+func GeneratePDFContext(ctx context.Context, c domain.Contest, p domain.Problem) ([]byte, error) {
 	bin := FindBrowser()
 	if bin == "" {
 		return nil, fmt.Errorf("no Chromium/Chrome/Edge browser executable found on system")
@@ -79,19 +112,101 @@ func GeneratePDF(c domain.Contest, p domain.Problem) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	dir, err := os.MkdirTemp("", "forge_pdf_*")
+	return runBrowserPDF(ctx, bin, "forge_pdf_", "problem.html", "output.pdf", html)
+}
+
+// GenerateContestPDF 整场比赛合订本 HTML → A4 PDF。
+func GenerateContestPDF(c domain.Contest, probs []domain.Problem) ([]byte, error) {
+	return GenerateContestPDFContext(context.Background(), c, probs)
+}
+
+// GenerateContestPDFContext is the request-aware full-paper variant.
+func GenerateContestPDFContext(ctx context.Context, c domain.Contest, probs []domain.Problem) ([]byte, error) {
+	bin := FindBrowser()
+	if bin == "" {
+		return nil, fmt.Errorf("no Chromium/Chrome/Edge browser executable found on system")
+	}
+	html, err := RenderContestHTML(c, probs)
+	if err != nil {
+		return nil, err
+	}
+	return runBrowserPDF(ctx, bin, "forge_contest_pdf_", "contest.html", "output.pdf", html)
+}
+
+func runBrowserPDF(
+	ctx context.Context,
+	bin, tempPattern, htmlName, pdfName string,
+	html []byte,
+) ([]byte, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithTimeout(ctx, pdfRenderTimeout)
+	defer cancel()
+	select {
+	case pdfRenderSlots <- struct{}{}:
+		defer func() { <-pdfRenderSlots }()
+	case <-ctx.Done():
+		return nil, fmt.Errorf("pdf renderer unavailable: %w", ctx.Err())
+	}
+
+	dir, err := os.MkdirTemp("", tempPattern)
 	if err != nil {
 		return nil, err
 	}
 	defer os.RemoveAll(dir)
-	htmlFile, pdfFile := filepath.Join(dir, "problem.html"), filepath.Join(dir, "output.pdf")
+	htmlFile, pdfFile := filepath.Join(dir, htmlName), filepath.Join(dir, pdfName)
 	if err := os.WriteFile(htmlFile, html, 0644); err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(bin, "--headless", "--disable-gpu", "--no-pdf-header-footer",
+	cmd := exec.CommandContext(ctx, bin,
+		"--headless",
+		"--disable-gpu",
+		"--disable-background-networking",
+		"--disable-default-apps",
+		"--disable-extensions",
+		"--disable-sync",
+		"--no-first-run",
+		"--no-pdf-header-footer",
 		fmt.Sprintf("--print-to-pdf=%s", pdfFile), htmlFile)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return nil, fmt.Errorf("browser pdf generation failed: %w (output: %s)", err, string(out))
+	out := &cappedBuffer{limit: maxBrowserOutputBytes}
+	cmd.Stdout, cmd.Stderr = out, out
+	if err := cmd.Run(); err != nil {
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, fmt.Errorf("browser pdf generation timed out: %w", ctxErr)
+		}
+		return nil, fmt.Errorf("browser pdf generation failed: %w (output: %s)",
+			err, out.String())
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, fmt.Errorf("browser pdf generation timed out: %w", err)
 	}
 	return os.ReadFile(pdfFile)
+}
+
+type cappedBuffer struct {
+	buf       bytes.Buffer
+	limit     int
+	truncated bool
+}
+
+func (b *cappedBuffer) Write(p []byte) (int, error) {
+	room := b.limit - b.buf.Len()
+	if room <= 0 {
+		b.truncated = true
+		return len(p), nil
+	}
+	if len(p) > room {
+		_, _ = b.buf.Write(p[:room])
+		b.truncated = true
+		return len(p), nil
+	}
+	return b.buf.Write(p)
+}
+
+func (b *cappedBuffer) String() string {
+	if !b.truncated {
+		return b.buf.String()
+	}
+	return b.buf.String() + "\n[output truncated]"
 }

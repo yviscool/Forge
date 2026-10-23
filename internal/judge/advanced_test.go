@@ -209,16 +209,32 @@ func TestToolchainConfig(t *testing.T) {
 	if got := LoadToolchainConfig(""); got.CPP.Command != "g++" {
 		t.Fatal("empty path must yield defaults")
 	}
-	if got := LoadToolchainConfig(filepath.Join("testdata", "nope.json")); got.Go.Command != "go" {
-		t.Fatal("missing file must yield defaults")
+	if _, err := ParseToolchainConfig(filepath.Join("testdata", "nope.json")); err == nil {
+		t.Fatal("missing configured file must fail closed")
 	}
 	f := filepath.Join(t.TempDir(), "tc.json")
 	if err := os.WriteFile(f, []byte(`{"cpp":{"command":"g++","std":"c++20"}}`), 0644); err != nil {
 		t.Fatal(err)
 	}
-	got := LoadToolchainConfig(f)
+	got, err := ParseToolchainConfig(f)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got.CPP.Std != "c++20" || got.Python.Command != "python" {
 		t.Fatalf("merge broken: %+v", got)
+	}
+	bad := filepath.Join(t.TempDir(), "bad.json")
+	if err := os.WriteFile(bad, []byte(`{"cpp":{"command":"g++","surprise":true}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseToolchainConfig(bad); err == nil {
+		t.Fatal("unknown toolchain fields must fail closed")
+	}
+	if err := os.WriteFile(bad, []byte(`{"go":{"compileTimeoutSec":-1}}`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseToolchainConfig(bad); err == nil {
+		t.Fatal("negative compile limits must fail closed")
 	}
 	// spec() 方法必须透传新字段（曾漏合并导致墙没生效）。
 	tc := Toolchain{Config: ToolchainConfig{CPP: ToolSpec{CompileTimeoutSec: 9, CompileMemoryMiB: 111}}}
@@ -297,7 +313,8 @@ func TestParallelCPUTLE(t *testing.T) {
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
-	// 4 线程忙等：wall 短、CPU 爆表，必须按 CPU 口径判 TLE。
+	// 4 线程烧固定量 CPU：调度充裕时 CPU 超限判 TLE，调度受限时撞墙钟判 TLE，
+	// 两种路径都不允许出现 AC。
 	got, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: loadCode(t, "parallel.cpp"),
 		Cases:   []CaseInput{{Input: "", Expected: "done"}},
@@ -310,7 +327,9 @@ func TestParallelCPUTLE(t *testing.T) {
 	if got.Cases[0].Verdict != domain.CaseTLE {
 		t.Fatalf("parallel overuse must be TLE: %+v", got.Cases[0])
 	}
-	if got.Cases[0].CpuMs <= got.Cases[0].TimeMs {
+	// 宿主高负载时 4 线程分不到一个整核，墙钟先于 CPU 限额触顶也判 TLE，
+	// 此时 CPU/wall 对比不构成并行证据；仅在墙钟未触顶时要求 CPU 证据。
+	if got.Cases[0].CpuMs <= got.Cases[0].TimeMs && got.Cases[0].TimeMs < 1000 {
 		t.Fatalf("cpu must exceed wall (parallelism evidence): %+v", got.Cases[0])
 	}
 }

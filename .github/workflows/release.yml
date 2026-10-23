@@ -1,0 +1,223 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+env:
+  GOVULNCHECK_VERSION: v1.9.0
+  REDOCLY_VERSION: 2.67.1
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: pin npm
+        run: |
+          corepack enable
+          corepack prepare npm@11.19.0 --activate
+      - name: backend verification
+        run: |
+          test -z "$(gofmt -l cmd internal)"
+          go mod verify
+          go vet ./...
+          go test ./...
+          bash scripts/backup_test.sh
+          go test -race ./internal/domain/ ./internal/app/ ./internal/auth/ ./internal/realtime/ ./internal/adapters/store/... ./internal/transport/http/
+          go build ./...
+          go run golang.org/x/vuln/cmd/govulncheck@${GOVULNCHECK_VERSION} ./...
+      - name: frontend verification
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run test:coverage
+          npm run typecheck
+          npm run lint
+          npm audit --audit-level=high
+          npx playwright install --with-deps chromium firefox webkit
+          npm run test:e2e
+          npm run build
+      - name: OpenAPI contract
+        run: npx --yes @redocly/cli@${REDOCLY_VERSION} lint api/openapi.yaml --format=stylish
+
+  build:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version-file: frontend/.nvmrc
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: pin npm
+        run: |
+          corepack enable
+          corepack prepare npm@11.19.0 --activate
+      - name: build embedded SPA
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: build portable archives
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          build_date="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          rm -rf dist/release dist/stage
+          mkdir -p dist/release dist/stage
+
+          build_target() {
+            local goos="$1"
+            local goarch="$2"
+            local suffix=""
+            if [ "$goos" = "windows" ]; then suffix=".exe"; fi
+
+            rm -rf dist/stage/*
+            CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
+              go build -trimpath \
+              -ldflags="-s -w -X main.version=${version} -X main.commit=${GITHUB_SHA} -X main.buildDate=${build_date}" \
+              -o "dist/stage/forge${suffix}" ./cmd/forge
+            cp README.md SPEC.md AGENTS.md dist/stage/
+            cp -R api docs dist/stage/
+            printf 'version=%s\ncommit=%s\nbuilt=%s\n' \
+              "$version" "$GITHUB_SHA" "$build_date" > dist/stage/release-info.txt
+
+            local base="dist/release/forge_${version}_${goos}_${goarch}"
+            tar -C dist/stage -czf "${base}.tar.gz" .
+            go version -m "dist/stage/forge${suffix}" > "${base}.sbom.txt"
+            sha256sum "${base}.tar.gz" "${base}.sbom.txt" >> dist/release/SHA256SUMS
+          }
+
+          build_target windows amd64
+          build_target linux amd64
+          build_target linux arm64
+          build_target darwin arm64
+          printf 'source_commit=%s\nrelease=%s\n' "$GITHUB_SHA" "$version" \
+            > dist/release/RELEASE-METADATA.txt
+          sha256sum dist/release/RELEASE-METADATA.txt >> dist/release/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-bundle
+          path: dist/release/
+          if-no-files-found: error
+          retention-days: 3
+
+  smoke-linux:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-bundle
+          path: dist/release
+      - name: archive checksum
+        working-directory: dist/release
+        run: sha256sum -c SHA256SUMS
+      - name: start extracted release and verify persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/forge-smoke
+          tar -xzf dist/release/forge_*_linux_amd64.tar.gz -C /tmp/forge-smoke
+          /tmp/forge-smoke/forge --version
+          go run ./cmd/forge-smoke -binary /tmp/forge-smoke/forge
+
+  smoke-windows:
+    needs: build
+    runs-on: windows-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-bundle
+          path: dist/release
+      - name: start extracted release and verify persistence
+        shell: pwsh
+        run: |
+          $archive = Get-ChildItem dist/release/forge_*_windows_amd64.tar.gz | Select-Object -First 1
+          New-Item -ItemType Directory -Force -Path smoke | Out-Null
+          tar -xzf $archive.FullName -C smoke
+          if ($LASTEXITCODE -ne 0) { throw "archive extraction failed" }
+          & .\smoke\forge.exe --version
+          if ($LASTEXITCODE -ne 0) { throw "version check failed" }
+          go run ./cmd/forge-smoke -binary (Resolve-Path .\smoke\forge.exe)
+
+  publish:
+    needs: [smoke-linux, smoke-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: release-bundle
+          path: dist/release
+      - name: verify immutable bundle metadata
+        run: |
+          cd dist/release
+          sha256sum -c SHA256SUMS
+          grep -F "source_commit=${GITHUB_SHA}" RELEASE-METADATA.txt
+      - uses: actions/attest-build-provenance@96b4a1ef7235a096b17240c259729fdd70c83d45 # v2
+        with:
+          subject-path: "dist/release/*.tar.gz"
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/release/*.tar.gz
+            dist/release/*.sbom.txt
+            dist/release/SHA256SUMS
+            dist/release/RELEASE-METADATA.txt

@@ -3,17 +3,28 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
+	"mime"
 	"net/http"
+	"path"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/yviscool/forge/internal/app"
 	"github.com/yviscool/forge/internal/auth"
 	"github.com/yviscool/forge/internal/domain"
+	"github.com/yviscool/forge/internal/judge"
+	"github.com/yviscool/forge/internal/observability"
 	"github.com/yviscool/forge/internal/pdf"
+	"github.com/yviscool/forge/internal/ports"
 	"github.com/yviscool/forge/internal/testdata"
 	webdist "github.com/yviscool/forge/internal/web"
 )
@@ -22,11 +33,28 @@ type Server struct {
 	svc  *app.Service
 	auth *auth.Service
 	log  *slog.Logger
-	// OnSubmit 提交成功后的钩子（自动评测入队；nil 则仅记录手动判题）。
-	OnSubmit func(domain.Submission)
+	// Readiness checks are wired by the executable so transport stays free of
+	// host-specific filesystem and toolchain policy.
+	readinessMu     sync.RWMutex
+	readinessChecks map[string]func(context.Context) error
+	// LoginLimiter protects the public credential endpoint. Tests may replace
+	// it with a limiter driven by a fake clock.
+	LoginLimiter *auth.LoginLimiter
+	// ExamUnlockLimiter protects the exam password endpoint from online
+	// guessing. It is separate from login attempts so a noisy classroom NAT
+	// cannot consume the credential-login budget.
+	ExamUnlockLimiter *auth.LoginLimiter
+	// TrustProxy 是否采用 X-Forwarded-For / X-Real-IP 作为客户端机位 IP。
+	// 默认 false：仅在服务确实位于可信反向代理之后时才由 main 打开。
+	TrustProxy bool
+	// OnSubmit best-effort hands a durable queued submission to the worker
+	// pool. A transient enqueue failure must not turn persisted work into a
+	// terminal system error; the reconciler retries it after capacity frees up.
+	OnSubmit func(domain.Submission) error
 	// Files 测试数据文件仓（main 按 DataDir 装配，测试用临时目录）。
 	Files *testdata.Store
 
+	metrics *observability.Metrics
 	handler http.Handler
 }
 
@@ -39,17 +67,97 @@ func NewServer(svc *app.Service, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
 	}
-	h := &Server{svc: svc, log: log, auth: auth.New(svc.Store(), nil)}
+	metrics := observability.NewMetrics()
+	h := &Server{
+		svc: svc, log: log, auth: auth.New(svc.Store(), nil),
+		LoginLimiter:      auth.NewLoginLimiter(),
+		ExamUnlockLimiter: auth.NewLoginLimiter(),
+		readinessChecks:   make(map[string]func(context.Context) error),
+		metrics:           metrics,
+	}
 	h.Files = testdata.New("./data/testdata")
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", Healthz)
-	mux.HandleFunc("/readyz", Readyz)
+	mux.HandleFunc("/readyz", h.readyz)
+	mux.Handle("/metrics", metrics.Handler())
 	mux.HandleFunc("/api/v1/", h.dispatch)
 	mux.HandleFunc("/app", h.spa)
 	mux.HandleFunc("/app/", h.spa)
 	mux.HandleFunc("/", h.root)
-	h.handler = WithMiddleware(mux, log)
+	h.handler = WithMiddleware(mux, log, func() bool { return h.TrustProxy }, metrics)
 	return h
+}
+
+// AddReadinessCheck registers a startup-injected operational dependency.
+// Registering the same name replaces the previous probe.
+func (h *Server) AddReadinessCheck(name string, check func(context.Context) error) {
+	name = strings.TrimSpace(name)
+	if name == "" || check == nil {
+		return
+	}
+	h.readinessMu.Lock()
+	h.readinessChecks[name] = check
+	h.readinessMu.Unlock()
+}
+
+// SetRuntimeStatsProvider lets the executable expose judge and SSE pressure
+// without coupling transport to concrete worker or hub implementations.
+func (h *Server) SetRuntimeStatsProvider(provider func() observability.RuntimeStats) {
+	h.metrics.SetRuntimeStatsProvider(provider)
+}
+
+func (h *Server) readyz(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+	defer cancel()
+	checks := map[string]string{}
+	if checker, ok := h.svc.Store().(ports.HealthChecker); ok {
+		if err := runReadinessCheck(ctx, checker.Ping); err != nil {
+			h.log.Error("readiness check failed", "check", "store", "err", err)
+			checks["store"] = "unavailable"
+		} else {
+			checks["store"] = "ok"
+		}
+	} else {
+		checks["store"] = "ok"
+	}
+
+	h.readinessMu.RLock()
+	pending := make(map[string]func(context.Context) error, len(h.readinessChecks))
+	for name, check := range h.readinessChecks {
+		pending[name] = check
+	}
+	h.readinessMu.RUnlock()
+	for name, check := range pending {
+		if err := runReadinessCheck(ctx, check); err != nil {
+			h.log.Error("readiness check failed", "check", name, "err", err)
+			checks[name] = "unavailable"
+			continue
+		}
+		checks[name] = "ok"
+	}
+	for _, status := range checks {
+		if status != "ok" {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]any{
+				"status": "unavailable",
+				"checks": checks,
+			})
+			return
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"status": "ready", "checks": checks})
+}
+
+func runReadinessCheck(ctx context.Context, check func(context.Context) error) error {
+	result := make(chan error, 1)
+	go func() {
+		result <- check(ctx)
+	}()
+	select {
+	case err := <-result:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (h *Server) root(w http.ResponseWriter, r *http.Request) {
@@ -58,7 +166,17 @@ func (h *Server) root(w http.ResponseWriter, r *http.Request) {
 }
 
 func decode(r *http.Request, v any) error {
-	return json.NewDecoder(r.Body).Decode(v)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(v); err != nil {
+		return err
+	}
+	// Reject trailing JSON values so a request cannot smuggle a second object
+	// past validation.
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return fmt.Errorf("unexpected trailing JSON")
+	}
+	return nil
 }
 
 func writeOut(w http.ResponseWriter, v any, code int) {
@@ -67,7 +185,32 @@ func writeOut(w http.ResponseWriter, v any, code int) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
+func submissionFeedLimit(raw string) (int, error) {
+	const (
+		defaultLimit = 200
+		maxLimit     = 500
+	)
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return defaultLimit, nil
+	}
+	limit, err := strconv.Atoi(raw)
+	if err != nil || limit < 1 {
+		return 0, fmt.Errorf("limit must be a positive integer")
+	}
+	if limit > maxLimit {
+		limit = maxLimit
+	}
+	return limit, nil
+}
+
 func (h *Server) err(w http.ResponseWriter, r *http.Request, code int, err error) {
+	if code >= http.StatusInternalServerError {
+		traceID, _ := r.Context().Value(traceKey).(string)
+		h.log.Error("request failed", "traceId", traceID, "status", code, "err", err)
+		WriteError(w, r, code, "internal_error", "internal server error")
+		return
+	}
 	msg := "internal error"
 	if err != nil {
 		msg = err.Error()
@@ -91,7 +234,16 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 1 && parts[0] == "contests" {
 		switch r.Method {
 		case "GET":
-			writeOut(w, h.svc.ListContests(), 200)
+			r2, ok := h.requireLogin(w, r)
+			if !ok {
+				return
+			}
+			contests, ok := h.visibleContests(r2)
+			if !ok {
+				WriteError(w, r, 401, "unauthorized", "session user no longer exists")
+				return
+			}
+			writeOut(w, contests, 200)
 		case "POST":
 			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
 				return
@@ -134,13 +286,18 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 1 && parts[0] == "users" {
 		switch r.Method {
 		case "GET":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			writeOut(w, h.svc.ListUsers(), 200)
 		case "POST":
-			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+			if !ok {
 				return
 			}
 			var v struct {
 				Name     string `json:"name"`
+				Username string `json:"username"`
 				Role     string `json:"role"`
 				Password string `json:"password"`
 			}
@@ -148,7 +305,21 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
 				return
 			}
-			u, err := h.svc.CreateUser(v.Name, v.Role)
+			v.Role = strings.ToLower(strings.TrimSpace(v.Role))
+			if v.Role == "" {
+				v.Role = domain.RoleStudent
+			}
+			sess, _ := sessionOf(r2)
+			if !domain.ValidRole(v.Role) {
+				h.err(w, r, 400, fmt.Errorf("unknown role"))
+				return
+			}
+			if !domain.CanAssignRole(sess.Role, v.Role) {
+				WriteError(w, r, http.StatusForbidden, "forbidden",
+					"only administrators can create or promote staff accounts")
+				return
+			}
+			u, err := h.svc.CreateUserWithUsername(v.Name, v.Username, v.Role)
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
@@ -168,7 +339,8 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// /users/import（CSV 批量导入，教师）
 	if len(parts) == 2 && parts[0] == "users" && parts[1] == "import" && r.Method == "POST" {
-		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+		r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+		if !ok {
 			return
 		}
 		var v struct {
@@ -178,7 +350,8 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			h.err(w, r, 400, fmt.Errorf("invalid json"))
 			return
 		}
-		writeOut(w, h.importUsers(v.CSV), 200)
+		sess, _ := sessionOf(r2)
+		writeOut(w, h.importUsers(v.CSV, sess.Role), 200)
 		return
 	}
 
@@ -188,6 +361,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", "attachment; filename=forge-users.csv")
 		_, _ = w.Write([]byte(h.exportUsers()))
 		return
 	}
@@ -196,6 +370,9 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	if len(parts) == 1 && parts[0] == "groups" {
 		switch r.Method {
 		case "GET":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 			writeOut(w, h.svc.ListGroups(), 200)
 		case "POST":
 			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
@@ -287,14 +464,38 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			h.err(w, r, 400, fmt.Errorf("invalid json"))
 			return
 		}
-		j, err := h.svc.JudgeCases(parts[1], domain.JudgeOutcome{Cases: v.Cases},
-			func(i int) int { return 0 },
-			func(st int) int {
-				if s, ok := v.Subtasks[st]; ok {
-					return s
-				}
-				return 0
-			})
+		sub, err := h.svc.GetSubmission(parts[1])
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		problem, err := h.svc.GetProblem(sub.ContestID, sub.ProblemID)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		if len(problem.TestCases) > 0 && len(v.Cases) != len(problem.TestCases) {
+			h.err(w, r, 400, fmt.Errorf("case count must equal the problem testcase count"))
+			return
+		}
+		seen := make(map[int]bool, len(v.Cases))
+		for _, result := range v.Cases {
+			if result.CaseIndex < 0 ||
+				(len(problem.TestCases) > 0 && result.CaseIndex >= len(problem.TestCases)) ||
+				seen[result.CaseIndex] || !domain.ValidCaseVerdict(result.Verdict) {
+				h.err(w, r, 400, fmt.Errorf("invalid judge case result"))
+				return
+			}
+			seen[result.CaseIndex] = true
+		}
+		subtaskOf, fullOf := judge.SubtaskMaps(problem.TestCases)
+		if subtaskOf == nil {
+			subtaskOf = func(int) int { return 0 }
+			fullOf = func(int) int { return domain.ProblemTotalScore(problem) }
+		}
+		j, err := h.svc.JudgeCases(parts[1], domain.JudgeOutcome{
+			Cases: v.Cases, CompileMessage: "",
+		}, subtaskOf, fullOf)
 		if err != nil {
 			h.err(w, r, 400, err)
 			return
@@ -311,7 +512,19 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// /users/{id}/password（教师重置）
 	if len(parts) == 3 && parts[0] == "users" && parts[2] == "password" && r.Method == "POST" {
-		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+		r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+		if !ok {
+			return
+		}
+		target, err := h.svc.Store().GetUser(parts[1])
+		if err != nil {
+			h.err(w, r, 404, err)
+			return
+		}
+		sess, _ := sessionOf(r2)
+		if !domain.CanManageUser(sess.Role, target.Role) {
+			WriteError(w, r, http.StatusForbidden, "forbidden",
+				"teachers can only reset student passwords")
 			return
 		}
 		var v struct {
@@ -329,9 +542,21 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// /events/ticket（浏览器 SSE 短时票据，写入 HttpOnly Cookie）
+	if len(parts) == 2 && parts[0] == "events" && parts[1] == "ticket" && r.Method == "POST" {
+		h.eventsTicket(w, r)
+		return
+	}
+
 	// /events?contestId=
 	if len(parts) == 1 && parts[0] == "events" && r.Method == "GET" {
 		h.events(w, r)
+		return
+	}
+
+	// /time (服务端时钟同步)
+	if len(parts) == 1 && parts[0] == "time" && r.Method == "GET" {
+		writeOut(w, map[string]any{"serverTime": h.svc.Health()["time"]}, 200)
 		return
 	}
 
@@ -347,12 +572,22 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []string) {
 	cid := rest[0]
 
+	// 考务安全与进阶高级路由（机位IP、时间窗口、广播公告、Zip解锁）
+	if h.advancedContestRoutes(w, r, cid, rest[1:]) {
+		return
+	}
+
 	// /contests/{cid}
 	if len(rest) == 1 && r.Method == "GET" {
-		c, err := h.svc.GetContest(cid)
-		if err != nil {
-			h.err(w, r, 404, err)
+		r2, c, ok := h.requireContestAccess(w, r, cid)
+		if !ok {
 			return
+		}
+		if !isTeacher(r2) {
+			unlocked := h.paperUnlocked(r2, c)
+			sess, _ := sessionOf(r2)
+			c = redactContest(c, sess.UserID)
+			c.ZipUnlocked = unlocked
 		}
 		writeOut(w, c, 200)
 		return
@@ -382,6 +617,9 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 	if len(rest) == 2 && rest[1] == "ranking" && r.Method == "GET" {
+		if _, _, ok := h.requirePaperAccess(w, r, cid); !ok {
+			return
+		}
 		if c, err := h.svc.GetContest(cid); err == nil && c.RankingMode == "acm" {
 			writeOut(w, h.svc.RankingACM(cid), 200)
 			return
@@ -394,7 +632,17 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 	if len(rest) == 2 && rest[1] == "problems" {
 		switch r.Method {
 		case "GET":
-			writeOut(w, h.svc.ListProblems(cid), 200)
+			r2, _, ok := h.requirePaperAccess(w, r, cid)
+			if !ok {
+				return
+			}
+			problems := h.svc.ListProblems(cid)
+			if !isTeacher(r2) {
+				for i := range problems {
+					problems[i] = redactProblem(problems[i])
+				}
+			}
+			writeOut(w, problems, 200)
 		case "POST":
 			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
 				return
@@ -417,15 +665,118 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 
-	// /contests/{cid}/problems/{pid}
-	if len(rest) == 3 && rest[1] == "problems" && r.Method == "GET" {
-		p, err := h.svc.GetProblem(cid, rest[2])
-		if err != nil {
-			h.err(w, r, 404, err)
+	if len(rest) == 2 && rest[1] == "export" && r.Method == "GET" {
+		r2, c, ok := h.requirePaperAccess(w, r, cid)
+		if !ok {
 			return
 		}
-		writeOut(w, p, 200)
+		probs := h.svc.ListProblems(cid)
+		if !isTeacher(r2) {
+			sess, _ := sessionOf(r2)
+			c = redactContest(c, sess.UserID)
+			for i := range probs {
+				probs[i] = redactProblem(probs[i])
+			}
+		}
+		html, err := pdf.RenderContestHTML(c, probs)
+		if err != nil {
+			h.err(w, r, 500, err)
+			return
+		}
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(html)
 		return
+	}
+	if len(rest) == 2 && rest[1] == "pdf" && r.Method == "GET" {
+		r2, c, ok := h.requirePaperAccess(w, r, cid)
+		if !ok {
+			return
+		}
+		probs := h.svc.ListProblems(cid)
+		if !isTeacher(r2) {
+			sess, _ := sessionOf(r2)
+			c = redactContest(c, sess.UserID)
+			for i := range probs {
+				probs[i] = redactProblem(probs[i])
+			}
+		}
+		pdfBytes, err := pdf.GenerateContestPDFContext(r.Context(), c, probs)
+		if err != nil {
+			status := http.StatusServiceUnavailable
+			code := "pdf_unavailable"
+			if errors.Is(err, context.DeadlineExceeded) {
+				status = http.StatusGatewayTimeout
+				code = "pdf_timeout"
+			}
+			h.log.Error("contest PDF generation failed", "contestId", cid, "err", err)
+			WriteError(w, r, status, code, "PDF renderer is temporarily unavailable")
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-problems.pdf", cid))
+		_, _ = w.Write(pdfBytes)
+		return
+	}
+
+	// /contests/{cid}/problems/reorder
+	if len(rest) == 3 && rest[1] == "problems" && rest[2] == "reorder" && r.Method == "PUT" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		var v struct {
+			ProblemIDs []string `json:"problemIds"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		reordered, err := h.svc.ReorderProblems(cid, v.ProblemIDs)
+		if err != nil {
+			h.err(w, r, 400, err)
+			return
+		}
+		writeOut(w, reordered, 200)
+		return
+	}
+
+	// /contests/{cid}/problems/{pid}
+	if len(rest) == 3 && rest[1] == "problems" {
+		pid := rest[2]
+		switch r.Method {
+		case "GET":
+			r2, _, ok := h.requirePaperAccess(w, r, cid)
+			if !ok {
+				return
+			}
+			p, err := h.svc.GetProblem(cid, pid)
+			if err != nil {
+				h.err(w, r, 404, err)
+				return
+			}
+			if !isTeacher(r2) {
+				p = redactProblem(p)
+			}
+			writeOut(w, p, 200)
+			return
+		case "PUT":
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
+			var p domain.Problem
+			if decode(r, &p) != nil {
+				h.err(w, r, 400, fmt.Errorf("invalid json"))
+				return
+			}
+			p.ID = pid
+			p.ContestID = cid
+			updated, err := h.svc.UpdateProblem(p)
+			if err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+			writeOut(w, updated, 200)
+			return
+		}
 	}
 
 	if len(rest) == 2 && rest[1] == "statistics" && r.Method == "GET" {
@@ -509,6 +860,10 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 	}
 	if len(rest) == 4 && rest[1] == "problems" {
 		pid, action := rest[2], rest[3]
+		r2, _, ok := h.requirePaperAccess(w, r, cid)
+		if !ok {
+			return
+		}
 		p, err := h.svc.GetProblem(cid, pid)
 		if err != nil {
 			h.err(w, r, 404, err)
@@ -516,7 +871,8 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		switch {
 		case action == "validate" && r.Method == "POST":
-			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			if !isTeacher(r2) {
+				WriteError(w, r, 403, "forbidden", "insufficient role")
 				return
 			}
 			if verr := domain.ValidateProblem(p); verr != nil {
@@ -527,6 +883,11 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			return
 		case action == "export" && r.Method == "GET":
 			c, _ := h.svc.GetContest(cid)
+			if !isTeacher(r2) {
+				sess, _ := sessionOf(r2)
+				c = redactContest(c, sess.UserID)
+				p = redactProblem(p)
+			}
 			html, err := pdf.RenderHTML(c, p)
 			if err != nil {
 				h.err(w, r, 500, err)
@@ -537,9 +898,22 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			return
 		case action == "pdf" && r.Method == "GET":
 			c, _ := h.svc.GetContest(cid)
-			pdfBytes, err := pdf.GeneratePDF(c, p)
+			if !isTeacher(r2) {
+				sess, _ := sessionOf(r2)
+				c = redactContest(c, sess.UserID)
+				p = redactProblem(p)
+			}
+			pdfBytes, err := pdf.GeneratePDFContext(r.Context(), c, p)
 			if err != nil {
-				writeOut(w, map[string]string{"error": err.Error()}, 503)
+				status := http.StatusServiceUnavailable
+				code := "pdf_unavailable"
+				if errors.Is(err, context.DeadlineExceeded) {
+					status = http.StatusGatewayTimeout
+					code = "pdf_timeout"
+				}
+				h.log.Error("problem PDF generation failed",
+					"contestId", cid, "problemId", pid, "err", err)
+				WriteError(w, r, status, code, "PDF renderer is temporarily unavailable")
 				return
 			}
 			w.Header().Set("Content-Type", "application/pdf")
@@ -551,18 +925,57 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 
+	// DELETE /contests/{cid}/problems/{pid}
+	if len(rest) == 3 && rest[1] == "problems" && r.Method == "DELETE" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		if err := h.svc.DeleteProblem(cid, rest[2]); err != nil {
+			status := 400
+			if err.Error() == "problem not found" || err.Error() == "contest not found" {
+				status = 404
+			}
+			h.err(w, r, status, err)
+			return
+		}
+		writeOut(w, map[string]bool{"ok": true}, 200)
+		return
+	}
+
 	// /contests/{cid}/submissions
 	if len(rest) == 2 && rest[1] == "submissions" {
 		switch r.Method {
 		case "GET":
-			r2, ok := h.requireLogin(w, r)
+			r2, _, ok := h.requirePaperAccess(w, r, cid)
 			if !ok {
 				return
 			}
-			writeOut(w, h.redactSubmissions(r2, h.svc.ListSubmissions(cid)), 200)
+			limit, err := submissionFeedLimit(r2.URL.Query().Get("limit"))
+			if err != nil {
+				h.err(w, r, http.StatusBadRequest, err)
+				return
+			}
+			userID := ""
+			if !isTeacher(r2) {
+				if sess, ok := sessionOf(r2); ok {
+					userID = sess.UserID
+				}
+				if userID == "" {
+					h.err(w, r, http.StatusForbidden, fmt.Errorf("participant login required"))
+					return
+				}
+			}
+			feed := h.svc.ListSubmissionFeed(cid, userID, limit)
+			w.Header().Set("X-Result-Limit", strconv.Itoa(limit))
+			writeOut(w, h.redactSubmissions(r2, feed), 200)
 		case "POST":
-			r2, ok := h.requireLogin(w, r)
+			r2, _, ok := h.requirePaperAccess(w, r, cid)
 			if !ok {
+				return
+			}
+			requestKey := strings.TrimSpace(r.Header.Get("Idempotency-Key"))
+			if err := domain.ValidateIdempotencyKey(requestKey); err != nil {
+				h.err(w, r, http.StatusBadRequest, err)
 				return
 			}
 			var v struct {
@@ -589,13 +1002,29 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 					uid = sess.UserID
 				}
 			}
-			x, err := h.svc.Submit(cid, pid, uid, v.Language, v.Code)
+			x, replayed, err := h.svc.SubmitIdempotent(
+				cid, pid, uid, v.Language, v.Code, h.clientIP(r), requestKey,
+			)
 			if err != nil {
+				if errors.Is(err, app.ErrIdempotencyConflict) {
+					WriteError(w, r, http.StatusConflict, "idempotency_conflict",
+						"Idempotency-Key was already used for a different submission")
+					return
+				}
 				h.err(w, r, 400, err)
 				return
 			}
-			if h.OnSubmit != nil {
-				h.OnSubmit(x)
+			if replayed {
+				w.Header().Set("Idempotent-Replay", "true")
+			}
+			// New submissions and idempotent replays both retry a still-queued
+			// handoff. The pool deduplicates by submission ID, so a replay
+			// cannot cause the same source to run twice concurrently.
+			if h.OnSubmit != nil && x.Verdict == domain.VerdictQueued {
+				if err := h.OnSubmit(x); err != nil {
+					h.log.Error("judge enqueue failed", "submissionId", x.ID, "err", err)
+					h.metrics.IncJudgeEnqueueFailure()
+				}
 			}
 			writeOut(w, x, 202)
 		default:
@@ -646,7 +1075,17 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 }
 
 func (h *Server) events(w http.ResponseWriter, r *http.Request) {
-	cid := r.URL.Query().Get("contestId")
+	cid := strings.TrimSpace(r.URL.Query().Get("contestId"))
+	if cid == "" {
+		WriteError(w, r, http.StatusBadRequest, "contest_required", "contestId is required")
+		return
+	}
+	r2, ok := h.authenticateEvents(w, r, cid)
+	if !ok {
+		return
+	}
+	r = r2
+	sess, _ := sessionOf(r)
 	ch, cancel := h.svc.Subscribe(cid)
 	defer cancel()
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -656,19 +1095,156 @@ func (h *Server) events(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	_, _ = fmt.Fprint(w, "retry: 5000\n\n")
+	fl.Flush()
+	heartbeat := time.NewTicker(15 * time.Second)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
+		case <-heartbeat.C:
+			// SSE comments keep proxies and NAT devices from silently closing
+			// long-running exam streams.
+			_, _ = fmt.Fprint(w, ": keepalive\n\n")
+			fl.Flush()
 		case e, ok := <-ch:
 			if !ok {
 				return
+			}
+			e, send := h.eventForSession(e, sess)
+			if !send {
+				continue
 			}
 			b, _ := json.Marshal(e)
 			fmt.Fprintf(w, "event: %s\ndata: %s\n\n", e.Type, b)
 			fl.Flush()
 		}
 	}
+}
+
+const streamCookieName = "forge_stream"
+
+// cookieSecure mirrors the deployment's HTTPS state for auth cookies. A
+// forwarding header is trusted only when the operator has explicitly opted in.
+func (h *Server) cookieSecure(r *http.Request) bool {
+	return isHTTPS(r, h.TrustProxy)
+}
+
+func (h *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    token,
+		Path:     "/api/v1",
+		MaxAge:   int(auth.SessionTTL / time.Second),
+		Expires:  time.Now().Add(auth.SessionTTL).UTC(),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.cookieSecure(r),
+	})
+}
+
+func (h *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    "",
+		Path:     "/api/v1",
+		MaxAge:   -1,
+		Expires:  time.Unix(1, 0).UTC(),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.cookieSecure(r),
+	})
+}
+
+// eventsTicket exchanges a bearer session for a short-lived, HttpOnly stream
+// grant. EventSource then authenticates via the same-origin cookie without
+// exposing the long-lived login token in its URL.
+func (h *Server) eventsTicket(w http.ResponseWriter, r *http.Request) {
+	cid := strings.TrimSpace(r.URL.Query().Get("contestId"))
+	if cid == "" {
+		WriteError(w, r, 400, "contest_required", "contestId is required")
+		return
+	}
+	r2, _, ok := h.requirePaperAccess(w, r, cid)
+	if !ok {
+		return
+	}
+	sess, _ := sessionOf(r2)
+	ticket, expires := h.auth.IssueStreamTicket(
+		sess.UserID, cid, sess.Token, auth.StreamTicketTTL,
+	)
+	http.SetCookie(w, &http.Cookie{
+		Name:     streamCookieName,
+		Value:    ticket,
+		Path:     "/api/v1/events",
+		MaxAge:   int(auth.StreamTicketTTL / time.Second),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.cookieSecure(r),
+	})
+	writeOut(w, map[string]any{"expiresAt": expires}, 200)
+}
+
+func (h *Server) authenticateEvents(w http.ResponseWriter, r *http.Request, cid string) (*http.Request, bool) {
+	if strings.TrimSpace(cid) == "" {
+		WriteError(w, r, http.StatusBadRequest, "contest_required", "contestId is required")
+		return r, false
+	}
+	// Non-browser clients may keep using the normal bearer header.
+	if bearer(r) != "" {
+		r2, _, ok := h.requirePaperAccess(w, r, cid)
+		return r2, ok
+	}
+	cookie, err := r.Cookie(streamCookieName)
+	if err != nil || strings.TrimSpace(cookie.Value) == "" {
+		WriteError(w, r, http.StatusUnauthorized, "unauthorized", "login or stream ticket required")
+		return r, false
+	}
+	claims, err := h.auth.ValidateStreamTicket(cookie.Value, cid)
+	if err != nil {
+		WriteError(w, r, http.StatusUnauthorized, "unauthorized", "stream ticket expired or invalid")
+		return r, false
+	}
+	u, err := h.svc.Store().GetUser(claims.UserID)
+	if err != nil {
+		WriteError(w, r, http.StatusUnauthorized, "unauthorized", "session user no longer exists")
+		return r, false
+	}
+	if cid != "" {
+		c, err := h.svc.GetContest(cid)
+		if err != nil {
+			h.err(w, r, 404, err)
+			return r, false
+		}
+		staff := u.Role == domain.RoleTeacher || u.Role == domain.RoleAdmin
+		if !domain.CanAccessContest(c, u, staff) {
+			WriteError(w, r, http.StatusForbidden, "forbidden", "contest access denied")
+			return r, false
+		}
+		if !staff {
+			rWithSession := withSession(r, domain.Session{UserID: u.ID, Role: u.Role})
+			if !h.paperUnlocked(rWithSession, c) {
+				WriteError(w, r, http.StatusForbidden, "exam_locked", "exam package is locked")
+				return r, false
+			}
+		}
+	}
+	return withSession(r, domain.Session{UserID: u.ID, Role: u.Role}), true
+}
+
+// clearStreamCookie invalidates the browser-side SSE grant on logout.
+func (h *Server) clearStreamCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     streamCookieName,
+		Value:    "",
+		Path:     "/api/v1/events",
+		MaxAge:   -1,
+		Expires:  time.Unix(1, 0).UTC(),
+		HttpOnly: true,
+		SameSite: http.SameSiteStrictMode,
+		Secure:   h.cookieSecure(r),
+	})
 }
 
 // spa 构建产物即首页；/app 下静态资源直出 dist。
@@ -678,18 +1254,22 @@ func (h *Server) spa(w http.ResponseWriter, r *http.Request) {
 	if rel != "" && !strings.HasSuffix(r.URL.Path, "/") {
 		// 静态资源优先
 		if b, err := fs.ReadFile(webdist.Dist, "dist/"+rel); err == nil {
-			switch {
-			case strings.HasSuffix(rel, ".js"):
-				w.Header().Set("Content-Type", "text/javascript; charset=utf-8")
-			case strings.HasSuffix(rel, ".css"):
-				w.Header().Set("Content-Type", "text/css; charset=utf-8")
-			case strings.HasSuffix(rel, ".html"):
-				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if contentType := mime.TypeByExtension(path.Ext(rel)); contentType != "" {
+				w.Header().Set("Content-Type", contentType)
+			}
+			if strings.HasPrefix(rel, "assets/") {
+				// Vite emits content-hashed asset names, so they can be cached
+				// aggressively without risking a stale deployment.
+				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else {
+				w.Header().Set("Cache-Control", "no-cache")
 			}
 			_, _ = w.Write(b)
 			return
 		}
 	}
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	b, err := fs.ReadFile(webdist.Dist, "dist/index.html")
 	if err != nil {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
@@ -722,26 +1302,65 @@ func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []strin
 	if len(rest) == 1 && rest[0] == "login" && r.Method == "POST" {
 		var v struct {
 			Login    string `json:"login"`
+			Username string `json:"username"`
 			Password string `json:"password"`
 		}
 		if decode(r, &v) != nil {
 			h.err(w, r, 400, fmt.Errorf("invalid json"))
 			return
 		}
-		sess, err := h.auth.Login(v.Login, v.Password)
+		ident := v.Login
+		if ident == "" {
+			ident = v.Username
+		}
+		if h.LoginLimiter != nil {
+			allowed, retryAfter := h.LoginLimiter.Allow(h.clientIP(r), ident)
+			if !allowed {
+				seconds := int(retryAfter / time.Second)
+				if seconds < 1 {
+					seconds = 1
+				}
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", seconds))
+				WriteError(w, r, http.StatusTooManyRequests, "rate_limited",
+					"too many failed login attempts; try again later")
+				return
+			}
+		}
+		sess, err := h.auth.Login(ident, v.Password)
 		if err != nil {
+			if h.LoginLimiter != nil {
+				h.LoginLimiter.Fail(h.clientIP(r), ident)
+			}
 			WriteError(w, r, 401, "invalid_credentials", "invalid login or password")
 			return
 		}
-		writeOut(w, map[string]any{"token": sess.Token, "userId": sess.UserID, "role": sess.Role}, 200)
+		if h.LoginLimiter != nil {
+			h.LoginLimiter.Reset(ident)
+		}
+		u, err := h.svc.Store().GetUser(sess.UserID)
+		if err != nil {
+			_ = h.auth.Logout(sess.Token)
+			WriteError(w, r, 401, "invalid_credentials", "account no longer exists")
+			return
+		}
+		h.setSessionCookie(w, r, sess.Token)
+		writeOut(w, map[string]any{
+			"userId": sess.UserID, "role": domain.NormalizeRole(u.Role),
+			"username": u.Username, "name": u.Name,
+		}, 200)
 		return
 	}
 	// POST /auth/logout（登录态，幂等）
 	if len(rest) == 1 && rest[0] == "logout" && r.Method == "POST" {
-		if _, ok := h.requireLogin(w, r); !ok {
+		r2, ok := h.requireLogin(w, r)
+		if !ok {
 			return
 		}
-		_ = h.auth.Logout(bearer(r))
+		sess, _ := sessionOf(r2)
+		_ = h.auth.Logout(sess.Token)
+		h.clearSessionCookie(w, r)
+		h.clearStreamCookie(w, r)
+		h.clearZipCookie(w, r)
 		writeOut(w, map[string]bool{"ok": true}, 200)
 		return
 	}
@@ -785,7 +1404,10 @@ func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []strin
 	http.NotFound(w, r)
 }
 
-// redactSubmissions 代码可见性：学生只能看自己的代码与编译信息，教师全见。
+// redactSubmissions is the student submission-history boundary. Students only
+// receive their own attempts: exposing peers' timestamps, scores, and verdicts
+// during a running contest enables live answer inference even when source code
+// itself is redacted. Teachers retain the full operational feed.
 func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []domain.Submission {
 	if isTeacher(r) {
 		return subs
@@ -794,14 +1416,12 @@ func (h *Server) redactSubmissions(r *http.Request, subs []domain.Submission) []
 	if sess, ok := sessionOf(r); ok {
 		currentUID = sess.UserID
 	}
-	out := make([]domain.Submission, len(subs))
-	for i, s := range subs {
+	out := make([]domain.Submission, 0, len(subs))
+	for _, s := range subs {
 		if currentUID == "" || s.UserID != currentUID {
-			s.Code = ""
-			s.CompileMessage = ""
-			s.Cases = nil
+			continue
 		}
-		out[i] = s
+		out = append(out, s)
 	}
 	return out
 }

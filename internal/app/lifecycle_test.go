@@ -25,10 +25,10 @@ func TestContestLifecycleAndStateGuards(t *testing.T) {
 	}
 
 	p, err := svc.CreateProblem(domain.Problem{
-		ContestID: c.ID,
-		Code:      "A",
-		Title:     "Problem A",
-		Statement: "Statement",
+		ContestID:   c.ID,
+		Code:        "A",
+		Title:       "Problem A",
+		Statement:   "Statement",
 		Input:       "Input",
 		Output:      "Output",
 		Constraints: "N <= 100",

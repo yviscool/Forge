@@ -26,6 +26,27 @@ func TestCompareOutput(t *testing.T) {
 	}
 }
 
+func TestNormalizeComparisonMode(t *testing.T) {
+	cases := map[ComparisonMode]ComparisonMode{
+		"":                       "",
+		"exact":                  CompareLineByLine,
+		"strict":                 CompareLineByLine,
+		"token":                  CompareIgnoreSpace,
+		"ignore_whitespace":      CompareIgnoreSpace,
+		"float_eps":              CompareRealNumber,
+		"real_number":            CompareRealNumber,
+		"custom_checker":         CompareSpecialJudge,
+		"special_judge":          CompareSpecialJudge,
+		"  IGNORE_SPACE  ":       CompareIgnoreSpace,
+		ComparisonMode("future"): ComparisonMode("future"),
+	}
+	for input, want := range cases {
+		if got := NormalizeComparisonMode(input); got != want {
+			t.Fatalf("normalize %q: got %q, want %q", input, got, want)
+		}
+	}
+}
+
 func TestAggregateScoreSubtaskDep(t *testing.T) {
 	cases := []CaseResult{
 		{CaseIndex: 0, Verdict: CaseAC},

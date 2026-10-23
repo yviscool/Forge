@@ -13,9 +13,20 @@ type ACMRankEntry struct {
 // ComputeRankingACM ACM 赛制：每题首个 AC 前的错误提交每次 +20 分钟罚时，
 // 罚时按提交时间相对比赛开始的分钟数累加（无开始时间则用提交先后相对值）。
 func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRankEntry {
+	// A deleted problem stays in historical submissions and therefore must
+	// never keep contributing solves or penalty to the live board. When the
+	// manifest is absent (legacy fixture/import), retain the old permissive
+	// behavior and consider every submission part of the contest.
+	validProblems := make(map[string]bool, len(contest.ProblemIDs))
+	for _, id := range contest.ProblemIDs {
+		validProblems[id] = true
+	}
 	byUser := map[string][]Submission{}
 	for _, s := range subs {
 		if s.ContestID != contest.ID {
+			continue
+		}
+		if len(validProblems) > 0 && !validProblems[s.ProblemID] {
 			continue
 		}
 		byUser[s.UserID] = append(byUser[s.UserID], s)
@@ -26,6 +37,11 @@ func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRa
 	}
 	out := []ACMRankEntry{}
 	for uid, list := range byUser {
+		// Operational accounts can submit on behalf of a class, but they are
+		// not contestants and must never pollute the public ACM board.
+		if u, ok := findUser(users, uid); !ok || !isContestant(u) || !IsUserAllowed(contest, u) {
+			continue
+		}
 		sort.Slice(list, func(i, j int) bool { return list[i].SubmittedAt.Before(list[j].SubmittedAt) })
 		solved, penalty := 0, 0
 		acAt := map[string]int64{}
@@ -62,7 +78,7 @@ func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRa
 		seen[e.UserID] = true
 	}
 	for _, u := range users {
-		if IsUserAllowed(contest, u) && !seen[u.ID] {
+		if isContestant(u) && IsUserAllowed(contest, u) && !seen[u.ID] {
 			out = append(out, ACMRankEntry{UserID: u.ID, UserName: u.Name, Solved: 0, Penalty: 0})
 		}
 	}
@@ -79,4 +95,17 @@ func ComputeRankingACM(users []User, contest Contest, subs []Submission) []ACMRa
 		return out[i].UserID < out[j].UserID
 	})
 	return out
+}
+
+func findUser(users []User, id string) (User, bool) {
+	for _, u := range users {
+		if u.ID == id {
+			return u, true
+		}
+	}
+	return User{}, false
+}
+
+func isContestant(u User) bool {
+	return u.Role == RoleStudent || u.Role == ""
 }

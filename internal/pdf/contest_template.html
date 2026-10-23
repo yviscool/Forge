@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>{{.Contest.Name}} - CCF 竞赛全卷试题合订本</title>
+<style>
+@page { size: A4; margin: 16mm 20mm 17mm; }
+body { font-family: "SimSun","Songti SC","STSong",serif; font-size: 10.5pt; line-height: 1.6; color: #111827; margin: 0; }
+.cover-page { page-break-after: always; padding-top: 10mm; }
+.cover-header { text-align: center; font-size: 14pt; color: #374151; margin-bottom: 4px; }
+.cover-title { text-align: center; font-size: 20pt; font-weight: bold; margin: 12px 0 24px; color: #111827; }
+.meta-table { width: 100%; border-collapse: collapse; margin: 16px 0 20px; font-size: 9.5pt; }
+.meta-table th, .meta-table td { border: 1px solid #374151; padding: 6px 8px; text-align: center; }
+.meta-table th { background: #f3f4f6; font-weight: 600; }
+.notice-box { border: 1px solid #374151; border-radius: 4px; padding: 12px 16px; margin: 20px 0; background: #fafafa; }
+.notice-title { font-weight: bold; font-size: 11pt; margin-bottom: 8px; color: #1f2937; }
+.notice-box ol { margin: 0; padding-left: 20px; font-size: 9.5pt; line-height: 1.6; }
+.compiler { font-family: "Consolas",monospace; background: #f3f4f6; padding: 6px 12px; border: 1px solid #e5e7eb; border-radius: 4px; font-size: 9.5pt; margin: 12px 0; }
+
+.problem-page { page-break-before: always; }
+.problem-header { border-bottom: 0.8px solid #111; padding-bottom: 4px; margin-bottom: 16px; display: flex; justify-content: space-between; font-size: 9pt; color: #4b5563; }
+h1.problem-title { font-size: 16pt; font-weight: bold; text-align: center; margin: 0 0 8px; }
+.section-title { font-size: 11pt; font-weight: bold; margin: 14px 0 4px; color: #111827; }
+p { margin: 4px 0 8px; text-indent: 2em; }
+.sample-box { border: 0.8px solid #405dff; border-radius: 4px; background: #fafafa; margin: 8px 0 14px; overflow: hidden; }
+.sample-header { background: #eef2ff; color: #312e81; font-weight: 600; font-size: 9pt; padding: 4px 10px; border-bottom: 0.6px solid #405dff; }
+pre { margin: 0; padding: 8px 12px; font-family: "Consolas",monospace; font-size: 9.5pt; line-height: 1.45; white-space: pre-wrap; word-break: break-all; }
+.tip { font-family: "KaiTi","STKaiti",serif; color: #374151; }
+@media print { .no-print { display: none; } }
+</style>
+</head>
+<body>
+
+<!-- 封面页 -->
+<div class="cover-page">
+  <div class="cover-header">全国青少年信息学奥林匹克系列活动 / CCF CSP 认证</div>
+  <div class="cover-title">{{.Contest.Name}} 试题</div>
+
+  <table class="meta-table">
+    <thead>
+      <tr>
+        <th>序号</th>
+        <th>题目名称</th>
+        <th>题目目录</th>
+        <th>源程序文件名</th>
+        <th>输入文件名</th>
+        <th>输出文件名</th>
+        <th>时间限制</th>
+        <th>内存限制</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{range $i, $p := .Problems}}
+      <tr>
+        <td>{{$p.Code}}</td>
+        <td>{{$p.Title}}</td>
+        <td>{{$p.Code}}</td>
+        <td>{{$p.Code}}.cpp</td>
+        <td>{{if $p.InFile}}{{$p.InFile}}{{else}}{{$p.Code}}.in{{end}}</td>
+        <td>{{if $p.OutFile}}{{$p.OutFile}}{{else}}{{$p.Code}}.out{{end}}</td>
+        <td>{{$p.TimeLimitMs}} ms</td>
+        <td>{{$p.MemoryLimitMiB}} MiB</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table>
+
+  <div class="compiler">
+    <strong>通用编译选项：</strong>-O2 -std=c++14 -static
+  </div>
+
+  <div class="notice-box">
+    <div class="notice-title">【考生须知与评测规则】</div>
+    <ol>
+      <li>请务必在提交系统或指定考场目录下按照 <code>&lt;准考证号&gt;/&lt;题目目录&gt;/&lt;源程序文件名&gt;</code> 组织你的程序。建错文件夹、拼错文件名将直接导致评测 0 分。</li>
+      <li>C++ 语言标准为 C++14。禁止在程序中使用 <code>system()</code>、<code>fork()</code>、内联汇编等可能危害评测系统安全的调用。</li>
+      <li>标准输入输出题请直接从 <code>stdin</code> 读入并向 <code>stdout</code> 输出，文件 IO 题请严格按照上表规定的文件名使用 <code>freopen</code>。</li>
+      <li>内存限制包含程序全局变量、动态分配空间及栈空间。请注意递归深度及本地数组大小，避免发生栈溢出或内存超限。</li>
+      <li>严禁携带或使用任何未经许可的通讯工具与存储介质，诚信参赛。</li>
+    </ol>
+  </div>
+</div>
+
+<!-- 逐题排版页 -->
+{{range $i, $p := .Problems}}
+<div class="problem-page">
+  <div class="problem-header">
+    <span>{{$.Contest.Name}}</span>
+    <span>试题 {{$p.Code}}：{{$p.Title}}</span>
+  </div>
+
+  <h1 class="problem-title">{{$p.Title}} ({{$p.Code}})</h1>
+
+  <table class="meta-table">
+    <tr>
+      <th>题目名称</th>
+      <th>题目目录</th>
+      <th>源程序文件名</th>
+      <th>输入文件名</th>
+      <th>输出文件名</th>
+      <th>时间限制</th>
+      <th>内存限制</th>
+    </tr>
+    <tr>
+      <td>{{$p.Title}}</td>
+      <td>{{$p.Code}}</td>
+      <td>{{$p.Code}}.cpp</td>
+      <td>{{if $p.InFile}}{{$p.InFile}}{{else}}{{$p.Code}}.in{{end}}</td>
+      <td>{{if $p.OutFile}}{{$p.OutFile}}{{else}}{{$p.Code}}.out{{end}}</td>
+      <td>{{$p.TimeLimitMs}} ms</td>
+      <td>{{$p.MemoryLimitMiB}} MiB</td>
+    </tr>
+  </table>
+
+  <div class="section-title">【题目描述】</div>
+  <p>{{$p.Statement}}</p>
+
+  <div class="section-title">【输入格式】</div>
+  <p>{{$p.Input}}</p>
+
+  <div class="section-title">【输出格式】</div>
+  <p>{{$p.Output}}</p>
+
+  <div class="sample-box">
+    <div class="sample-header">样例数据</div>
+    <pre>{{$p.Examples}}</pre>
+  </div>
+
+  <div class="section-title">【数据范围与约束】</div>
+  <p class="tip">{{$p.Constraints}}</p>
+</div>
+{{end}}
+
+</body>
+</html>

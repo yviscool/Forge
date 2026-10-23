@@ -2,10 +2,14 @@ package judge
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/yviscool/forge/internal/domain"
 )
+
+// ErrQueueFull reports a deliberately non-blocking enqueue rejection.
+var ErrQueueFull = errors.New("judge queue is full")
 
 // ReportFunc worker 完成一单后的回写（通常落到 app.Service.JudgeCases）。
 type ReportFunc func(subID string, oc domain.JudgeOutcome)
@@ -24,8 +28,18 @@ type Pool struct {
 
 	mu      sync.Mutex
 	queue   chan Job
+	active  map[string]struct{}
 	wg      sync.WaitGroup
 	started bool
+	workers int
+}
+
+// Stats is a cheap, concurrency-safe operational snapshot.
+type Stats struct {
+	Workers  int `json:"workers"`
+	Queued   int `json:"queued"`
+	Active   int `json:"active"`
+	Capacity int `json:"capacity"`
 }
 
 // NewPool 创建评测池。queueLen 为等待队列长度；worker 数由 Start 指定。
@@ -33,7 +47,10 @@ func NewPool(queueLen int, judge func(context.Context, Request) (domain.JudgeOut
 	if queueLen <= 0 {
 		queueLen = 64
 	}
-	return &Pool{judge: judge, report: report, queue: make(chan Job, queueLen)}
+	return &Pool{
+		judge: judge, report: report, queue: make(chan Job, queueLen),
+		active: make(map[string]struct{}),
+	}
 }
 
 // Start 启动 workers，ctx 取消时排空停机（已入队任务做完再退）。
@@ -44,6 +61,7 @@ func (p *Pool) Start(ctx context.Context, workers int) {
 		return
 	}
 	p.started = true
+	p.workers = workers
 	if workers > 0 {
 		for i := 0; i < workers; i++ {
 			p.wg.Add(1)
@@ -52,13 +70,54 @@ func (p *Pool) Start(ctx context.Context, workers int) {
 	}
 }
 
+// Healthy reports whether the worker pool has live consumers.
+func (p *Pool) Healthy() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if !p.started || p.workers < 1 {
+		return errors.New("judge worker pool is not running")
+	}
+	return nil
+}
+
+// Stats returns queue pressure without exposing internal channels.
+func (p *Pool) Stats() Stats {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return Stats{
+		Workers:  p.workers,
+		Queued:   len(p.queue),
+		Active:   len(p.active),
+		Capacity: cap(p.queue),
+	}
+}
+
 // Submit 非阻塞入队：队列满返回 false（调用方转 429/稍后重试）。
 func (p *Pool) Submit(j Job) bool {
+	if !p.reserve(j.SubID) {
+		return true
+	}
 	select {
 	case p.queue <- j:
 		return true
 	default:
+		p.release(j.SubID)
 		return false
+	}
+}
+
+// Enqueue waits for queue capacity and is used by restart recovery, where
+// dropping a recovered submission would leave it queued forever.
+func (p *Pool) Enqueue(ctx context.Context, j Job) error {
+	if !p.reserve(j.SubID) {
+		return nil
+	}
+	select {
+	case <-ctx.Done():
+		p.release(j.SubID)
+		return ctx.Err()
+	case p.queue <- j:
+		return nil
 	}
 }
 
@@ -86,6 +145,7 @@ func (p *Pool) loop(ctx context.Context) {
 }
 
 func (p *Pool) do(ctx context.Context, j Job) {
+	defer p.release(j.SubID)
 	oc, err := p.judge(ctx, j.Req)
 	if err != nil {
 		cases := make([]domain.CaseResult, len(j.Req.Cases))
@@ -97,4 +157,26 @@ func (p *Pool) do(ctx context.Context, j Job) {
 	if p.report != nil {
 		p.report(j.SubID, oc)
 	}
+}
+
+func (p *Pool) reserve(subID string) bool {
+	if subID == "" {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if _, exists := p.active[subID]; exists {
+		return false
+	}
+	p.active[subID] = struct{}{}
+	return true
+}
+
+func (p *Pool) release(subID string) {
+	if subID == "" {
+		return
+	}
+	p.mu.Lock()
+	delete(p.active, subID)
+	p.mu.Unlock()
 }

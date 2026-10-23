@@ -1,6 +1,9 @@
 package domain
 
-import "time"
+import (
+	"encoding/json"
+	"time"
+)
 
 // Status 比赛生命周期。
 type Status string
@@ -78,6 +81,66 @@ type Contest struct {
 	CreatedAt          time.Time `json:"createdAt"`
 	StartedAt          time.Time `json:"startedAt,omitempty"`
 	FinishedAt         time.Time `json:"finishedAt,omitempty"`
+	// FinalRanking freezes the last OI ranking when a contest finishes so a
+	// later account change (rename, password reset, group edit) cannot rewrite
+	// published results.
+	FinalRanking []RankEntry    `json:"finalRanking,omitempty"`
+	FinalACM     []ACMRankEntry `json:"finalAcm,omitempty"`
+
+	// 考场物理设备/IP 强绑定
+	BindIPEnabled bool              `json:"bindIpEnabled,omitempty"`
+	BoundIPs      map[string]string `json:"boundIps,omitempty"` // userID -> ClientIP
+
+	// 严格考试时间窗口与加时
+	WindowEnabled   bool           `json:"windowEnabled,omitempty"`
+	StartTime       *time.Time     `json:"startTime,omitempty"`
+	EndTime         *time.Time     `json:"endTime,omitempty"`
+	DurationMinutes int            `json:"durationMinutes,omitempty"`
+	Extensions      map[string]int `json:"extensions,omitempty"` // userID -> extra minutes
+
+	// 考场通告与即时广播
+	Notice     string             `json:"notice,omitempty"`
+	Broadcasts []BroadcastMessage `json:"broadcasts,omitempty"`
+
+	// ZipPasswordHash is a salted one-way verifier. It is intentionally never
+	// serialized by the API or realtime transports.
+	ZipPasswordHash string `json:"-"`
+	// ZipProtected tells students that an unlock password exists without
+	// exposing the password itself.
+	ZipProtected bool `json:"-"`
+	// ZipUnlocked is a per-response view field. It is never persisted: the
+	// transport layer derives it from the signed, contest-scoped unlock grant.
+	ZipUnlocked bool `json:"-"`
+}
+
+func (c Contest) ZipPasswordConfigured() bool {
+	return c.ZipPasswordHash != ""
+}
+
+// MarshalJSON derives presentation-only fields and guarantees that the stored
+// ZIP verifier can never cross an HTTP or SSE boundary.
+func (c Contest) MarshalJSON() ([]byte, error) {
+	type contestWire Contest
+	return json.Marshal(struct {
+		contestWire
+		ZipProtected bool `json:"zipProtected,omitempty"`
+		ZipUnlocked  bool `json:"zipUnlocked,omitempty"`
+	}{
+		contestWire:  contestWire(c),
+		ZipProtected: c.ZipProtected || c.ZipPasswordConfigured(),
+		ZipUnlocked:  c.ZipUnlocked,
+	})
+}
+
+type BroadcastMessage struct {
+	ID           string    `json:"id"`
+	ContestID    string    `json:"contestId"`
+	SenderName   string    `json:"senderName"`
+	TargetUserID string    `json:"targetUserId,omitempty"` // 空或 "all" 为全员广播，指定用户为定向提醒
+	Title        string    `json:"title"`
+	Content      string    `json:"content"`
+	Level        string    `json:"level"` // "info", "warning", "urgent"
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 func (c Contest) CanTransitionTo(next Status) bool {
@@ -85,7 +148,10 @@ func (c Contest) CanTransitionTo(next Status) bool {
 }
 
 func (c Contest) CanModifySettings() bool {
-	return c.Status != string(Finished)
+	// Once a paper is published to candidates, statements, tests, ordering,
+	// scores, languages, and ranking mode are frozen. Operational controls
+	// (notice, extensions, IP recovery, broadcasts) use separate use-cases.
+	return c.Status == string(Draft)
 }
 
 func (c Contest) CanSubmit() bool {
@@ -119,7 +185,24 @@ const (
 	TaskTraditional TaskType = "traditional"
 	TaskAnswersOnly TaskType = "answers_only"
 	TaskInteraction TaskType = "interaction"
+	TaskChoice      TaskType = "choice" // CCF GESP 客观选择/判断题
 )
+
+// MaxSubmissionBytes is the contract shared by the web client and the server.
+// Keep the transport limit above this value so valid submissions are not
+// rejected by generic request-size middleware first.
+const MaxSubmissionBytes = 64 << 10
+
+// ChoiceQuestion CCF GESP 客观选择/判断题结构。
+type ChoiceQuestion struct {
+	ID          int      `json:"id"`                    // 题号（从 1 起）
+	Type        string   `json:"type"`                  // "single", "multiple", "judge"
+	Stem        string   `json:"stem"`                  // 题干 Markdown
+	Options     []string `json:"options,omitempty"`     // 选项列表（如 ["A. 1", "B. 2", "C. 3", "D. 4"]）
+	Answer      any      `json:"answer"`                // 标准答案："A" 或 ["A", "C"] 或 "T"/"F"
+	Score       int      `json:"score"`                 // 该题分值
+	Explanation string   `json:"explanation,omitempty"` // 题解/说明
+}
 
 // IOMode 程序 IO 方式。
 type IOMode string
@@ -158,7 +241,10 @@ type Problem struct {
 	InteractorCode    string                   `json:"interactorCode,omitempty"`
 	Locales           map[string]ProblemLocale `json:"locales,omitempty"`
 	TestCases         []TestCase               `json:"testCases,omitempty"`
-	UpdatedAt         time.Time                `json:"updatedAt"`
+	// GESP 客观选择/判断题
+	ChoiceQuestions []ChoiceQuestion `json:"choiceQuestions,omitempty"`
+	ChoiceKeyJSON   string           `json:"choiceKeyJson,omitempty"`
+	UpdatedAt       time.Time        `json:"updatedAt"`
 }
 
 type Submission struct {
@@ -169,6 +255,9 @@ type Submission struct {
 	UserName  string `json:"userName,omitempty"`
 	Language  string `json:"language"`
 	Code      string `json:"code"`
+	// RequestID is an internal idempotency scope. It is persisted separately
+	// from the client-visible submission payload.
+	RequestID string `json:"-"`
 	Verdict   string `json:"verdict"`
 	Score     int    `json:"score"`
 	// CompileMessage 编译错误原文（CE 申诉/教学用， peer 脱敏）。

@@ -41,6 +41,30 @@ func Exercise(t *testing.T, s ports.Store) {
 	if len(users) != 2 || users[0].Name != "Ada" {
 		t.Fatalf("users sorted by name: %+v", users)
 	}
+	named, err := s.CreateUser(domain.User{
+		ID: "named-u1", Username: "CaseUser", Name: "Named",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateUser(domain.User{
+		ID: "named-u2", Username: "caseuser", Name: "Duplicate",
+	}); err == nil {
+		t.Fatal("store must reject case-insensitive duplicate usernames")
+	}
+	other, err := s.CreateUser(domain.User{
+		ID: "named-u3", Username: "OtherUser", Name: "Other",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other.Username = "caseuser"
+	if err := s.UpdateUser(other); err == nil {
+		t.Fatal("store must reject duplicate usernames on update")
+	}
+	if named.Username != "CaseUser" {
+		t.Fatalf("unexpected named user: %+v", named)
+	}
 	u1.Groups = []string{"g1"}
 	if err := s.UpdateUser(u1); err != nil {
 		t.Fatal(err)
@@ -98,9 +122,9 @@ func Exercise(t *testing.T, s ports.Store) {
 	if err != nil || len(ps) != 2 || ps[0].Code != "A" || ps[1].Code != "B" {
 		t.Fatalf("problems sorted by code: %+v %v", ps, err)
 	}
-	other, err := s.ListProblems(c2.ID)
-	if err != nil || len(other) != 0 {
-		t.Fatalf("contest isolation broken: %+v %v", other, err)
+	c2Problems, err := s.ListProblems(c2.ID)
+	if err != nil || len(c2Problems) != 0 {
+		t.Fatalf("contest isolation broken: %+v %v", c2Problems, err)
 	}
 	p2.Title = "T1-renamed"
 	if _, err := s.UpdateProblem(p2); err != nil {
@@ -108,6 +132,12 @@ func Exercise(t *testing.T, s ports.Store) {
 	}
 	if p, _ := s.GetProblem(p2.ID); p.Title != "T1-renamed" {
 		t.Fatal("problem update lost")
+	}
+	if err := s.DeleteProblem(p1.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetProblem(p1.ID); err == nil {
+		t.Fatal("deleted problem should be gone")
 	}
 	c, _ := s.GetContest(c1.ID)
 	if len(c.ProblemIDs) != 2 {
@@ -132,8 +162,75 @@ func Exercise(t *testing.T, s ports.Store) {
 	if x, _ := s.GetSubmission(x2.ID); x.Score != 100 {
 		t.Fatal("submission update lost")
 	}
+	feed, err := s.ListSubmissionFeed(c1.ID, "", 1)
+	if err != nil || len(feed) != 1 || feed[0].ID != x2.ID {
+		t.Fatalf("limited submission feed = %+v, %v", feed, err)
+	}
+	userFeed, err := s.ListSubmissionFeed(c1.ID, u1.ID, 10)
+	if err != nil || len(userFeed) != 2 {
+		t.Fatalf("user submission feed = %+v, %v", userFeed, err)
+	}
+	if otherFeed, err := s.ListSubmissionFeed(c1.ID, "other-user", 10); err != nil || len(otherFeed) != 0 {
+		t.Fatalf("foreign user feed = %+v, %v", otherFeed, err)
+	}
 	if _, err := s.GetSubmission("ghost"); err == nil {
 		t.Fatal("missing submission should error")
+	}
+	queued, err := s.CreateSubmission(domain.Submission{
+		ContestID:   c1.ID,
+		ProblemID:   p2.ID,
+		UserID:      u1.ID,
+		Verdict:     domain.VerdictQueued,
+		SubmittedAt: base.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateSubmission(domain.Submission{
+		ContestID:   c1.ID,
+		ProblemID:   p2.ID,
+		UserID:      u1.ID,
+		Verdict:     domain.VerdictAccepted,
+		SubmittedAt: base.Add(3 * time.Second),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	queuedSubs, err := s.ListQueuedSubmissions()
+	if err != nil || len(queuedSubs) != 1 || queuedSubs[0].ID != queued.ID {
+		t.Fatalf("queued submissions = %+v, %v", queuedSubs, err)
+	}
+	queued.Verdict = domain.VerdictAccepted
+	if err := s.UpdateSubmission(queued); err != nil {
+		t.Fatal(err)
+	}
+	if queuedSubs, err := s.ListQueuedSubmissions(); err != nil || len(queuedSubs) != 0 {
+		t.Fatalf("judged submission leaked into recovery queue: %+v, %v", queuedSubs, err)
+	}
+	requestSubmission, err := s.CreateSubmission(domain.Submission{
+		ContestID:   c1.ID,
+		ProblemID:   p2.ID,
+		UserID:      u1.ID,
+		RequestID:   "request-1",
+		SubmittedAt: base.Add(2 * time.Second),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found, err := s.FindSubmissionByRequestID("request-1")
+	if err != nil || found == nil || found.ID != requestSubmission.ID {
+		t.Fatalf("request id lookup failed: %+v %v", found, err)
+	}
+	if missing, err := s.FindSubmissionByRequestID("missing-request"); err != nil || missing != nil {
+		t.Fatalf("missing request id lookup = %+v, %v", missing, err)
+	}
+	if _, err := s.CreateSubmission(domain.Submission{
+		ContestID:   c1.ID,
+		ProblemID:   p2.ID,
+		UserID:      u1.ID,
+		RequestID:   "request-1",
+		SubmittedAt: base.Add(3 * time.Second),
+	}); err == nil {
+		t.Fatal("duplicate request id must be rejected")
 	}
 
 	// ---- NextID 唯一递增 ----
@@ -193,6 +290,28 @@ func PasswordsAndSessions(t *testing.T, s ports.Store) {
 	if _, err := s.GetSession("a"); err == nil {
 		t.Fatal("user sessions should be wiped")
 	}
+	now := time.Now().UTC()
+	if err := s.SaveSession(domain.Session{
+		Token: "expired", UserID: u.ID, ExpiresAt: now.Add(-time.Minute),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveSession(domain.Session{
+		Token: "live", UserID: u.ID, ExpiresAt: now.Add(time.Hour),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	deleted, err := s.DeleteExpiredSessions(now)
+	if err != nil || deleted != 1 {
+		t.Fatalf("expired session prune: deleted=%d err=%v", deleted, err)
+	}
+	if _, err := s.GetSession("expired"); err == nil {
+		t.Fatal("expired session survived prune")
+	}
+	if _, err := s.GetSession("live"); err != nil {
+		t.Fatal("live session was pruned")
+	}
+	_ = s.DeleteSession("live")
 }
 
 // TransactionSemantics 验证事务提交与回滚语义。

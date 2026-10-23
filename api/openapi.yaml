@@ -2,91 +2,2032 @@ openapi: 3.0.3
 info:
   title: Forge Contest API
   version: 1.0.0
-  description: v1 唯一契约（未上线，大刀阔斧，不做兼容）。
+  license:
+    name: Proprietary
+    url: https://github.com/yviscool/forge
+  description: |
+    Forge v1 HTTP contract. The API is pre-launch and intentionally has no
+    backward-compatibility guarantee. All business endpoints are under
+    `/api/v1`; `/healthz`, `/readyz` and the SPA entry points are operational
+    endpoints outside that prefix.
+servers:
+  - url: /
+tags:
+  - name: operational
+    description: Health probes, clock synchronization, dictionaries, and SPA entry points.
+  - name: auth
+    description: Browser session lifecycle, password changes, and account identity.
+  - name: contests
+    description: Contest setup, lifecycle, exports, access control, and exam operations.
+  - name: problems
+    description: Problem authoring, test-data inventory, validation, and print exports.
+  - name: submissions
+    description: Candidate submissions, judge result ingestion, and rejudging.
+  - name: identity
+    description: User, group, credential, and CSV provisioning operations.
+  - name: realtime
+    description: Authenticated Server-Sent Events and targeted broadcast messages.
+security:
+  - bearerAuth: []
+  - sessionCookie: []
 paths:
   /healthz:
-    get: { responses: { '200': { description: ok } } }
+    get:
+      tags: [operational]
+      operationId: health
+      summary: Process health
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "405":
+          description: Method not allowed.
   /readyz:
-    get: { responses: { '200': { description: ready } } }
+    get:
+      tags: [operational]
+      operationId: readiness
+      summary: Persistence readiness
+      security: []
+      responses:
+        "200":
+          description: All configured operational dependencies are available.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          description: At least one operational dependency is unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "405":
+          description: Method not allowed.
   /app:
-    get: { responses: { '200': { description: SPA } } }
-  /api/v1/auth/login:
-    post: { responses: { '200': { description: Bearer token }, '401': { description: bad credentials } } }
-  /api/v1/auth/logout:
-    post: { responses: { '200': { description: ok }, '401': { description: login required } } }
-  /api/v1/auth/me:
-    get: { responses: { '200': { description: self }, '401': { description: login required } } }
-  /api/v1/auth/password:
-    post: { responses: { '200': { description: changed }, '400': { description: validation } } }
-  /api/v1/users/{id}/password:
-    post: { responses: { '200': { description: teacher reset } } }
-  /api/v1/contests:
-    get: { responses: { '200': { description: list } } }
-    post: { responses: { '201': { description: create } } }
-  /api/v1/contests/{cid}:
-    get: { responses: { '200': { description: detail } } }
-  /api/v1/contests/{cid}/start:
-    post: { responses: { '200': { description: start } } }
-  /api/v1/contests/{cid}/finish:
-    post: { responses: { '200': { description: finish } } }
-  /api/v1/contests/{cid}/problems:
-    get: { responses: { '200': { description: list } } }
-    post: { responses: { '201': { description: create } } }
-  /api/v1/contests/{cid}/problems/{pid}:
-    get: { responses: { '200': { description: detail } } }
-  /api/v1/contests/{cid}/problems/{pid}/validate:
-    post: { responses: { '200': { description: validate } } }
-  /api/v1/contests/{cid}/problems/{pid}/export:
-    get: { responses: { '200': { description: CCF print HTML } } }
-  /api/v1/contests/{cid}/problems/{pid}/rejudge:
-    post: { responses: { '202': { description: requeue all submissions } } }
-  /api/v1/contests/{cid}/problems/{pid}/subtasks:
-    put: { responses: { '200': { description: subtask scores and limits } } }
-  /api/v1/contests/{cid}/problems/{pid}/files:
-    get: { responses: { '200': { description: file list plus missing pairs } } }
-  /api/v1/contests/{cid}/problems/{pid}/files/{name}:
-    put: { responses: { '200': { description: upload test file } } }
-    get: { responses: { '200': { description: download } } }
-    delete: { responses: { '200': { description: remove } } }
-  /api/v1/contests/{cid}/statistics:
-    get: { responses: { '200': { description: per-problem stats } } }
-  /api/v1/contests/{cid}/statistics/export:
-    get: { responses: { '200': { description: CSV report card } } }
-  /api/v1/contests/{cid}/settings:
-    put: { responses: { '200': { description: rankingMode and allowedLanguages } } }
-  /api/v1/contests/{cid}/bundle:
-    get: { responses: { '200': { description: contest bundle download } } }
-  /api/v1/contests/import:
-    post: { responses: { '201': { description: import bundle as new contest } } }
-  /api/v1/users/import:
-    post: { responses: { '200': { description: CSV bulk import } } }
-  /api/v1/users/export:
-    get: { responses: { '200': { description: CSV export without passwords } } }
-  /api/v1/contests/{cid}/problems/{pid}/pdf:
-    get: { responses: { '200': { description: A4 PDF }, '503': { description: no browser } } }
-  /api/v1/users:
-    get: { responses: { '200': { description: list } } }
-    post: { responses: { '201': { description: create } } }
-  /api/v1/groups:
-    get: { responses: { '200': { description: list } } }
-    post: { responses: { '201': { description: create } } }
-  /api/v1/groups/{gid}/members:
-    post: { responses: { '200': { description: add } } }
-    delete: { responses: { '200': { description: remove } } }
-  /api/v1/contests/{cid}/groups:
-    post: { responses: { '200': { description: bind group } } }
-  /api/v1/contests/{cid}/participants:
-    post: { responses: { '200': { description: bind user } } }
-  /api/v1/contests/{cid}/ranking:
-    get: { responses: { '200': { description: ranking } } }
-  /api/v1/contests/{cid}/submissions:
-    get: { responses: { '200': { description: list } } }
-    post: { responses: { '202': { description: submit } } }
-  /api/v1/submissions/{id}/judge:
-    post: { responses: { '200': { description: judge } } }
-  /api/v1/submissions/{id}/cases:
-    post: { responses: { '200': { description: judge per-case with subtask aggregation } } }
-  /api/v1/events:
-    get: { responses: { '200': { description: SSE, supports ?contestId } } }
+    get:
+      tags: [operational]
+      operationId: appEntry
+      summary: Application entry
+      security: []
+      responses:
+        "200":
+          description: SPA entry redirect.
+        "404":
+          description: SPA bundle is unavailable.
+  /teacher:
+    get:
+      tags: [operational]
+      operationId: teacherEntry
+      summary: Teacher console entry
+      security: []
+      responses:
+        "200":
+          description: SPA teacher entry.
+        "404":
+          description: SPA bundle is unavailable.
+  /api/v1/time:
+    get:
+      tags: [operational]
+      operationId: serverTime
+      summary: Server clock
+      security: []
+      responses:
+        "200":
+          description: Current server time.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [serverTime]
+                properties:
+                  serverTime:
+                    type: string
+                    format: date-time
+        "405":
+          description: Method not allowed.
   /api/v1/i18n:
-    get: { responses: { '200': { description: dictionaries } } }
+    get:
+      tags: [operational]
+      operationId: dictionaries
+      summary: UI dictionaries
+      security: []
+      responses:
+        "200":
+          description: Localized dictionary payload.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "405":
+          description: Method not allowed.
+  /api/v1/auth/login:
+    post:
+      tags: [auth]
+      operationId: login
+      summary: Sign in
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              anyOf:
+                - required: [login]
+                - required: [username]
+              properties:
+                login:
+                  type: string
+                  description: Username or an unambiguous display name.
+                username:
+                  type: string
+                  deprecated: true
+                  description: Compatibility alias for `login`.
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: |
+            Session created. Browsers receive an HttpOnly, SameSite=Strict
+            `forge_session` cookie scoped to `/api/v1`. Long-lived bearer
+            credentials are never exposed in the browser login response body.
+          headers:
+            Set-Cookie:
+              description: HttpOnly session cookie for browser clients.
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthSession"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/RateLimited"
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      operationId: logout
+      summary: Sign out
+      responses:
+        "200":
+          description: Session revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/me:
+    get:
+      tags: [auth]
+      operationId: currentUser
+      summary: Current user
+      responses:
+        "200":
+          description: Current user.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/auth/password:
+    post:
+      tags: [auth]
+      operationId: changeOwnPassword
+      summary: Change own password
+      requestBody:
+        $ref: "#/components/requestBodies/OwnPasswordChange"
+      responses:
+        "200":
+          description: Password changed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+  /api/v1/contests:
+    get:
+      tags: [contests]
+      operationId: listContests
+      summary: List contests
+      responses:
+        "200":
+          description: Contests visible to the current user.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Contest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+    post:
+      tags: [contests]
+      operationId: createContest
+      summary: Create contest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                rankingMode:
+                  type: string
+                  enum: [oi, acm]
+                allowedLanguages:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "201":
+          description: Contest created as draft.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/import:
+    post:
+      tags: [contests]
+      operationId: importContestBundle
+      summary: Import contest bundle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ContestBundle"
+      responses:
+        "201":
+          description: Imported contest with fresh IDs and no cross-deployment participant bindings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: getContest
+      summary: Get contest
+      responses:
+        "200":
+          description: Contest detail. Sensitive operational fields are redacted for students.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/contests/{cid}/start:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: startContest
+      summary: Start contest
+      responses:
+        "200":
+          description: Contest passed launch preflight and is running.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/finish:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: finishContest
+      summary: Finish contest
+      responses:
+        "200":
+          description: Contest finished and final ranking frozen.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/settings:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    put:
+      tags: [contests]
+      operationId: updateContestSettings
+      summary: Update contest settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                rankingMode:
+                  type: string
+                  enum: [oi, acm]
+                allowedLanguages:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Updated contest settings.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/bundle:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: exportContestBundle
+      summary: Export contest bundle
+      responses:
+        "200":
+          description: Portable contest bundle.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContestBundle"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/ranking:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: getRanking
+      summary: Get ranking
+      responses:
+        "200":
+          description: OI or ACM ranking depending on contest settings.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  oneOf:
+                    - $ref: "#/components/schemas/OIRankEntry"
+                    - $ref: "#/components/schemas/ACMRankEntry"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/statistics:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: contestStatistics
+      summary: Contest statistics
+      responses:
+        "200":
+          description: Per-problem statistics.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ContestStatistics"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/statistics/export:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: exportStatistics
+      summary: Export statistics
+      responses:
+        "200":
+          description: UTF-8 CSV report.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [problems]
+      operationId: listProblems
+      summary: List problems
+      responses:
+        "200":
+          description: Problems with judge material redacted for students.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Problem"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [problems]
+      operationId: createProblem
+      summary: Create problem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Problem"
+      responses:
+        "201":
+          description: Problem created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/reorder:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    put:
+      tags: [problems]
+      operationId: reorderProblems
+      summary: Reorder problems
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [problemIds]
+              properties:
+                problemIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        "200":
+          description: Reordered problems.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Problem"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    get:
+      tags: [problems]
+      operationId: getProblem
+      summary: Get problem
+      responses:
+        "200":
+          description: Problem detail with sensitive material redacted for students.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [problems]
+      operationId: updateProblem
+      summary: Update problem
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Problem"
+      responses:
+        "200":
+          description: Updated problem.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [problems]
+      operationId: deleteProblem
+      summary: Delete problem
+      responses:
+        "200":
+          description: Problem deleted and detached from contest order.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/contests/{cid}/problems/{pid}/validate:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    post:
+      tags: [problems]
+      operationId: validateProblem
+      summary: Validate problem
+      responses:
+        "200":
+          description: Validation result.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [valid]
+                properties:
+                  valid:
+                    type: boolean
+                  error:
+                    type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/rejudge:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    post:
+      tags: [submissions]
+      operationId: rejudgeProblem
+      summary: Rejudge problem
+      responses:
+        "202":
+          description: |
+            Matching submissions are durably marked queued for re-evaluation.
+            The response reports total matches and immediate enqueue count;
+            transient queue exhaustion is repaired by the background
+            reconciler.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/subtasks:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    put:
+      tags: [problems]
+      operationId: configureSubtasks
+      summary: Configure subtasks
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [subtasks]
+              properties:
+                subtasks:
+                  type: array
+                  items:
+                    type: object
+                    required: [subtask, score]
+                    properties:
+                      subtask:
+                        type: integer
+                      score:
+                        type: integer
+                      timeLimitMs:
+                        type: integer
+                      memoryMib:
+                        type: integer
+                      dependsOn:
+                        type: array
+                        items:
+                          type: integer
+      responses:
+        "200":
+          description: Problem test cases with configured subtasks.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/files:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    get:
+      tags: [problems]
+      operationId: listTestFiles
+      summary: List test files
+      responses:
+        "200":
+          description: Test-data inventory.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestFileInventory"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/files/sync:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    post:
+      tags: [problems]
+      operationId: syncTestFiles
+      summary: Synchronize test files
+      responses:
+        "200":
+          description: Test cases generated from paired files or answer key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Problem"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/files/{name}:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+      - $ref: "#/components/parameters/FileName"
+    get:
+      tags: [problems]
+      operationId: downloadTestFile
+      summary: Download test file
+      responses:
+        "200":
+          description: Test-data file.
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+    put:
+      tags: [problems]
+      operationId: uploadTestFile
+      summary: Upload test file
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+      responses:
+        "200":
+          description: File stored.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [problems]
+      operationId: deleteTestFile
+      summary: Delete test file
+      responses:
+        "200":
+          description: File removed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/export:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    get:
+      tags: [problems]
+      operationId: exportProblemHTML
+      summary: Export problem HTML
+      responses:
+        "200":
+          description: CCF print-ready HTML.
+          content:
+            text/html:
+              schema:
+                type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/problems/{pid}/pdf:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ProblemID"
+    get:
+      tags: [problems]
+      operationId: exportProblemPDF
+      summary: Export problem PDF
+      responses:
+        "200":
+          description: CCF A4 PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: No browser/PDF engine available.
+  /api/v1/contests/{cid}/export:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: exportContestHTML
+      summary: Export contest HTML
+      responses:
+        "200":
+          description: Print-ready full contest HTML.
+          content:
+            text/html:
+              schema:
+                type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/pdf:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: exportContestPDF
+      summary: Export contest PDF
+      responses:
+        "200":
+          description: Full contest PDF.
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "503":
+          description: No browser/PDF engine available.
+  /api/v1/contests/{cid}/submissions:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [submissions]
+      operationId: listSubmissions
+      summary: List submissions
+      description: |
+        Returns the newest submissions first. Students receive only their own
+        attempts. The feed is bounded to protect browser and server memory.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          description: Number of recent submissions to return (default 200, maximum 500).
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 200
+      responses:
+        "200":
+          description: Submission feed. Source and compile details are redacted for peers.
+          headers:
+            X-Result-Limit:
+              description: Effective per-request result cap.
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Submission"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [submissions]
+      operationId: createSubmission
+      summary: Create submission
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          description: |
+            Stable retry key for this user and contest. Repeating the same key
+            with the same payload returns the original submission.
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+            pattern: "^[!-~]+$"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [problemID, code]
+              properties:
+                problemID:
+                  type: string
+                language:
+                  type: string
+                code:
+                  type: string
+                  maxLength: 65536
+                userId:
+                  type: string
+                  description: Teachers may set this; students are always bound to their session user.
+      responses:
+        "202":
+          description: |
+            Submission durably accepted or instantly graded. A queued
+            submission remains accepted even when worker capacity is currently
+            exhausted; the server reconciles it automatically. Replayed
+            requests include `Idempotent-Replay: true` and retry dispatch when
+            the original submission is still queued.
+          headers:
+            Idempotent-Replay:
+              description: Present and true when the original submission is returned.
+              schema:
+                type: string
+                enum: ["true"]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          description: The idempotency key was already used with a different payload.
+  /api/v1/contests/{cid}/groups:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: bindGroup
+      summary: Bind participant group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [groupId]
+              properties:
+                groupId:
+                  type: string
+      responses:
+        "200":
+          description: Group bound.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/participants:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: bindParticipant
+      summary: Bind participant
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId]
+              properties:
+                userId:
+                  type: string
+      responses:
+        "200":
+          description: Participant bound.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/ip-bindings:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: getIPBindings
+      summary: Get IP bindings
+      responses:
+        "200":
+          description: IP binding state and per-user addresses.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  bindIpEnabled:
+                    type: boolean
+                  boundIps:
+                    type: object
+                    additionalProperties:
+                      type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    put:
+      tags: [contests]
+      operationId: setIPBindings
+      summary: Set IP binding mode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [enabled]
+              properties:
+                enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: Updated contest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/participants/{uid}/unbind-ip:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ParticipantID"
+    post:
+      tags: [contests]
+      operationId: unbindParticipantIP
+      summary: Unbind participant IP
+      responses:
+        "200":
+          description: Binding removed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/unbind-all-ips:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: unbindAllIPs
+      summary: Unbind all participant IPs
+      responses:
+        "200":
+          description: All bindings removed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/window:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    put:
+      tags: [contests]
+      operationId: setExamWindow
+      summary: Set exam window
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [windowEnabled, durationMinutes]
+              properties:
+                windowEnabled:
+                  type: boolean
+                startTime:
+                  type: string
+                  format: date-time
+                  nullable: true
+                endTime:
+                  type: string
+                  format: date-time
+                  nullable: true
+                durationMinutes:
+                  type: integer
+                  minimum: 1
+      responses:
+        "200":
+          description: Updated contest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Contest"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/extensions:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: setParticipantExtension
+      summary: Set participant extension
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [userId, minutes]
+              properties:
+                userId:
+                  type: string
+                minutes:
+                  type: integer
+      responses:
+        "200":
+          description: Updated contest.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/extensions/{uid}:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+      - $ref: "#/components/parameters/ParticipantID"
+    delete:
+      tags: [contests]
+      operationId: removeParticipantExtension
+      summary: Remove participant extension
+      responses:
+        "200":
+          description: Extension removed.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/contests/{cid}/notice:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    put:
+      tags: [contests]
+      operationId: updateNotice
+      summary: Update notice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notice]
+              properties:
+                notice:
+                  type: string
+      responses:
+        "200":
+          description: Updated contest.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/messages:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests, realtime]
+      operationId: listMessages
+      summary: List messages
+      responses:
+        "200":
+          description: Broadcast messages visible to the current user.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/BroadcastMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [contests, realtime]
+      operationId: sendMessage
+      summary: Send broadcast message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content, level]
+              properties:
+                title:
+                  type: string
+                content:
+                  type: string
+                targetUserId:
+                  type: string
+                level:
+                  type: string
+                  enum: [info, warning, urgent]
+      responses:
+        "201":
+          description: Message created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BroadcastMessage"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/zip-password:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    put:
+      tags: [contests]
+      operationId: setZipPassword
+      summary: Set paper password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Updated contest.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/unlock-zip:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    post:
+      tags: [contests]
+      operationId: unlockPaper
+      summary: Unlock paper
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password]
+              properties:
+                password:
+                  type: string
+                  format: password
+      responses:
+        "200":
+          description: Short-lived paper grant issued.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [unlocked, expiresAt]
+                properties:
+                  unlocked:
+                    type: boolean
+                  expiresAt:
+                    type: string
+                    format: date-time
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/submissions/{id}/judge:
+    parameters:
+      - $ref: "#/components/parameters/SubmissionID"
+    post:
+      tags: [submissions]
+      operationId: judgeSubmission
+      summary: Judge submission
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [verdict, score]
+              properties:
+                verdict:
+                  type: string
+                score:
+                  type: integer
+      responses:
+        "200":
+          description: Updated submission.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/submissions/{id}/cases:
+    parameters:
+      - $ref: "#/components/parameters/SubmissionID"
+    post:
+      tags: [submissions]
+      operationId: judgeSubmissionCases
+      summary: Judge submission cases
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [cases]
+              properties:
+                cases:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/CaseResult"
+                subtasks:
+                  type: object
+                  additionalProperties:
+                    type: integer
+      responses:
+        "200":
+          description: |
+            Updated submission with aggregated verdict. If a manual decision or
+            newer rejudge already won the race, the current submission is
+            returned unchanged.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Submission"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users:
+    get:
+      tags: [identity]
+      operationId: listUsers
+      summary: List users
+      responses:
+        "200":
+          description: Users.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [identity]
+      operationId: createUser
+      summary: Create user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, username, role]
+              properties:
+                name:
+                  type: string
+                username:
+                  type: string
+                role:
+                  type: string
+                  enum: [admin, teacher, student]
+                password:
+                  type: string
+                  format: password
+      responses:
+        "201":
+          description: User created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/User"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/import:
+    post:
+      tags: [identity]
+      operationId: importUsers
+      summary: Import users
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [csv]
+              properties:
+                csv:
+                  type: string
+      responses:
+        "200":
+          description: Import summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/export:
+    get:
+      tags: [identity]
+      operationId: exportUsers
+      summary: Export users
+      responses:
+        "200":
+          description: UTF-8 CSV without passwords.
+          content:
+            text/csv:
+              schema:
+                type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/users/{id}/password:
+    parameters:
+      - $ref: "#/components/parameters/UserID"
+    post:
+      tags: [identity]
+      operationId: resetUserPassword
+      summary: Reset user password
+      requestBody:
+        $ref: "#/components/requestBodies/AdminPasswordChange"
+      responses:
+        "200":
+          description: Password reset.
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/groups:
+    get:
+      tags: [identity]
+      operationId: listGroups
+      summary: List groups
+      responses:
+        "200":
+          description: Groups.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Group"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+    post:
+      tags: [identity]
+      operationId: createGroup
+      summary: Create group
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+      responses:
+        "201":
+          description: Group created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Group"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/groups/{gid}/members:
+    parameters:
+      - $ref: "#/components/parameters/GroupID"
+    post:
+      tags: [identity]
+      operationId: addGroupMember
+      summary: Add group member
+      requestBody:
+        $ref: "#/components/requestBodies/GroupMember"
+      responses:
+        "200":
+          description: Member added.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [identity]
+      operationId: removeGroupMember
+      summary: Remove group member
+      requestBody:
+        $ref: "#/components/requestBodies/GroupMember"
+      responses:
+        "200":
+          description: Member removed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+  /api/v1/events/ticket:
+    post:
+      tags: [realtime]
+      operationId: issueStreamTicket
+      summary: Issue stream ticket
+      parameters:
+        - name: contestId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Short-lived HttpOnly ticket cookie issued.
+          headers:
+            Set-Cookie:
+              description: Contest-scoped `forge_stream` grant valid for one exam day.
+              schema:
+                type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/events:
+    get:
+      tags: [realtime]
+      operationId: eventStream
+      summary: Open event stream
+      security:
+        - bearerAuth: []
+        - cookieAuth: []
+      parameters:
+        - name: contestId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Server-Sent Events stream with named contest events.
+          content:
+            text/event-stream:
+              schema:
+                type: string
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: forge_session
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: forge_stream
+  parameters:
+    ContestID:
+      name: cid
+      in: path
+      required: true
+      schema:
+        type: string
+    ProblemID:
+      name: pid
+      in: path
+      required: true
+      schema:
+        type: string
+    FileName:
+      name: name
+      in: path
+      required: true
+      schema:
+        type: string
+    UserID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    ParticipantID:
+      name: uid
+      in: path
+      required: true
+      schema:
+        type: string
+    SubmissionID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+    GroupID:
+      name: gid
+      in: path
+      required: true
+      schema:
+        type: string
+  requestBodies:
+    OwnPasswordChange:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [oldPassword, newPassword]
+            properties:
+              oldPassword:
+                type: string
+                format: password
+              newPassword:
+                type: string
+                format: password
+                minLength: 10
+    AdminPasswordChange:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [password]
+            properties:
+              password:
+                type: string
+                format: password
+                minLength: 10
+    GroupMember:
+      required: true
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [userId]
+            properties:
+              userId:
+                type: string
+  responses:
+    BadRequest:
+      description: Request validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid session.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient role, access, or exam grant.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RateLimited:
+      description: Too many authentication attempts.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        traceId:
+          type: string
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, ready, unavailable]
+        checks:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [ok, unavailable]
+          description: Per-dependency readiness state.
+        time:
+          type: string
+          format: date-time
+    AuthSession:
+      type: object
+      required: [userId, username, name, role]
+      properties:
+        userId:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, teacher, student]
+    User:
+      type: object
+      required: [id, username, name, role]
+      properties:
+        id:
+          type: string
+        username:
+          type: string
+        name:
+          type: string
+        role:
+          type: string
+          enum: [admin, teacher, student]
+        groups:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    Group:
+      type: object
+      required: [id, name]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        userIds:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+    Contest:
+      type: object
+      required: [id, name, status]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        status:
+          type: string
+          enum: [draft, running, finished]
+        rankingMode:
+          type: string
+          enum: [oi, acm]
+        allowedLanguages:
+          type: array
+          items:
+            type: string
+        problemIds:
+          type: array
+          items:
+            type: string
+        groupIds:
+          type: array
+          items:
+            type: string
+        participantUserIds:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+        bindIpEnabled:
+          type: boolean
+        windowEnabled:
+          type: boolean
+        startTime:
+          type: string
+          format: date-time
+        endTime:
+          type: string
+          format: date-time
+        durationMinutes:
+          type: integer
+        notice:
+          type: string
+        zipProtected:
+          type: boolean
+        zipUnlocked:
+          type: boolean
+    Problem:
+      type: object
+      required: [id, contestId, code, title, statement, input, output, constraints]
+      properties:
+        id:
+          type: string
+        contestId:
+          type: string
+        code:
+          type: string
+        title:
+          type: string
+        statement:
+          type: string
+        input:
+          type: string
+        output:
+          type: string
+        examples:
+          type: string
+        constraints:
+          type: string
+        locale:
+          type: string
+        timeLimitMs:
+          type: integer
+        memoryLimitMib:
+          type: integer
+        taskType:
+          type: string
+          enum: [traditional, answers_only, interaction, choice]
+        ioMode:
+          type: string
+          enum: [stdio, file]
+        compareMode:
+          type: string
+        checkerLang:
+          type: string
+        checkerCode:
+          type: string
+          description: Teacher-only.
+        interactorLang:
+          type: string
+        interactorCode:
+          type: string
+          description: Teacher-only.
+        choiceQuestions:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChoiceQuestion"
+        testCases:
+          type: array
+          items:
+            $ref: "#/components/schemas/TestCase"
+        locales:
+          type: object
+          additionalProperties: true
+        updatedAt:
+          type: string
+          format: date-time
+    ChoiceQuestion:
+      type: object
+      required: [id, type, stem, score]
+      properties:
+        id:
+          type: integer
+        type:
+          type: string
+          enum: [single, multiple, judge]
+        stem:
+          type: string
+        options:
+          type: array
+          items:
+            type: string
+        answer:
+          description: Answer key; null in student-facing problem responses.
+          oneOf:
+            - type: string
+              nullable: true
+            - type: array
+              nullable: true
+              items:
+                type: string
+        score:
+          type: integer
+        explanation:
+          type: string
+    TestCase:
+      type: object
+      required: [id, inputFile, outputFile, score, subtask]
+      properties:
+        id:
+          type: string
+        inputFile:
+          type: string
+        outputFile:
+          type: string
+        score:
+          type: integer
+        subtask:
+          type: integer
+        timeLimitMs:
+          type: integer
+        memoryMib:
+          type: integer
+        dependsOn:
+          type: array
+          items:
+            type: integer
+    TestFileInventory:
+      type: object
+      required: [files, missingPairs, answerOnly]
+      properties:
+        files:
+          type: array
+          items:
+            type: string
+        missingPairs:
+          type: array
+          items:
+            type: string
+        answerOnly:
+          type: boolean
+    CaseResult:
+      type: object
+      required: [caseIndex, verdict, score]
+      properties:
+        caseIndex:
+          type: integer
+        verdict:
+          type: string
+        score:
+          type: integer
+        timeMs:
+          type: integer
+        memoryKib:
+          type: integer
+        cpuMs:
+          type: integer
+        message:
+          type: string
+    Submission:
+      type: object
+      required: [id, contestId, problemID, userId, language, verdict, score, submittedAt]
+      properties:
+        id:
+          type: string
+        contestId:
+          type: string
+        problemID:
+          type: string
+        userId:
+          type: string
+        userName:
+          type: string
+        language:
+          type: string
+        code:
+          type: string
+        verdict:
+          type: string
+        score:
+          type: integer
+        compileMessage:
+          type: string
+        cases:
+          type: array
+          items:
+            $ref: "#/components/schemas/CaseResult"
+        submittedAt:
+          type: string
+          format: date-time
+        judgedAt:
+          type: string
+          format: date-time
+    OIRankEntry:
+      type: object
+      required: [userId, userName, score, accepted]
+      properties:
+        userId:
+          type: string
+        userName:
+          type: string
+        score:
+          type: integer
+        accepted:
+          type: integer
+        problemScores:
+          type: object
+          additionalProperties:
+            type: integer
+    ACMRankEntry:
+      type: object
+      required: [userId, userName, solved, penaltyMin]
+      properties:
+        userId:
+          type: string
+        userName:
+          type: string
+        solved:
+          type: integer
+        penaltyMin:
+          type: integer
+    ContestStatistics:
+      type: object
+      required: [contestId, users, submissions, problems]
+      properties:
+        contestId:
+          type: string
+        users:
+          type: integer
+        submissions:
+          type: integer
+        problems:
+          type: array
+          items:
+            type: object
+            properties:
+              problemId:
+                type: string
+              code:
+                type: string
+              title:
+                type: string
+              submissions:
+                type: integer
+              accepted:
+                type: integer
+              acceptRate:
+                type: number
+              bestScore:
+                type: integer
+              firstACUser:
+                type: string
+    BroadcastMessage:
+      type: object
+      required: [id, contestId, senderName, title, content, level, createdAt]
+      properties:
+        id:
+          type: string
+        contestId:
+          type: string
+        senderName:
+          type: string
+        targetUserId:
+          type: string
+        title:
+          type: string
+        content:
+          type: string
+        level:
+          type: string
+          enum: [info, warning, urgent]
+        createdAt:
+          type: string
+          format: date-time
+    ContestBundle:
+      type: object
+      required: [contest, problems]
+      properties:
+        contest:
+          $ref: "#/components/schemas/Contest"
+        problems:
+          type: array
+          items:
+            $ref: "#/components/schemas/Problem"
