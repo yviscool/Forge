@@ -64,6 +64,8 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		e.Cancel()
 		mainWin.Hide()
 	})
+	// 就绪即显示主窗（窗口选项 Hidden:true 避免白帧，这里确定性亮出）。
+	mainWin.Show()
 
 	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收。
 	panel := app.Window.NewWithOptions(application.WebviewWindowOptions{
@@ -102,21 +104,24 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	})
 
 	// 原生窗口指令执行器：面板/教师台的按钮经 /ui/command 到达这里。
+	// 每次打开都先导航回该窗口的本职页面——用户在窗口里点到别处后，
+	// 再点托盘/面板按钮必须回到预期视图，而不是停留在上次页面。
+	showAt := func(win *application.WebviewWindow, url string) {
+		win.SetURL(url)
+		win.Show()
+		win.Focus()
+	}
 	SetUICommandHandler(func(action string) {
 		application.InvokeSync(func() {
 			switch action {
 			case "show-main":
-				mainWin.Show()
-				mainWin.Focus()
+				showAt(mainWin, urls.Teacher)
 			case "open-join":
-				joinWin.Show()
-				joinWin.Focus()
+				showAt(joinWin, urls.Join)
 			case "open-bigscreen":
-				bigWin.Show()
-				bigWin.Focus()
+				showAt(bigWin, urls.BigScreen)
 			case "open-student":
-				studentWin.Show()
-				studentWin.Focus()
+				showAt(studentWin, urls.Student)
 			}
 		})
 	})
@@ -132,21 +137,17 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		tray.ToggleWindow()
 	})
 	menu.Add("学生扫码加入").OnClick(func(*application.Context) {
-		joinWin.Show()
-		joinWin.Focus()
+		showAt(joinWin, urls.Join)
 	})
 	menu.Add("监考大屏（投屏）").OnClick(func(*application.Context) {
-		bigWin.Show()
-		bigWin.Focus()
+		showAt(bigWin, urls.BigScreen)
 	})
 	menu.AddSeparator()
 	menu.Add("打开教师台").OnClick(func(*application.Context) {
-		mainWin.Show()
-		mainWin.Focus()
+		showAt(mainWin, urls.Teacher)
 	})
 	menu.Add("打开学生大厅").OnClick(func(*application.Context) {
-		studentWin.Show()
-		studentWin.Focus()
+		showAt(studentWin, urls.Student)
 	})
 	versionItem := menu.Add("Forge · 服务运行中")
 	versionItem.SetEnabled(false)

@@ -24,6 +24,7 @@ import (
 	"github.com/yviscool/forge/internal/judge"
 	"github.com/yviscool/forge/internal/observability"
 	"github.com/yviscool/forge/internal/pdf"
+	"github.com/yviscool/forge/internal/platform/desktop"
 	"github.com/yviscool/forge/internal/ports"
 	"github.com/yviscool/forge/internal/testdata"
 	webdist "github.com/yviscool/forge/internal/web"
@@ -66,6 +67,18 @@ func (h *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.handler.ServeHTTP(w, r)
 }
 
+// favicon 站点图标：原生窗口与浏览器标签共用，消除默认球形图标。
+func (h *Server) favicon(w http.ResponseWriter, _ *http.Request) {
+	ico, err := desktop.FaviconICO()
+	if err != nil {
+		http.Error(w, "icon unavailable", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "image/x-icon")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	_, _ = w.Write(ico)
+}
+
 func NewServer(svc *app.Service, log *slog.Logger) *Server {
 	if log == nil {
 		log = slog.Default()
@@ -83,6 +96,7 @@ func NewServer(svc *app.Service, log *slog.Logger) *Server {
 	mux.HandleFunc("/healthz", Healthz)
 	mux.HandleFunc("/readyz", h.readyz)
 	mux.Handle("/metrics", metrics.Handler())
+	mux.HandleFunc("/favicon.ico", h.favicon)
 	mux.HandleFunc("/api/v1/", h.dispatch)
 	mux.HandleFunc("/app", h.spa)
 	mux.HandleFunc("/app/", h.spa)
@@ -182,8 +196,20 @@ func runReadinessCheck(ctx context.Context, check func(context.Context) error) e
 }
 
 func (h *Server) root(w http.ResponseWriter, r *http.Request) {
-	// 单页应用即首页：构建产物缺失时给明确指引。
-	http.Redirect(w, r, "/app", http.StatusFound)
+	// 单页应用即首页；历史入口路径（/teacher、/login）映射回 SPA 路由，
+	// 保留路径与查询串——否则 /teacher 会被重定向到 /app 而丢失教师台视图
+	// （托盘「监考大屏」深链 ?tab=monitor 也依赖查询串存活）。
+	target := "/app"
+	switch {
+	case r.URL.Path == "/teacher" || strings.HasPrefix(r.URL.Path, "/teacher/"):
+		target = "/app" + r.URL.Path
+	case r.URL.Path == "/login":
+		target = "/app/login"
+	}
+	if r.URL.RawQuery != "" {
+		target += "?" + r.URL.RawQuery
+	}
+	http.Redirect(w, r, target, http.StatusFound)
 }
 
 func decode(r *http.Request, v any) error {

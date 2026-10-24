@@ -27,13 +27,15 @@ func TerminalQR(content string) (string, error) {
 	return ascii, nil
 }
 
-// trayIcon 生成托盘图标：内嵌 PNG 资产，Windows 侧包一层 ICO 头。
+// FaviconICO 生成站点 favicon（ICO 格式，复用托盘图标资产）。
+func FaviconICO() ([]byte, error) {
+	return trayIcon()
+}
+
+// trayIcon 生成托盘/窗口图标：内嵌多尺寸 BMP ICO（16/32/48），
+// LoadImage 直读，兼容性优于 PNG-in-ICO。
 func trayIcon() ([]byte, error) {
-	raw, err := assetsFS.ReadFile("assets/tray-32.png")
-	if err != nil {
-		return nil, err
-	}
-	return icoFromPNG(raw)
+	return assetsFS.ReadFile("assets/forge.ico")
 }
 
 // icoFromPNG 把单张 PNG 包装成 ICO（Vista+ 支持 PNG 直嵌，无需重采样）。

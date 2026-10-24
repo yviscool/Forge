@@ -124,12 +124,13 @@ func TestTrayIconAsset(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// ICO 头：数量 1 + 目录条目偏移 22。
-	if ico[2] != 1 || ico[3] != 0 || ico[4] != 1 || ico[5] != 0 {
+	// ICO 头：类型 1（图标）+ 3 个尺寸条目（16/32/48）。
+	if ico[2] != 1 || ico[3] != 0 || ico[4] != 3 || ico[5] != 0 {
 		t.Fatalf("ico header = %v", ico[:6])
 	}
-	if !bytes.Contains(ico, []byte{0x89, 'P', 'N', 'G'}) {
-		t.Fatal("ico must embed a PNG payload")
+	// BMP 载荷：40 字节 BITMAPINFOHEADER 后紧跟像素（自底向上）。
+	if len(ico) < 22+40 {
+		t.Fatal("ico payload too small")
 	}
 	if err := EnsureTrayIcon(); err != nil {
 		t.Fatalf("ensure icon: %v", err)
