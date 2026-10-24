@@ -22,14 +22,21 @@ React 19、TypeScript、Vite、Tailwind CSS 与 Monaco Editor 构建。
 ### 桌面模式（教师机推荐）
 
 ```powershell
-go build -tags desktop -o forge.exe ./cmd/forge
-./forge.exe --desktop
+go build -tags "desktop wails" -ldflags="-H windowsgui" -o forge-desktop.exe ./cmd/forge
+./forge-desktop.exe
 ```
 
-桌面模式在服务就绪后自动：打印学生加入卡片（局域网地址 + 扫码二维码）、
-打开教师台、常驻系统托盘（打开教师台 / 学生大厅 / 退出，退出即优雅停机）。
-未以 `-tags desktop` 构建时托盘降级为「Ctrl+C 退出」，其余桌面体验不变；
-Linux/Darwin 服务器部署继续使用 headless 方式（托盘需要 CGO/GTK）。
+桌面模式基于 Wails v3（与 magpie 同技术栈，教师端真原生窗口）：
+
+- **主窗口**即教师台（WebView 直连本机 HTTP 服务，SSE/Cookie 与学生端同链路）；
+- **托盘左键**弹出锚定在图标旁的无边框速览面板：比赛倒计时、在线/提交/评测队列、
+  机位冲突告警、最近提交动态；右键菜单可直达教师台/学生大厅/扫码页；
+- **关闭主窗口 = 隐藏到托盘**；退出走托盘菜单或速览面板的「退出服务」（优雅停机）；
+- 单实例：重复启动自动唤起已运行实例。
+
+学生端不受影响（浏览器访问 LAN 地址）。双击默认进桌面模式，`--server` 强制 headless；
+`-tags desktop`（不带 wails）为无 WebView 依赖的托盘降级版（浏览器打开教师台），
+Linux/Darwin 服务器部署继续使用 headless 方式。
 
 ### 服务模式（服务器 / 机房主机）
 

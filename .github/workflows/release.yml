@@ -101,7 +101,7 @@ jobs:
             local goarch="$2"
             local suffix=""
             local tags=""
-            if [ "$goos" = "windows" ]; then suffix=".exe"; tags="-tags desktop"; fi
+            if [ "$goos" = "windows" ]; then suffix=".exe"; tags="-tags desktop wails"; fi
 
             rm -rf dist/stage/*
             CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \

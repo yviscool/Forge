@@ -174,7 +174,12 @@ export function TeacherConsole() {
   const toast = useToast()
   const session = useStore((s) => s.session)
   const isAdmin = session?.role === 'admin'
-  const [activeTab, setActiveTab] = useState<TeacherTab>('contests')
+  // 支持托盘/菜单深链：/teacher?tab=monitor 直达监考大屏。
+  const [activeTab, setActiveTab] = useState<TeacherTab>(() => {
+    if (typeof window === 'undefined') return 'contests'
+    const tab = new URLSearchParams(window.location.search).get('tab')
+    return (TAB_ITEMS.some(({ key }) => key === tab) ? (tab as TeacherTab) : 'contests')
+  })
   const [pending, setPending] = useState<string | null>(null)
 
   // Selected contest

@@ -368,3 +368,11 @@ func normalizeContestRoute(parts []string) string {
 	}
 	return route
 }
+
+// RuntimeStatsSnapshot 返回运行时指标的即时快照（托盘速览面板用）。
+func (m *Metrics) RuntimeStatsSnapshot() RuntimeStats {
+	if m.runtimeStats == nil {
+		return RuntimeStats{}
+	}
+	return m.runtimeStats()
+}

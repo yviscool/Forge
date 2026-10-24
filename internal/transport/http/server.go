@@ -38,6 +38,7 @@ type Server struct {
 	readinessMu     sync.RWMutex
 	readinessChecks map[string]func(context.Context) error
 	presenceSource  func(cid string) map[string]time.Time
+	shutdownHook    func()
 	// LoginLimiter protects the public credential endpoint. Tests may replace
 	// it with a limiter driven by a fake clock.
 	LoginLimiter *auth.LoginLimiter
@@ -92,6 +93,12 @@ func NewServer(svc *app.Service, log *slog.Logger) *Server {
 // SetPresenceSource 注入 SSE 在线注册表（监考大屏用）：比赛 → userID → 连接建立时间。
 func (h *Server) SetPresenceSource(source func(cid string) map[string]time.Time) {
 	h.presenceSource = source
+}
+
+// SetShutdownHook 注入优雅停机钩子（托盘面板的「退出服务」按钮调用）。
+// 只允许注册一次；未注册时关机端点返回 503。
+func (h *Server) SetShutdownHook(hook func()) {
+	h.shutdownHook = hook
 }
 
 // AddReadinessCheck registers a startup-injected operational dependency.
@@ -300,6 +307,33 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 	// /contests/{cid}[...]
 	if len(parts) >= 2 && parts[0] == "contests" {
 		h.contestRoutes(w, r, parts[1:])
+		return
+	}
+
+	// /tray-summary（托盘速览面板数据，教师专用）
+	if len(parts) == 1 && parts[0] == "tray-summary" && r.Method == "GET" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		writeOut(w, h.traySummary(), 200)
+		return
+	}
+
+	// /shutdown（管理员优雅停机；托盘面板退出按钮）
+	if len(parts) == 1 && parts[0] == "shutdown" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleAdmin); !ok {
+			return
+		}
+		if h.shutdownHook == nil {
+			WriteError(w, r, http.StatusServiceUnavailable, "no_shutdown_hook",
+				"shutdown is only available in desktop mode")
+			return
+		}
+		writeOut(w, map[string]any{"stopping": true}, 200)
+		go func() {
+			time.Sleep(300 * time.Millisecond) // 让响应先落回浏览器
+			h.shutdownHook()
+		}()
 		return
 	}
 

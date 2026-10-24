@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -35,10 +36,15 @@ var (
 )
 
 func main() {
-	desktopMode := false
+	// 桌面构建（-tags desktop）双击即桌面应用；--server 强制 headless。
+	// 服务构建反之，--desktop 显式开启桌面体验。
+	desktopMode := desktop.DefaultDesktopMode
 	for _, arg := range os.Args[1:] {
 		if arg == "--desktop" {
 			desktopMode = true
+		}
+		if arg == "--server" {
+			desktopMode = false
 		}
 		if arg == "--version" || arg == "version" {
 			fmt.Printf("forge %s commit=%s built=%s\n", version, commit, buildDate)
@@ -55,6 +61,15 @@ func main() {
 	if err := os.MkdirAll(cfg.DataDir, 0o700); err != nil {
 		log.Error("create data directory failed", "path", cfg.DataDir, "err", err)
 		os.Exit(1)
+	}
+	if desktopMode {
+		// windowsgui 构建没有控制台可看：日志同时写入 data/forge-desktop.log。
+		logFile, err := os.OpenFile(filepath.Join(cfg.DataDir, "forge-desktop.log"),
+			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+		if err == nil {
+			defer logFile.Close()
+			log = slog.New(slog.NewTextHandler(io.MultiWriter(os.Stdout, logFile), nil))
+		}
 	}
 
 	// 手动 DI：按配置选择持久化后端（sqlite 文件默认，memory 按需）。
@@ -197,8 +212,9 @@ func main() {
 	})
 
 	httpSrv := &http.Server{
-		Addr:              cfg.Addr,
-		Handler:           srv,
+		Addr: cfg.Addr,
+		// /join 学生扫码页（免登录）挂在主服务之前；其余请求原样透传。
+		Handler:           desktop.JoinPageHandler(srv, cfg.Addr),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       5 * time.Minute,
 		IdleTimeout:       2 * time.Minute,
@@ -215,7 +231,9 @@ func main() {
 	}()
 
 	if desktopMode {
-		runDesktopShell(cfg, log, httpSrv, stopWorkers)
+		quitRequested := make(chan struct{})
+		srv.SetShutdownHook(func() { close(quitRequested) })
+		runDesktopShell(cfg, log, httpSrv, stopWorkers, quitRequested)
 		return
 	}
 
@@ -273,8 +291,11 @@ func localAppURL(addr string) string {
 }
 
 // runDesktopShell 教师机桌面模式：等服务就绪 → 打印加入卡片（含扫码二维码）→
-// 自动打开教师台 → 常驻系统托盘。托盘「退出」触发与 Ctrl+C 相同的优雅停机。
-func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, stopWorkers func()) {
+// 进入桌面外壳并自动打开教师台。
+// 外壳按构建标签选择：-tags "desktop wails" 为 Wails 原生窗口（主窗 + 托盘
+// 锚定速览面板 + 单实例）；否则为托盘菜单 + 浏览器（纯 Go，无 CGO）。
+// /shutdown API（托盘速览面板「退出服务」）与托盘退出都走同一收尾。
+func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, stopWorkers func(), quitRequested chan struct{}) {
 	healthz := desktop.LocalURL(cfg.Addr, "/healthz")
 	if !desktop.WaitForReady(healthz, 10*time.Second) {
 		log.Warn("desktop shell: health probe not ready; continuing without auto-open")
@@ -285,7 +306,10 @@ func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, 
 	log.Info("desktop shell ready", "teacher", teacherURL)
 
 	browser := desktop.SystemBrowser{}
-	if err := browser.Open(teacherURL); err != nil {
+	if desktop.WailsShellEnabled() {
+		// Wails 原生壳的主窗即教师台，不再另开浏览器标签。
+		log.Info("native window will host the teacher console")
+	} else if err := browser.Open(teacherURL); err != nil {
 		log.Warn("auto-open teacher console failed; please open the URL manually", "url", teacherURL, "err", err)
 	}
 
@@ -294,19 +318,22 @@ func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, 
 		Student:   desktop.LocalURL(cfg.Addr, "/app"),
 		StudentQR: firstLANURL(cfg.Addr),
 		LAN:       joinURLs,
+		Join:      desktop.LocalURL(cfg.Addr, "/join"),
+		Panel:     desktop.LocalURL(cfg.Addr, "/tray"),
+		BigScreen: desktop.LocalURL(cfg.Addr, "/teacher?tab=monitor"),
 	}
-	hooks := desktop.TrayHooks{
-		Browser: browser,
+
+	desktop.RunShell(trayURLs, desktop.ShellHooks{
+		Browser:       browser,
+		QuitRequested: quitRequested,
 		OnQuit: func() {
 			stopWorkers()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			_ = httpSrv.Shutdown(ctx)
 			log.Info("forge stopped (desktop)")
-			os.Exit(0)
 		},
-	}
-	desktop.RunTray(trayURLs, hooks, log)
+	}, log)
 }
 
 func firstLANURL(listenAddr string) string {

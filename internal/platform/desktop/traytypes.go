@@ -6,6 +6,9 @@ type TrayURLs struct {
 	Student   string   // 学生端（本机）
 	StudentQR string   // 学生端加入二维码内容（首选局域网地址）
 	LAN       []string // 局域网可达地址清单
+	Join      string   // /join 学生扫码页（浏览器打开）
+	Panel     string   // /tray-launcher 监考速览面板（小窗）
+	BigScreen string   // 教师台监考大屏深链
 }
 
 // TrayHooks 托盘行为回调（由 main 注入：打开浏览器/优雅停机）。
