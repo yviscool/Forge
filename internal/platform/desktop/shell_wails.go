@@ -114,6 +114,9 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 			case "open-bigscreen":
 				bigWin.Show()
 				bigWin.Focus()
+			case "open-student":
+				studentWin.Show()
+				studentWin.Focus()
 			}
 		})
 	})

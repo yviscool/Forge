@@ -194,6 +194,11 @@ export interface TraySummaryEvent {
   submittedAt: string
 }
 
+export interface TrayHourCount {
+  label: string
+  count: number
+}
+
 export interface TraySummary {
   generatedAt: string
   version?: string
@@ -204,9 +209,11 @@ export interface TraySummary {
   queued: number
   conflicts: number
   recent: TraySummaryEvent[]
+  /** 最近 12 小时提交量直方图。 */
+  hourly?: TrayHourCount[]
 }
 
-export type UICommand = 'show-main' | 'open-join' | 'open-bigscreen'
+export type UICommand = 'show-main' | 'open-join' | 'open-bigscreen' | 'open-student'
 
 export interface CSPTicketAssignment {
   user: User

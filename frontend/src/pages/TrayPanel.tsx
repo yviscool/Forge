@@ -21,7 +21,7 @@ import { api } from '../api/client'
  * 快捷动作经 /ui/command 直接驱动原生窗口，全程不经过浏览器。
  */
 
-type PanelTab = 'exam' | 'feed' | 'service'
+type PanelTab = 'exam' | 'stats' | 'feed' | 'service'
 
 const MODE_TEXT: Record<string, string> = {
   online: '在线提交',
@@ -193,11 +193,17 @@ export function TrayPanel() {
     }
   }
 
-  const command = async (action: Parameters<typeof api.uiCommand>[0]) => {
+  const onOpenMain = () => {
+    void command('show-main', '/teacher')
+  }
+
+  const command = async (action: Parameters<typeof api.uiCommand>[0], fallbackUrl?: string) => {
     try {
       await api.uiCommand(action)
     } catch {
-      // 非 Wails 构建（浏览器打开 /app/panel）没有原生窗口可驱动，静默忽略。
+      // 非 Wails 构建（浏览器打开 /app/panel）没有原生窗口可驱动：
+      // 有回退地址则开浏览器，否则静默忽略。
+      if (fallbackUrl) window.open(fallbackUrl, '_blank')
     }
   }
 
@@ -213,9 +219,9 @@ export function TrayPanel() {
   if (!authed) {
     return (
       <div className="flex h-screen flex-col bg-[#fbfaf6]">
-        <PanelHeader tab={tab} onTab={setTab} onRefresh={refresh} summary={undefined} />
+        <PanelHeader tab={tab} onTab={setTab} onRefresh={refresh} onOpenMain={onOpenMain} summary={undefined} />
         <InlineLogin onDone={refresh} />
-        <PanelFooter onQuit={quit} quitError={quitError} authed={false} />
+        <PanelFooter onQuit={quit} quitError={quitError} authed={false} onOpenMain={onOpenMain} onCommand={command} />
       </div>
     )
   }
@@ -233,7 +239,7 @@ export function TrayPanel() {
 
   return (
     <div className="flex h-screen flex-col bg-[#fbfaf6]">
-      <PanelHeader tab={tab} onTab={setTab} onRefresh={refresh} summary={summary} />
+      <PanelHeader tab={tab} onTab={setTab} onRefresh={refresh} onOpenMain={onOpenMain} summary={summary} />
 
       <main className="min-h-0 flex-1 overflow-y-auto px-3.5 py-3">
         {summaryQuery.isError && (
@@ -327,6 +333,34 @@ export function TrayPanel() {
           </div>
         )}
 
+        {tab === 'stats' && (
+          <div className="space-y-3">
+            <section className="rounded-xl border border-[#e4e7ec] bg-white p-3.5 shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-bold text-[#14283d]">提交趋势（12 小时）</p>
+                <span className="text-[11px] text-slate-400">
+                  峰值 {Math.max(...(summary?.hourly ?? [{ count: 0 }]).map((h) => h.count), 0)} 次/时
+                </span>
+              </div>
+              <HourlyBars hourly={summary?.hourly ?? []} />
+            </section>
+            <div className="grid grid-cols-2 gap-2">
+              <div className="rounded-xl border border-[#e4e7ec] bg-white p-3">
+                <b className="block font-mono text-xl font-extrabold text-[#14283d]">
+                  {(summary?.hourly ?? []).reduce((acc, h) => acc + h.count, 0)}
+                </b>
+                <span className="text-[11px] text-slate-500">12 小时内提交</span>
+              </div>
+              <div className="rounded-xl border border-[#e4e7ec] bg-white p-3">
+                <b className="block font-mono text-xl font-extrabold text-[#14283d]">
+                  {(summary?.recent ?? []).filter((e) => e.verdict === 'accepted').length}
+                </b>
+                <span className="text-[11px] text-slate-500">最近通过（前 20 条内）</span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {tab === 'feed' && (
           <div className="rounded-xl border border-[#e4e7ec] bg-white shadow-[0_1px_2px_rgba(16,24,40,0.04)]">
             {(summary?.recent ?? []).length === 0 ? (
@@ -377,8 +411,55 @@ export function TrayPanel() {
         )}
       </main>
 
-      <PanelFooter onQuit={quit} quitError={quitError} authed={authed} />
+      <PanelFooter onQuit={quit} quitError={quitError} authed={authed} onOpenMain={onOpenMain} onCommand={command} />
     </div>
+  )
+}
+
+function HourlyBars({ hourly }: { hourly: Array<{ label: string; count: number }> }) {
+  const data = hourly.length ? hourly : Array.from({ length: 12 }, () => ({ label: '', count: 0 }))
+  const max = Math.max(1, ...data.map((d) => d.count))
+  const W = 344
+  const H = 120
+  const gap = 6
+  const bw = (W - gap * (data.length - 1)) / data.length
+  return (
+    <svg
+      role="img"
+      aria-label="最近 12 小时每小时提交量柱状图"
+      viewBox={`0 0 ${W} ${H + 16}`}
+      className="w-full"
+    >
+      {data.map((d, i) => {
+        const h = Math.round((d.count / max) * (H - 18))
+        const x = i * (bw + gap)
+        const y = H - h
+        return (
+          <g key={i}>
+            <rect
+              x={x}
+              y={y}
+              width={bw}
+              height={Math.max(h, 2)}
+              rx={3}
+              className={d.count > 0 ? 'fill-[#405dff]' : 'fill-slate-200'}
+            >
+              <title>{`${d.label}：${d.count} 次提交`}</title>
+            </rect>
+            {d.count > 0 && d.count === max && (
+              <text x={x + bw / 2} y={y - 3} textAnchor="middle" className="fill-[#14283d] text-[9px] font-bold">
+                {d.count}
+              </text>
+            )}
+            {(i % 3 === 0 || i === data.length - 1) && (
+              <text x={x + bw / 2} y={H + 12} textAnchor="middle" className="fill-slate-400 text-[9px]">
+                {d.label}
+              </text>
+            )}
+          </g>
+        )
+      })}
+    </svg>
   )
 }
 
@@ -386,16 +467,19 @@ function PanelHeader({
   tab,
   onTab,
   onRefresh,
+  onOpenMain,
   summary,
 }: {
   tab: PanelTab
   onTab: (t: PanelTab) => void
   onRefresh: () => void
+  onOpenMain: () => void
   summary?: TraySummary
 }) {
   const tabs: Array<{ key: PanelTab; label: string; icon: typeof Radio }> = [
     { key: 'exam', label: '监考', icon: Radio },
-    { key: 'feed', label: '动态', icon: Bell },
+    { key: 'stats', label: '统计', icon: BarChart3 },
+    { key: 'feed', label: '日志', icon: Bell },
     { key: 'service', label: '服务', icon: Settings },
   ]
   return (
@@ -424,10 +508,10 @@ function PanelHeader({
           <button
             type="button"
             aria-label="打开教师台"
-            onClick={() => window.open('/teacher', '_blank')}
+            onClick={() => void onOpenMain()}
             className="rounded p-1 transition hover:bg-slate-100 hover:text-slate-600"
           >
-            <BarChart3 className="h-3.5 w-3.5" aria-hidden="true" />
+            <Settings className="h-3.5 w-3.5" aria-hidden="true" />
           </button>
         </span>
       </div>
@@ -466,32 +550,34 @@ function PanelFooter({
   onQuit,
   quitError,
   authed,
+  onOpenMain,
+  onCommand,
 }: {
   onQuit: () => void
   quitError: string
   authed: boolean
+  onOpenMain: () => void
+  onCommand: (action: Parameters<typeof api.uiCommand>[0], fallbackUrl?: string) => Promise<void>
 }) {
   return (
     <footer className="shrink-0 border-t border-[#e4e7ec] bg-white px-3.5 py-2.5">
       {quitError && <p className="mb-1 text-[11px] font-semibold text-rose-600">{quitError}</p>}
       <div className="flex items-center justify-between text-xs">
-        <a
-          href="/app"
-          target="_blank"
-          rel="noreferrer"
+        <button
+          type="button"
+          onClick={() => void onCommand('open-student', '/app')}
           className="font-semibold text-slate-500 transition hover:text-[#14283d]"
         >
           学生大厅
-        </a>
+        </button>
         <span className="flex items-center gap-3">
-          <a
-            href="/teacher"
-            target="_blank"
-            rel="noreferrer"
+          <button
+            type="button"
+            onClick={onOpenMain}
             className="font-bold text-[#405dff] transition hover:text-[#2c43cc]"
           >
             打开教师台
-          </a>
+          </button>
           {authed && (
             <button
               type="button"

@@ -340,7 +340,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch v.Action {
-		case "show-main", "open-join", "open-bigscreen":
+		case "show-main", "open-join", "open-bigscreen", "open-student":
 		default:
 			h.err(w, r, 400, fmt.Errorf("unknown ui action %q", v.Action))
 			return

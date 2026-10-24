@@ -1270,7 +1270,58 @@ export function TeacherConsole() {
   }, [users])
 
   return (
-    <div className="space-y-6">
+    <div className="flex min-h-screen items-stretch bg-[#f7f6f1]">
+      {/* 桌面壳：左侧导航栏（magpie 式布局） */}
+      <aside className="sticky top-0 flex h-screen w-52 shrink-0 flex-col border-r border-[#e4e7ec] bg-white">
+        <div className="flex items-center gap-2 px-4 pb-3 pt-5">
+          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#14283d] text-sm font-black text-white">F</span>
+          <div>
+            <p className="text-sm font-extrabold leading-4 text-[#14283d]">Forge</p>
+            <p className="text-[10px] font-semibold text-slate-400">教师工作台</p>
+          </div>
+        </div>
+        <nav
+          role="tablist"
+          aria-label="教师工作台分区"
+          aria-orientation="vertical"
+          className="scrollbar-slim flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-2"
+        >
+          {TAB_ITEMS.map(({ key, label, icon: Icon }, index) => {
+            const selected = activeTab === key
+            return (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                id={`teacher-tab-${key}`}
+                aria-selected={selected}
+                aria-controls={`teacher-panel-${key}`}
+                tabIndex={selected ? 0 : -1}
+                onClick={() => setActiveTab(key)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
+                className={
+                  selected
+                    ? 'flex h-9 items-center gap-2 rounded-lg bg-[#14283d] px-3 text-xs font-bold text-white'
+                    : 'flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
+                }
+              >
+                <Icon className={selected ? 'h-4 w-4 text-forge-300' : 'h-4 w-4'} />
+                {label}
+              </button>
+            )
+          })}
+        </nav>
+        <div className="border-t border-[#e4e7ec] px-4 py-3 text-[10px] leading-4 text-slate-400">
+          <p className="flex items-center gap-1.5">
+            <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
+            服务 127.0.0.1:8080
+          </p>
+          <p className="mt-0.5">本地优先 · 数据不出机房</p>
+        </div>
+      </aside>
+
+      {/* 主内容列 */}
+      <div className="scrollbar-slim min-w-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
       <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e4e7ec] bg-[#fffefa] px-5 py-6 shadow-[0_20px_50px_-36px_rgba(20,40,61,0.35)] sm:px-7">
         <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 forge-grid opacity-40" />
         <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
@@ -1578,36 +1629,6 @@ export function TeacherConsole() {
         </div>
       </Dialog>
 
-      <nav
-        role="tablist"
-        aria-label="教师工作台分区"
-        className="scrollbar-slim flex gap-1 overflow-x-auto rounded-2xl border border-[#e4e7ec] bg-white/75 p-1.5 shadow-[0_1px_2px_rgba(16,24,40,0.03)]"
-      >
-        {TAB_ITEMS.map(({ key, label, icon: Icon }, index) => {
-          const selected = activeTab === key
-          return (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              id={`teacher-tab-${key}`}
-              aria-selected={selected}
-              aria-controls={`teacher-panel-${key}`}
-              tabIndex={selected ? 0 : -1}
-              onClick={() => setActiveTab(key)}
-              onKeyDown={(event) => handleTabKeyDown(event, index)}
-              className={
-                selected
-                  ? 'flex h-10 shrink-0 items-center gap-2 rounded-xl bg-[#14283d] px-4 text-xs font-bold text-white shadow-[0_8px_20px_-12px_rgba(20,40,61,0.9)]'
-                  : 'flex h-10 shrink-0 items-center gap-2 rounded-xl px-4 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
-              }
-            >
-              <Icon className={selected ? 'h-4 w-4 text-forge-200' : 'h-4 w-4'} />
-              {label}
-            </button>
-          )
-        })}
-      </nav>
 
       {/* TAB: 考务安全与机房调度 (IP强绑定/时间窗口/加时/广播/Zip) */}
       {activeTab === 'security' && currentContest && (
@@ -3982,6 +4003,7 @@ export function TeacherConsole() {
           </div>
         </div>
       </Dialog>
+      </div>
     </div>
   )
 }
