@@ -96,10 +96,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		panel.Hide()
 	})
 
-	raiseMain = func() { application.InvokeSync(func() { mainWin.Show(); mainWin.Focus() }) }
-
-	// 投屏窗口族：地址在创建期固定（SetURL 在 beta.24 上不可靠），
-	// 打开 = Show + Focus；关闭 = 隐藏（下次打开回到本职页面）。
+	// 投屏窗口族：地址在创建期固定，打开 = Show + Focus；关闭 = 隐藏。
 	joinWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "join", Title: "Forge · 学生扫码加入",
 		URL: urls.Join, Width: 440, Height: 700, Hidden: true,
@@ -132,26 +129,29 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 
 	// UI 指令（面板/教师台按钮 → /ui/command）：
 	// show-main 唤起主窗；投屏/预览类一律系统浏览器。
-	// showMain = 显示主窗并回到教师台。主窗内允许自由切换分区（magpie 单窗
-	// 语义），托盘/指令唤起时用 JS 导航回教师台——已在教师台则不刷新。
-	showMain := func() {
+	// openMain = magpie 的 ShowMain/openMain 语义（lightweight.go:261）：
+	// 窗口已存在 → SetURL 到目标视图（整页换过去）+ Show/Focus。
+	// 注意不要在外层再包 InvokeSync——SetURL 内部自带同步，嵌套会偶发丢失
+	// （与启动显示 bug 同根因）。命令分发在 goroutine 里，各窗口方法自行同步。
+	openMain := func(url string) {
+		if url != "" {
+			mainWin.SetURL(url)
+		}
 		mainWin.Show()
 		mainWin.Focus()
-		mainWin.ExecJS(`if (!(location.pathname + '/').includes('/teacher')) location.replace('/teacher')`)
 	}
+	raiseMain = func() { application.InvokeSync(func() { openMain(urls.Teacher) }) }
 	SetUICommandHandler(func(action string) {
-		application.InvokeSync(func() {
-			switch action {
-			case "show-main":
-				showMain()
-			case "open-join":
-				reveal(joinWin)
-			case "open-bigscreen":
-				reveal(bigWin)
-			case "open-student":
-				reveal(studentWin)
-			}
-		})
+		switch action {
+		case "show-main":
+			openMain(urls.Teacher)
+		case "open-join":
+			reveal(joinWin)
+		case "open-bigscreen":
+			reveal(bigWin)
+		case "open-student":
+			reveal(studentWin)
+		}
 	})
 
 	// 托盘菜单：主窗 + 投屏/预览 + 退出。
@@ -162,7 +162,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	tray.SetTooltip("Forge 竞赛工作台")
 	menu := app.NewMenu()
 	menu.Add("打开教师台").OnClick(func(*application.Context) {
-		application.InvokeSync(showMain)
+		application.InvokeSync(func() { openMain(urls.Teacher) })
 	})
 	menu.Add("学生扫码加入（投屏）").OnClick(func(*application.Context) {
 		application.InvokeSync(func() { reveal(joinWin) })
