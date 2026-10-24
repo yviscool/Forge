@@ -10,11 +10,12 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// RunShell Wails 原生外壳（-tags "desktop wails"），与 magpie 相同的双面模型：
-//   - 主窗口 = 整个应用（教师台，含监考大屏 Tab）。唯一的任务栏条目。
-//   - 托盘面板 = 锚定在图标旁的速览小窗（不进任务栏，失焦即收）。
-//   - 面向「别人」的页面（学生扫码投屏、监考大屏投影、学生端预览）
-//     一律走系统浏览器——它们本来就是要投到别的屏幕/设备上的。
+// RunShell Wails 原生外壳（-tags "desktop wails"），magpie 质感的窗口族：
+//   - 主窗口 = 整个应用（教师台，含监考大屏 Tab），唯一常驻任务栏条目；
+//   - 托盘面板 = 锚定在图标旁的速览小窗（不进任务栏，失焦即收）；
+//   - 投屏窗口（扫码加入 / 监考大屏 / 学生预览）= 原生 WebView 窗口：
+//     无地址栏、无浏览器外壳、Forge 图标——绝不落入系统浏览器；
+//     按需弹出、常驻任务栏（拖去投影仪需要），关闭即隐藏。
 //   - 关闭主窗口 = 隐藏到托盘；退出走托盘菜单或 /shutdown API；单实例。
 func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	icon, err := trayIcon()
@@ -81,13 +82,36 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		panel.Hide()
 	})
 
-	openExternal := func(url string) {
-		if hooks.Browser == nil || url == "" {
-			return
-		}
-		if err := hooks.Browser.Open(url); err != nil {
-			log.Warn("open external surface failed", "url", url, "err", err)
-		}
+	// 投屏窗口族：地址在创建期固定（SetURL 在 beta.24 上不可靠），
+	// 打开 = Show + Focus；关闭 = 隐藏（下次打开回到本职页面）。
+	joinWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name: "join", Title: "Forge · 学生扫码加入",
+		URL: urls.Join, Width: 440, Height: 700, Hidden: true,
+	})
+	joinWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		joinWin.Hide()
+	})
+	bigWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name: "bigscreen", Title: "Forge · 监考大屏",
+		URL: urls.BigScreen, Width: 1280, Height: 800, Hidden: true,
+	})
+	bigWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		bigWin.Hide()
+	})
+	studentWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Name: "student", Title: "Forge · 学生大厅（预览）",
+		URL: urls.Student, Width: 1100, Height: 760, Hidden: true,
+	})
+	studentWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		e.Cancel()
+		studentWin.Hide()
+	})
+
+	reveal := func(win *application.WebviewWindow) {
+		win.Show()
+		win.Focus()
 	}
 
 	// UI 指令（面板/教师台按钮 → /ui/command）：
@@ -96,14 +120,13 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		application.InvokeSync(func() {
 			switch action {
 			case "show-main":
-				mainWin.Show()
-				mainWin.Focus()
+				reveal(mainWin)
 			case "open-join":
-				openExternal(urls.Join)
+				reveal(joinWin)
 			case "open-bigscreen":
-				openExternal(urls.BigScreen)
+				reveal(bigWin)
 			case "open-student":
-				openExternal(urls.Student)
+				reveal(studentWin)
 			}
 		})
 	})
@@ -122,13 +145,13 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		})
 	})
 	menu.Add("学生扫码加入（投屏）").OnClick(func(*application.Context) {
-		openExternal(urls.Join)
+		application.InvokeSync(func() { reveal(joinWin) })
 	})
 	menu.Add("监考大屏（投影）").OnClick(func(*application.Context) {
-		openExternal(urls.BigScreen)
+		application.InvokeSync(func() { reveal(bigWin) })
 	})
 	menu.Add("学生大厅（预览）").OnClick(func(*application.Context) {
-		openExternal(urls.Student)
+		application.InvokeSync(func() { reveal(studentWin) })
 	})
 	menu.AddSeparator()
 	versionItem := menu.Add("Forge · 服务运行中")

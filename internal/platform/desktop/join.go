@@ -113,6 +113,7 @@ func joinHTML(listItems, best, qrHTML string) string {
     <p class="sub">手机扫码，或在同一局域网的电脑浏览器打开下方地址，登录后即可作答。</p>
     ` + qrHTML + `
     <ul>` + listItems + `</ul>
+    <p class="hint">在投屏窗口中请直接展示二维码或口头念出地址；链接为 LAN 直达地址。</p>
     <p class="hint">当前展示首选地址：` + best + `（教师机如更换网络请刷新本页）</p>
   </div>
 </body>
