@@ -23,9 +23,42 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('forge:unauthorized', onUnauthorized)
   }, [logout, queryClient])
 
+  // 桌面壳一次性登录令牌（?dt=）必须与会话查询串行：先换取会话再查 /auth/me。
+  // 早期版本把交换放在独立 effect 里，/auth/me 的 401 先到导致页面先跳去
+  // 登录页，令牌兑换完成后也不回头——主窗因此停在登录页。
   const sessionQuery = useQuery({
     queryKey: ['auth', 'me'],
-    queryFn: api.me,
+    queryFn: async () => {
+      const params = new URLSearchParams(window.location.search)
+      const token = params.get('dt')
+      if (token) {
+        params.delete('dt')
+        const rest = params.toString()
+        window.history.replaceState(
+          {},
+          '',
+          window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash
+        )
+        try {
+          const res = await fetch('/api/v1/auth/desktop-exchange', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ token }),
+          })
+          if (res.ok) {
+            // 桌面壳主窗标记：AppShell 跨区导航改走原生窗口指令。
+            try {
+              localStorage.setItem('forge_desktop', '1')
+            } catch {
+              /* 隐私模式下忽略 */
+            }
+          }
+        } catch {
+          // 令牌失效（60s 窗口错过/重放）时按常规匿名流程走。
+        }
+      }
+      return api.me()
+    },
     enabled: authStatus === 'idle' || authStatus === 'checking',
     retry: false,
     staleTime: 5 * 60 * 1000,
@@ -36,39 +69,6 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
     if (authStatus === 'idle') setAuthStatus('checking')
   }, [authStatus, setAuthStatus])
 
-  // 桌面壳一次性登录令牌：主窗以 ?dt=<token> 打开时自动换取会话
-  // （令牌 60 秒单次有效，仅本机 webview 持有），然后清掉参数继续常规引导。
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search)
-    const token = params.get('dt')
-    if (!token) return
-    params.delete('dt')
-    const rest = params.toString()
-    window.history.replaceState(
-      {},
-      '',
-      window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash
-    )
-    void fetch('/api/v1/auth/desktop-exchange', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token }),
-    })
-      .then((res) => {
-        // 令牌只在桌面壳主窗出现：标记桌面模式，AppShell 的跨区导航
-        // 据此改走原生窗口指令，主窗不被导航走。
-        if (res.ok) {
-          try {
-            localStorage.setItem('forge_desktop', '1')
-          } catch {
-            /* 隐私模式下忽略 */
-          }
-        }
-        queryClient.resetQueries({ queryKey: ['auth'] })
-        setAuthStatus('checking')
-      })
-      .catch(() => undefined)
-  }, [queryClient, setAuthStatus])
 
   useEffect(() => {
     const user = sessionQuery.data

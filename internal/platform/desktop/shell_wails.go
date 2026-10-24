@@ -5,6 +5,7 @@ package desktop
 import (
 	"log/slog"
 	"path/filepath"
+	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
@@ -27,6 +28,9 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	// WebView2 用户数据目录放在 data/ 下：便携部署不在 %APPDATA% 留垃圾
 	// （magpie appdir.WebView 同理）。
 	profileDir := filepath.Join(".", "data", "webview2")
+	// 二次双击 = 唤起主窗（magpie 行为）。回调在 Options 里注册、
+	// 窗口创建后赋值——通知只在 app.Run() 之后才可能到达，时序安全。
+	var raiseMain func()
 	app := application.New(application.Options{
 		Name:        "Forge",
 		Description: "Forge 竞赛工作台",
@@ -35,6 +39,9 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 			UniqueID: "forge.yviscool.app.desktop",
 			OnSecondInstanceLaunch: func(d application.SecondInstanceData) {
 				log.Info("second launch handed over to running instance", "args", d.Args)
+				if raiseMain != nil {
+					raiseMain()
+				}
 			},
 		},
 		Windows: application.WindowsOptions{
@@ -65,6 +72,14 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		e.Cancel()
 		mainWin.Hide()
 	})
+	// 启动显示用 magpie 的 Windows 信号：WebView 首次导航完成后再 Show——
+	// 创建期/通用事件的显示时机在 beta.24 上不稳定（观察到偶发不显示）。
+	mainShown := &sync.Once{}
+	mainWin.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) {
+		mainShown.Do(func() {
+			application.InvokeSync(func() { mainWin.Show() })
+		})
+	})
 
 	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收、
 	// 不进任务栏（WS_EX_TOOLWINDOW——避免出现第二个任务栏条目）。
@@ -81,6 +96,13 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		e.Cancel()
 		panel.Hide()
 	})
+
+	raiseMain = func() {
+		application.InvokeSync(func() {
+			mainWin.Show()
+			mainWin.Focus()
+		})
+	}
 
 	// 投屏窗口族：地址在创建期固定（SetURL 在 beta.24 上不可靠），
 	// 打开 = Show + Focus；关闭 = 隐藏（下次打开回到本职页面）。
@@ -131,7 +153,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		})
 	})
 
-	// 托盘菜单：主窗 + 投屏/预览（浏览器）+ 退出。
+	// 托盘菜单：主窗 + 投屏/预览 + 退出。
 	tray := app.SystemTray.New()
 	if len(icon) > 0 {
 		tray.SetIcon(icon)
