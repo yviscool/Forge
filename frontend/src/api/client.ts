@@ -213,8 +213,6 @@ export interface TraySummary {
   hourly?: TrayHourCount[]
 }
 
-export type UICommand = 'show-main' | 'open-join' | 'open-bigscreen' | 'open-student'
-
 export interface CSPTicketAssignment {
   user: User
   ticket: string
@@ -689,11 +687,6 @@ export const api = {
       body: JSON.stringify({ code, language, source }),
     }),
   traySummary: () => request<TraySummary>('/tray-summary'),
-  uiCommand: (action: UICommand) =>
-    request<{ ok: boolean }>('/ui/command', {
-      method: 'POST',
-      body: JSON.stringify({ action }),
-    }),
   shutdownServer: () => request<{ stopping: boolean }>('/shutdown', { method: 'POST' }),
   monitor: (cid: string) =>
     request<MonitorSnapshot>(`/contests/${encoded(cid)}/monitor`),

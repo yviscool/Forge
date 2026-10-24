@@ -5,8 +5,6 @@ package desktop
 import (
 	"fmt"
 	"log/slog"
-	"net/http"
-	"net/http/httputil"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -43,15 +41,6 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		}
 	}
 
-	// 资产服务器代理：只服务 Wails 自身的运行时资源。业务页面一律直接加载
-	// 真实 http 源（见下方 abs()），因为走资产代理会丢 POST body。
-	backend, _ := url.Parse("http://127.0.0.1:8080")
-	proxy := httputil.NewSingleHostReverseProxy(backend)
-	proxy.FlushInterval = -1 // SSE 实时流
-	assetHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		proxy.ServeHTTP(w, r)
-	})
-
 	// WebView2 用户数据目录放在 data/ 下：便携部署不在 %APPDATA% 留垃圾
 	// （magpie appdir.WebView 同理）。
 	profileDir := filepath.Join(".", "data", "webview2")
@@ -69,9 +58,6 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 					raiseMain()
 				}
 			},
-		},
-		Assets: application.AssetOptions{
-			Handler: assetHandler,
 		},
 		Windows: application.WindowsOptions{
 			DisableQuitOnLastWindowClosed: true,

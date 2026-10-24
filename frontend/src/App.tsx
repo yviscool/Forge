@@ -7,10 +7,9 @@ import { RequireEducator, RequireSession } from './app/ProtectedRoute'
 import { ToastProvider } from './components/ui/toast'
 import { LoadingBlock } from './components/ui/empty-state'
 
+// 托盘速览面板不在这里：它是 internal/platform/desktop/tray_panel.go 里的
+// 独立静态页面（/tray），由桌面外壳直接加载，不套站点外壳。
 const LoginPage = lazy(() => import('./pages/LoginPage').then((module) => ({ default: module.LoginPage })))
-const TrayPanel = lazy(() =>
-  import('./pages/TrayPanel').then((module) => ({ default: module.TrayPanel }))
-)
 const StudentLobby = lazy(() =>
   import('./views/StudentLobby').then((module) => ({ default: module.StudentLobby }))
 )
@@ -25,12 +24,6 @@ export function App() {
   const location = useLocation()
   return (
     <ToastProvider>
-      {/* 托盘速览面板：自带外框与登录，不套站点外壳 */}
-      {location.pathname === '/panel' ? (
-        <Suspense fallback={<LoadingBlock label="正在载入监考面板..." />}>
-          <TrayPanel />
-        </Suspense>
-      ) : (
       <SessionGate>
         <AppShell>
           <ErrorBoundary key={location.pathname}>
@@ -67,7 +60,6 @@ export function App() {
           </ErrorBoundary>
         </AppShell>
       </SessionGate>
-      )}
     </ToastProvider>
   )
 }
