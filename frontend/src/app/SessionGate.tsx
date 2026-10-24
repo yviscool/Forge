@@ -84,6 +84,7 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
       username: user.username,
       name: user.name,
       role: user.role,
+      examTicket: user.examTicket,
     })
   }, [authStatus, queryClient, sessionQuery.data, setSession])
 

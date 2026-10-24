@@ -7,6 +7,8 @@ export interface UserSession {
   username: string
   name: string
   role: string
+  /** 准考证号（如 HA-J00001）：考场桌面主目录名与考场身份展示用；未发号则缺省。 */
+  examTicket?: string
 }
 
 export interface BroadcastAlert {

@@ -74,6 +74,7 @@ export function LoginPage() {
         username: me.username,
         name: me.name,
         role: me.role,
+        examTicket: me.examTicket,
       })
       navigate(destination, { replace: true })
     } catch (cause) {

@@ -25,11 +25,12 @@ function fileWithPath(name: string, path: string, content = 'int main(){}'): Fil
   return file
 }
 
-function problem(id: string, code: string, title = code): Problem {
+function problem(id: string, code: string, title = code, slug?: string): Problem {
   return {
     id,
     contestId: 'contest-1',
     code,
+    slug,
     title,
     statement: '',
     input: '',
@@ -133,5 +134,26 @@ describe('submission file helpers', () => {
     expect(matched[1].problem?.id).toBe('p-a')
     expect(matched[2].problem).toBeNull()
     expect(matched.every((entry) => entry.language === 'cpp')).toBe(true)
+  })
+
+  it('matches CSP slug directories and slug-named source files', () => {
+    // 真实考点按 <准考证号>/<英文名>/<英文名>.cpp 组织源码：
+    // 目录段和文件名都要能按题面英文名认出题目。
+    const problems = [
+      problem('p-poker', 'A', '扑克牌', 'poker'),
+      problem('p-struct', 'B', '结构体', 'struct'),
+    ]
+    const matched = matchFolderToProblems(
+      selection([
+        fileWithPath('poker.cpp', 'exam/HA-J00001/poker/poker.cpp'),
+        fileWithPath('struct.cpp', 'exam/HA-J00001/struct/struct.cpp'),
+        fileWithPath('miss.cpp', 'exam/HA-J00001/typo/typo.cpp'),
+      ]),
+      problems
+    )
+
+    expect(matched[0].problem?.id).toBe('p-poker')
+    expect(matched[1].problem?.id).toBe('p-struct')
+    expect(matched[2].problem).toBeNull()
   })
 })

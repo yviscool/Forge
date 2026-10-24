@@ -79,7 +79,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   // Only the signed grant reflected by the server is authoritative. A stale
   // localStorage flag must not hide the unlock prompt after a server restart.
   const isUnlocked = !contest.zipProtected || Boolean(contest.zipUnlocked)
-  const currentUsername = session?.username || 'student'
+  // 真实考点的主目录名是准考证号（HA-J00001）；未发号时退回登录名。
+  const homeName = session?.examTicket?.trim() || session?.username || 'student'
+  // CSP 复赛要求按「准考证号/题面英文名/英文名.cpp」组织源码：
+  // 模拟桌面的目录与文件名跟收题包同一口径，slug 缺省时退回题号小写。
+  const taskDirOf = (problem: Problem | null | undefined): string => {
+    if (!problem) return 'a'
+    const slug = problem.slug?.trim()
+    return slug || problem.code.toLowerCase()
+  }
 
   const { serverTimeOffset } = useStore()
 
@@ -208,21 +216,20 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   }
 
   // File Manager navigation state
-  const currentTaskDir = activeProblem?.code.toLowerCase() || 'a'
-  const [currentPath, setCurrentPath] = useState<string[]>(['home', currentUsername, currentTaskDir])
+  const currentTaskDir = taskDirOf(activeProblem)
+  const [currentPath, setCurrentPath] = useState<string[]>(['home', homeName, currentTaskDir])
 
   // Sync path when active problem changes
   useEffect(() => {
     if (activeProblem) {
-      const dir = activeProblem.code.toLowerCase()
-      setCurrentPath(['home', currentUsername, dir])
+      setCurrentPath(['home', homeName, taskDirOf(activeProblem)])
     }
-  }, [activeProblem, currentUsername])
+  }, [activeProblem, homeName])
 
   // Interactive Terminal state
   const [terminalLogs, setTerminalLogs] = useState<CommandLog[]>([
     { type: 'output', text: 'Welcome to Ubuntu 18.04.6 LTS (Bionic Beaver) - CCF NOI Linux 2.0 Emulator' },
-    { type: 'output', text: `Logged in as noilinux@bionic on pts/0 (student workspace for ${currentUsername})` },
+    { type: 'output', text: `Logged in as noilinux@bionic on pts/0 (student workspace for ${homeName})` },
     { type: 'output', text: 'Type "help" to see available exam room commands (g++, ls, cat, cd, etc.).' },
   ])
   const [terminalInput, setTerminalInput] = useState('')
@@ -270,7 +277,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       case 'pwd':
         setTerminalLogs((prev) => [
           ...prev,
-          { type: 'output', text: `/home/${currentUsername}/${currentPath.slice(2).join('/') || ''}` },
+          { type: 'output', text: `/home/${homeName}/${currentPath.slice(2).join('/') || ''}` },
         ])
         break
 
@@ -303,18 +310,18 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
       case 'cd': {
         const target = parts[1]
-        if (!target || target === '~' || target === `/home/${currentUsername}`) {
-          setCurrentPath(['home', currentUsername])
+        if (!target || target === '~' || target === `/home/${homeName}`) {
+          setCurrentPath(['home', homeName])
           setTerminalLogs((prev) => [...prev, { type: 'output', text: '' }])
         } else if (target === '..') {
           if (currentPath.length > 2) {
             setCurrentPath((prev) => prev.slice(0, prev.length - 1))
           }
         } else {
-          const matchProb = problems.find((p) => p.code.toLowerCase() === target.toLowerCase())
+          const matchProb = problems.find((p) => taskDirOf(p) === target.toLowerCase())
           if (matchProb) {
             setActiveProblem(matchProb)
-            setCurrentPath(['home', currentUsername, matchProb.code.toLowerCase()])
+            setCurrentPath(['home', homeName, taskDirOf(matchProb)])
           } else {
             setTerminalLogs((prev) => [...prev, { type: 'error', text: `cd: no such file or directory: ${target}` }])
           }
@@ -434,17 +441,17 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const runFileCheck = () => {
     if (!activeProblem) return []
     const results = []
-    const expectedDir = activeProblem.code.toLowerCase()
+    const expectedDir = taskDirOf(activeProblem)
     const expectedFile = `${expectedDir}.cpp`
 
     // 1. Directory Structure Check
     const inCorrectDir = currentPath[currentPath.length - 1] === expectedDir
     results.push({
-      item: '模拟工作目录与题目代号',
+      item: '模拟工作目录与题面英文名',
       status: inCorrectDir ? 'pass' : 'fail',
       msg: inCorrectDir
-        ? `界面路径匹配: ~/${currentUsername}/${expectedDir}/${expectedFile}（仅为模拟路径）`
-        : `当前模拟路径为 ~/${currentPath.join('/')}，题目代号对应 ~/${currentUsername}/${expectedDir}/。`,
+        ? `界面路径匹配: ~/${homeName}/${expectedDir}/${expectedFile}（与收题包同名，仅为模拟路径）`
+        : `当前模拟路径为 ~/${currentPath.join('/')}，本题目录对应 ~/${homeName}/${expectedDir}/。`,
     })
 
     // 2. 0-byte source check
@@ -551,7 +558,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             <Wifi className="w-3.5 h-3.5 text-slate-300" />
             <Volume2 className="w-3.5 h-3.5 text-slate-300" />
             <Power className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-[11px] text-slate-300 ml-1 font-mono">{currentUsername}</span>
+            <span className="text-[11px] text-slate-300 ml-1 font-mono">{homeName}</span>
           </div>
 
           <Button
@@ -668,7 +675,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 <Home className="w-6 h-6" />
               </div>
               <span className="text-[11px] font-medium text-slate-100 group-hover:underline drop-shadow-sm line-clamp-1">
-                {currentUsername}
+                {homeName}
               </span>
             </div>
 
@@ -740,7 +747,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 <div className="flex items-center gap-2">
                   <Folder className="w-4 h-4 text-orange-600" />
                   <span className="text-xs font-bold text-slate-700">
-                    Files - /home/{currentUsername}/{currentPath.slice(2).join('/')}
+                    Files - /home/{homeName}/{currentPath.slice(2).join('/')}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -775,7 +782,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 <div className="flex items-center gap-1 font-mono text-slate-600">
                   <Home className="w-3.5 h-3.5 text-blue-600" />
                   <span>/</span>
-                  <span className="font-semibold text-slate-800">{currentUsername}</span>
+                  <span className="font-semibold text-slate-800">{homeName}</span>
                   <span>/</span>
                   <span className="font-bold text-blue-600">{currentTaskDir}</span>
                 </div>
@@ -795,14 +802,14 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               <div className="flex-1 p-4 grid grid-cols-4 gap-4 overflow-y-auto bg-white">
                 {/* Task Subfolders */}
                 {problems.map((p) => {
-                  const pdir = p.code.toLowerCase()
+                  const pdir = taskDirOf(p)
                   const isCur = pdir === currentTaskDir
                   return (
                     <div
                       key={p.id}
                       onDoubleClick={() => {
                         setActiveProblem(p)
-                        setCurrentPath(['home', currentUsername, pdir])
+                        setCurrentPath(['home', homeName, pdir])
                       }}
                       className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
                         isCur
@@ -855,7 +862,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 <div className="flex items-center gap-2">
                   <FileCode className="w-4 h-4 text-emerald-400" />
                   <span className="text-xs font-bold tracking-wide">
-                    Gedit - {currentTaskDir}.cpp (~/{currentUsername}/{currentTaskDir}/)
+                    Gedit - {currentTaskDir}.cpp (~/{homeName}/{currentTaskDir}/)
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -900,7 +907,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                             : 'text-slate-600 hover:bg-slate-200'
                         }`}
                       >
-                        <span className="font-mono">{p.code.toLowerCase()}.cpp</span>
+                        <span className="font-mono">{taskDirOf(p)}.cpp</span>
                       </button>
                     )
                   })}
@@ -991,7 +998,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 <div className="flex items-center gap-2">
                   <TerminalIcon className="w-3.5 h-3.5 text-emerald-400" />
                   <span className="text-xs font-bold text-slate-200">
-                    noilinux@bionic: ~/home/{currentUsername}/{currentTaskDir}
+                    noilinux@bionic: ~/home/{homeName}/{currentTaskDir}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">
@@ -1106,7 +1113,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 <div className="flex items-center gap-2">
                   <FileText className="w-4 h-4 text-red-600" />
                   <span className="text-xs font-bold text-slate-800">
-                    Evince - {activeProblem.code}. {activeProblem.title}
+                    Evince - {currentTaskDir}.pdf · {activeProblem.code}. {activeProblem.title}
                   </span>
                 </div>
                 <div className="flex items-center gap-1.5">

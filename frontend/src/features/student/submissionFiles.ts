@@ -218,6 +218,12 @@ export function matchFolderToProblems(
   problems.forEach((problem) => {
     byCode.set(problem.code.trim().toLowerCase(), problem)
     byCode.set(stem(problem.code), problem)
+    // CSP 收题口径：目录与源文件名用题面英文名（poker/poker.cpp），
+    // 学生按 <准考证号>/<英文名>/ 整理的真实文件夹要能按 slug 认出题目。
+    const slug = problem.slug?.trim().toLowerCase()
+    if (slug) {
+      byCode.set(slug, problem)
+    }
   })
 
   return selection.files.map((file) => {
