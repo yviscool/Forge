@@ -378,9 +378,6 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 
 	// /ui/command（教师 → 原生窗口指令；仅 Wails 外壳注册了执行器才有效）
 	if len(parts) == 2 && parts[0] == "ui" && parts[1] == "command" && r.Method == "POST" {
-		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
-			return
-		}
 		var v struct {
 			Action string `json:"action"`
 		}
@@ -393,6 +390,15 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		default:
 			h.err(w, r, 400, fmt.Errorf("unknown ui action %q", v.Action))
 			return
+		}
+		// 例外：本机回环来的 show-main 免会话。托盘面板在教师尚未登录时
+		// 也要能把主窗唤到前面去登录（否则面板里「打开教师台登录」是死路）；
+		// 主窗自身仍由登录页把关，且局域网来源不享受这个例外。
+		loopbackShowMain := v.Action == "show-main" && isLoopbackAddr(h.clientIP(r))
+		if !loopbackShowMain {
+			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+				return
+			}
 		}
 		if h.uiCommander == nil {
 			WriteError(w, r, http.StatusServiceUnavailable, "no_ui_commander",

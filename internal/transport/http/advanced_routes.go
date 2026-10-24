@@ -47,6 +47,13 @@ func (h *Server) clientIP(r *http.Request) string {
 	return strings.TrimSpace(r.RemoteAddr)
 }
 
+// isLoopbackAddr 判断 clientIP 的规范化结果是否为本机回环地址
+// （托盘面板等本机窗口用它换取「登录前也能唤出主窗」的例外）。
+func isLoopbackAddr(addr string) bool {
+	ip := net.ParseIP(strings.Trim(addr, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
 func canonicalIP(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

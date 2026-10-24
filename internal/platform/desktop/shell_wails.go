@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -42,9 +43,8 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		}
 	}
 
-	// magpie 架构关键：页面从 Wails 资产服务器加载（同源），业务请求经
-	// Handler 代理到 Forge HTTP 服务。webview 直接指向外部 http 源时，
-	// beta.24 的窗口管理（导航/尺寸/隐藏）会出现随机漂移——本轮实证结论。
+	// 资产服务器代理：只服务 Wails 自身的运行时资源。业务页面一律直接加载
+	// 真实 http 源（见下方 abs()），因为走资产代理会丢 POST body。
 	backend, _ := url.Parse("http://127.0.0.1:8080")
 	proxy := httputil.NewSingleHostReverseProxy(backend)
 	proxy.FlushInterval = -1 // SSE 实时流
@@ -85,17 +85,40 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		},
 	})
 
-	// 相对路径体系（经资产服务器同源加载）：
-	// 主窗=教师台（可带 dt 令牌）；面板/投屏窗各自固定路径。
-	mainPath := "/teacher"
-	if u, perr := url.Parse(urls.MainURL); perr == nil && u.RawQuery != "" {
-		mainPath += "?" + u.RawQuery // 保留 ?dt= 一次性登录令牌
+	// 页面加载策略（本轮实测结论，别再改回资产代理）：
+	// 所有窗口直接加载真实服务地址 http://127.0.0.1:8080 —— 与局域网学生
+	// 访问的是同一个进程、同一个源。三个必须的后果：
+	//   1) POST 请求体完整。走 Wails 资产服务器（同源代理）时 beta.24 会丢
+	//      body：dt 兑换会话与教师登录都返回 400 invalid json，主窗永远停在
+	//      登录页、也永远登不进去；
+	//   2) 主窗与托盘面板同源 → 面板能读到主窗用 ?dt= 换来的会话 cookie
+	//      （面板若单独是别的源，就会一直显示「尚未登录教师账号」）；
+	//   3) SSE 直连，不需要反向代理。
+	// 资产代理只留给 Wails 自身运行时资源，不再承载业务页面。
+	origin, perr := url.Parse(urls.Teacher)
+	if perr != nil || origin.Scheme == "" || origin.Host == "" {
+		origin, _ = url.Parse("http://127.0.0.1:8080")
 	}
-	// 主窗口：教师台。加载本机 HTTP 服务（非资产协议），SSE/Cookie 与学生端同链路。
-	// 不设 Hidden：创建期即显示（beta.24 事件驱动的显示时机不稳定，见下方兜底）。
+	abs := func(path string) string {
+		if path == "" {
+			return origin.Scheme + "://" + origin.Host
+		}
+		if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+			return path
+		}
+		return origin.Scheme + "://" + origin.Host + "/" + strings.TrimPrefix(path, "/")
+	}
+
+	// 主窗=教师台（可带 ?dt= 一次性登录令牌）；面板/投屏窗各自固定地址。
+	mainURL := urls.MainURL
+	if mainURL == "" {
+		mainURL = abs("/teacher")
+	}
+	// 主窗口：教师台。不设 Hidden：创建期即显示（beta.24 事件驱动的显示
+	// 时机不稳定，见下方兜底）。
 	mainWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "Forge 教师台",
-		URL:   mainPath,
+		URL:   mainURL,
 		Width: 1280, Height: 820, MinWidth: 960, MinHeight: 640,
 	})
 	// 关闭 = 隐藏到托盘；退出走托盘菜单或 /shutdown API（magpie lightweight.go 同款）。
@@ -114,11 +137,13 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		})
 	})
 
-	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收、
-	// 不进任务栏（WS_EX_TOOLWINDOW——避免出现第二个任务栏条目）。
+	// 托盘速览面板：React 面板形态，无边框、置顶、失焦即收、不进任务栏
+	// （WS_EX_TOOLWINDOW——避免出现第二个任务栏条目）。
+	// 与主窗同源（同一个 http 服务地址）→ 共享会话 cookie，登录后自动出数据。
+	// native=1 告诉面板：这是桌面外壳，动作走 /api/v1/ui/command 开原生窗口。
 	panel := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "panel", Title: "Forge 监考速览",
-		URL:   urls.Panel,
+		URL:   abs("/tray?native=1"),
 		Width: 400, Height: 720,
 		Hidden: true, Frameless: true, AlwaysOnTop: true,
 		DisableResize: true, HideOnEscape: true, HideOnFocusLost: true,
@@ -134,7 +159,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	// 投屏窗口族：地址在创建期固定，打开 = Show + Focus；关闭 = 隐藏。
 	joinWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "join", Title: "Forge · 学生扫码加入",
-		URL: "/join", Width: 440, Height: 700, Hidden: true,
+		URL: abs("/join"), Width: 440, Height: 700, Hidden: true,
 	})
 	joinWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[join]", time.Now().Format("15:04:05.000"))
@@ -143,7 +168,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	})
 	bigWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bigscreen", Title: "Forge · 监考大屏",
-		URL: "/teacher?tab=monitor", Width: 1280, Height: 800, Hidden: true,
+		URL: abs("/teacher?tab=monitor"), Width: 1280, Height: 800, Hidden: true,
 	})
 	bigWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[bigscreen]", time.Now().Format("15:04:05.000"))
@@ -152,7 +177,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	})
 	studentWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "student", Title: "Forge · 学生大厅（预览）",
-		URL: "/app", Width: 1100, Height: 760, Hidden: true,
+		URL: abs("/app"), Width: 1100, Height: 760, Hidden: true,
 	})
 	studentWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[student]", time.Now().Format("15:04:05.000"))
@@ -179,7 +204,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	openMain := func(url string) {
 		if url != "" {
 			showPending.Store(true)
-			mainWin.SetURL(url)
+			mainWin.SetURL(abs(url))
 			go func() {
 				time.Sleep(2500 * time.Millisecond)
 				if showPending.CompareAndSwap(true, false) {
@@ -259,6 +284,6 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		mainWin.Show()
 	}()
 
-	log.Info("wails shell starting", "teacher", mainPath, "windows", "main+panel", "origin", "asset-proxy")
+	log.Info("wails shell starting", "teacher", mainURL, "windows", "main+panel", "origin", abs("/"))
 	app.Run()
 }

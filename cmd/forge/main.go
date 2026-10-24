@@ -335,9 +335,9 @@ func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, 
 		StudentQR: firstLANURL(cfg.Addr),
 		LAN:       joinURLs,
 		Join:      desktop.LocalURL(cfg.Addr, "/join"),
-		// native=1：面板在桌面外壳内运行，所有「去」动作必须走 /ui/command
-		// 开原生窗口，禁止 target=_blank（否则 WebView2 会拉起 Edge）。
-		Panel:     desktop.LocalURL(cfg.Addr, "/tray?native=1"),
+		// 浏览器/旧托盘形态用；Wails 外壳里的面板走同源相对路径 /tray?native=1
+		// （见 internal/platform/desktop/shell_wails.go），以便共享主窗会话。
+		Panel:     desktop.LocalURL(cfg.Addr, "/tray"),
 		BigScreen: desktop.LocalURL(cfg.Addr, "/teacher?tab=monitor"),
 	}
 
