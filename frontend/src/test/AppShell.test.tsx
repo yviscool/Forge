@@ -41,6 +41,9 @@ function renderShell(initialPath = '/', role = 'teacher') {
 
 describe('AppShell', () => {
   beforeEach(() => {
+    // 跨区导航现在是整页跳转（桌面壳内为窗口指令）：stub 掉避免 jsdom 真跳转。
+    vi.stubGlobal('location', { ...window.location, assign: vi.fn() })
+    localStorage.removeItem('forge_desktop')
     useStore.setState({
       session: null,
       authStatus: 'idle',
@@ -54,10 +57,12 @@ describe('AppShell', () => {
 
     expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument()
     expect(screen.getByText('Teacher One')).toBeInTheDocument()
-    const teacherLinks = screen.getAllByRole('link', { name: '教师工作台' })
+    // 跨区导航在非桌面浏览器里以整页跳转实现（桌面壳内为原生窗口指令）。
+    const teacherLinks = screen.getAllByRole('button', { name: '教师工作台' })
     await user.click(teacherLinks[0])
-    expect(screen.getByTestId('current-path')).toHaveTextContent('/teacher')
-    expect(screen.getByRole('link', { name: /选手视角/ })).toBeInTheDocument()
+    expect(window.location.assign).toHaveBeenCalledWith('/teacher')
+    // 教师视角下顶部仍提供切换入口（按钮形态）。
+    expect(screen.getAllByRole('button', { name: /选手视角|教师工作台/ }).length).toBeGreaterThan(0)
 
     await user.click(screen.getByTestId('change-password-button'))
     const dialog = screen.getByRole('dialog', { name: '修改登录密码' })

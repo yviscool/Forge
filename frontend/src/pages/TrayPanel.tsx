@@ -141,6 +141,14 @@ function InlineLogin({ onDone }: { onDone: () => void }) {
 export function TrayPanel() {
   const queryClient = useQueryClient()
   const [tab, setTab] = useState<PanelTab>('exam')
+  // 面板本身就是桌面壳的一部分。
+  useEffect(() => {
+    try {
+      localStorage.setItem('forge_desktop', '1')
+    } catch {
+      /* ignore */
+    }
+  }, [])
   const [now, setNow] = useState(() => Date.now())
   const [quitting, setQuitting] = useState(false)
   const [quitError, setQuitError] = useState('')

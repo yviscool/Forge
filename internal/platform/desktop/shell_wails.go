@@ -10,12 +10,12 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
-// RunShell Wails 原生外壳（-tags "desktop wails"），与 magpie 同构：
-//   - 主窗口 = 教师台（WebView 指向本机 HTTP 服务，SSE/Cookie/LAN 零改动）；
-//   - 托盘左键单击 = 弹出锚定在图标旁的无边框速览面板（/app/panel），再点收起；
-//   - 关闭主窗口 = 隐藏到托盘（不退出），退出走托盘菜单或 /shutdown API；
-//   - 学生大厅 / 扫码页 / 监考大屏均为原生窗口，全程不经过浏览器；
-//   - 单实例：二次启动唤起已有实例。
+// RunShell Wails 原生外壳（-tags "desktop wails"），与 magpie 相同的双面模型：
+//   - 主窗口 = 整个应用（教师台，含监考大屏 Tab）。唯一的任务栏条目。
+//   - 托盘面板 = 锚定在图标旁的速览小窗（不进任务栏，失焦即收）。
+//   - 面向「别人」的页面（学生扫码投屏、监考大屏投影、学生端预览）
+//     一律走系统浏览器——它们本来就是要投到别的屏幕/设备上的。
+//   - 关闭主窗口 = 隐藏到托盘；退出走托盘菜单或 /shutdown API；单实例。
 func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	icon, err := trayIcon()
 	if err != nil {
@@ -23,7 +23,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		icon = nil
 	}
 
-	// WebView2 的用户数据目录放在 data/ 下：便携部署不在 %APPDATA% 留垃圾
+	// WebView2 用户数据目录放在 data/ 下：便携部署不在 %APPDATA% 留垃圾
 	// （magpie appdir.WebView 同理）。
 	profileDir := filepath.Join(".", "data", "webview2")
 	app := application.New(application.Options{
@@ -48,110 +48,89 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		},
 	})
 
-	// 主窗口：教师台。加载本机 HTTP 服务（而非资产协议），
-	// 保证 SSE、Cookie 与学生端走同一条真实链路。
 	mainURL := urls.MainURL
 	if mainURL == "" {
 		mainURL = urls.Teacher
 	}
+	// 主窗口：教师台。加载本机 HTTP 服务（非资产协议），SSE/Cookie 与学生端同链路。
+	// 不设 Hidden：创建期 Show 会被未启动的事件循环丢弃，让窗口原生显示。
 	mainWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:     "main",
-		Title:    "Forge 教师台",
-		URL:      mainURL,
-		Width:    1280,
-		Height:   820,
-		MinWidth: 960, MinHeight: 640,
-		// 不设 Hidden：Windows 下创建期 Show 会被未启动的事件循环丢弃，
-		// ApplicationStarted 也未必触发；让窗口随创建原生显示最稳。
+		Name: "main", Title: "Forge 教师台",
+		URL:   mainURL,
+		Width: 1280, Height: 820, MinWidth: 960, MinHeight: 640,
 	})
-	// 关闭 = 隐藏到托盘；退出走托盘菜单或 /shutdown API（magpie lightweight.go:73）。
+	// 关闭 = 隐藏到托盘；退出走托盘菜单或 /shutdown API（magpie lightweight.go 同款）。
 	mainWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		mainWin.Hide()
 	})
 
-	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收。
+	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收、
+	// 不进任务栏（WS_EX_TOOLWINDOW——避免出现第二个任务栏条目）。
 	panel := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name:            "panel",
-		Title:           "Forge 监考速览",
-		URL:             urls.Panel,
-		Width:           400,
-		Height:          720,
-		Hidden:          true,
-		Frameless:       true,
-		AlwaysOnTop:     true,
-		DisableResize:   true,
-		HideOnEscape:    true,
-		HideOnFocusLost: true,
-		BackgroundType:  application.BackgroundTypeTranslucent,
+		Name: "panel", Title: "Forge 监考速览",
+		URL:   urls.Panel,
+		Width: 400, Height: 720,
+		Hidden: true, Frameless: true, AlwaysOnTop: true,
+		DisableResize: true, HideOnEscape: true, HideOnFocusLost: true,
+		BackgroundType: application.BackgroundTypeTranslucent,
+		Windows:        application.WindowsWindow{HiddenOnTaskbar: true},
 	})
 	panel.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		panel.Hide()
 	})
 
-	// 学生扫码加入窗（/join 页自带说明与二维码，可常开投影）。
-	joinWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "join", Title: "Forge · 学生扫码加入",
-		URL: urls.Join, Width: 420, Height: 680, Hidden: true,
-	})
-	// 监考大屏窗（教师台直达监考分区，投屏用）。
-	bigWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "bigscreen", Title: "Forge · 监考大屏",
-		URL: urls.BigScreen, Width: 1280, Height: 800, Hidden: true,
-	})
-	// 学生大厅窗（教师预览学生视角，不占浏览器）。
-	studentWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Name: "student", Title: "Forge · 学生大厅",
-		URL: urls.Student, Width: 1100, Height: 760, Hidden: true,
-	})
-
-	// 原生窗口指令执行器：面板/教师台的按钮经 /ui/command 到达这里。
-	// 每次打开都先导航回该窗口的本职页面——用户在窗口里点到别处后，
-	// 再点托盘/面板按钮必须回到预期视图，而不是停留在上次页面。
-	showAt := func(win *application.WebviewWindow, url string) {
-		win.SetURL(url)
-		win.Show()
-		win.Focus()
+	openExternal := func(url string) {
+		if hooks.Browser == nil || url == "" {
+			return
+		}
+		if err := hooks.Browser.Open(url); err != nil {
+			log.Warn("open external surface failed", "url", url, "err", err)
+		}
 	}
+
+	// UI 指令（面板/教师台按钮 → /ui/command）：
+	// show-main 唤起主窗；投屏/预览类一律系统浏览器。
 	SetUICommandHandler(func(action string) {
 		application.InvokeSync(func() {
 			switch action {
 			case "show-main":
-				showAt(mainWin, urls.Teacher)
+				mainWin.Show()
+				mainWin.Focus()
 			case "open-join":
-				showAt(joinWin, urls.Join)
+				openExternal(urls.Join)
 			case "open-bigscreen":
-				showAt(bigWin, urls.BigScreen)
+				openExternal(urls.BigScreen)
 			case "open-student":
-				showAt(studentWin, urls.Student)
+				openExternal(urls.Student)
 			}
 		})
 	})
 
-	// 托盘菜单按考试日使用频率排序，全部指向原生窗口。
+	// 托盘菜单：主窗 + 投屏/预览（浏览器）+ 退出。
 	tray := app.SystemTray.New()
 	if len(icon) > 0 {
 		tray.SetIcon(icon)
 	}
 	tray.SetTooltip("Forge 竞赛工作台")
 	menu := app.NewMenu()
-	menu.Add("监考面板（速览）").OnClick(func(*application.Context) {
-		tray.ToggleWindow()
+	menu.Add("打开教师台").OnClick(func(*application.Context) {
+		application.InvokeSync(func() {
+			mainWin.Show()
+			mainWin.Focus()
+		})
 	})
-	menu.Add("学生扫码加入").OnClick(func(*application.Context) {
-		showAt(joinWin, urls.Join)
+	menu.Add("学生扫码加入（投屏）").OnClick(func(*application.Context) {
+		openExternal(urls.Join)
 	})
-	menu.Add("监考大屏（投屏）").OnClick(func(*application.Context) {
-		showAt(bigWin, urls.BigScreen)
+	menu.Add("监考大屏（投影）").OnClick(func(*application.Context) {
+		openExternal(urls.BigScreen)
+	})
+	menu.Add("学生大厅（预览）").OnClick(func(*application.Context) {
+		openExternal(urls.Student)
 	})
 	menu.AddSeparator()
-	menu.Add("打开教师台").OnClick(func(*application.Context) {
-		showAt(mainWin, urls.Teacher)
-	})
-	menu.Add("打开学生大厅").OnClick(func(*application.Context) {
-		showAt(studentWin, urls.Student)
-	})
 	versionItem := menu.Add("Forge · 服务运行中")
 	versionItem.SetEnabled(false)
 	menu.AddSeparator()
@@ -159,13 +138,13 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		app.Quit()
 	})
 	tray.SetMenu(menu)
-	// 面板锚定在托盘图标旁（左键弹出/收起的核心）。
+	// 面板锚定在托盘图标旁（左键弹出/收起）。
 	tray.AttachWindow(panel).WindowOffset(6)
 	tray.OnClick(func() {
 		tray.ToggleWindow()
 	})
 
-	// /shutdown API 请求停机：收起托盘并退出（app.Quit 会触发 OnShutdown 收尾）。
+	// /shutdown API 请求停机：退出应用（OnShutdown 负责优雅收尾）。
 	go func() {
 		<-hooks.QuitRequested
 		application.InvokeSync(func() {
@@ -173,7 +152,6 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		})
 	}()
 
-	log.Info("wails shell starting",
-		"teacher", urls.Teacher, "panel", urls.Panel, "windows", 5)
+	log.Info("wails shell starting", "teacher", mainURL, "panel", urls.Panel, "windows", "main+panel")
 	app.Run()
 }

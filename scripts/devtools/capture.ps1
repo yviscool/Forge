@@ -29,8 +29,13 @@ $cb = {
     [WinEnum]::GetWindowTextW($h, $sb, 256) | Out-Null
     $title = $sb.ToString()
     if ($title.Length -gt 0) {
-      Write-Output ("visible window: [{0}]" -f $title)
-      if ($script:best -eq [IntPtr]::Zero) { $script:best = $h; $script:bestTitle = $title }
+      $r2 = New-Object WinEnum+RECT
+      [WinEnum]::GetWindowRect($h, [ref]$r2) | Out-Null
+      $ww = $r2.Right - $r2.Left
+      Write-Output ("window: [{0}] ${ww}px" -f $title)
+      $isTeacher = $title -like "*教师台*"
+      if ($isTeacher) { $script:best = $h; $script:bestTitle = $title }
+      elseif ($script:best -eq [IntPtr]::Zero -and $ww -gt 500) { $script:best = $h; $script:bestTitle = $title }
     }
   }
   return $true

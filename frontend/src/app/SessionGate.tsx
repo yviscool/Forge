@@ -54,7 +54,16 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token }),
     })
-      .then(() => {
+      .then((res) => {
+        // 令牌只在桌面壳主窗出现：标记桌面模式，AppShell 的跨区导航
+        // 据此改走原生窗口指令，主窗不被导航走。
+        if (res.ok) {
+          try {
+            localStorage.setItem('forge_desktop', '1')
+          } catch {
+            /* 隐私模式下忽略 */
+          }
+        }
         queryClient.resetQueries({ queryKey: ['auth'] })
         setAuthStatus('checking')
       })
