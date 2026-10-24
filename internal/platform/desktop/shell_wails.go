@@ -100,7 +100,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	})
 	// 关闭 = 隐藏到托盘；退出走托盘菜单或 /shutdown API（magpie lightweight.go 同款）。
 	mainWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
-		debugLog("main WindowClosing -> cancel+hide")
+		debugLog("[%s] WindowClosing[main] visible=%v", time.Now().Format("15:04:05.000"), mainWin.IsVisible())
 		e.Cancel()
 		mainWin.Hide()
 	})
@@ -126,6 +126,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		Windows:        application.WindowsWindow{HiddenOnTaskbar: true},
 	})
 	panel.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		debugLog("[%s] WindowClosing[panel]", time.Now().Format("15:04:05.000"))
 		e.Cancel()
 		panel.Hide()
 	})
@@ -136,6 +137,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		URL: "/join", Width: 440, Height: 700, Hidden: true,
 	})
 	joinWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		debugLog("[%s] WindowClosing[join]", time.Now().Format("15:04:05.000"))
 		e.Cancel()
 		joinWin.Hide()
 	})
@@ -144,6 +146,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		URL: "/teacher?tab=monitor", Width: 1280, Height: 800, Hidden: true,
 	})
 	bigWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		debugLog("[%s] WindowClosing[bigscreen]", time.Now().Format("15:04:05.000"))
 		e.Cancel()
 		bigWin.Hide()
 	})
@@ -152,6 +155,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		URL: "/app", Width: 1100, Height: 760, Hidden: true,
 	})
 	studentWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
+		debugLog("[%s] WindowClosing[student]", time.Now().Format("15:04:05.000"))
 		e.Cancel()
 		studentWin.Hide()
 	})

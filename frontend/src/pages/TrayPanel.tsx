@@ -12,7 +12,7 @@ import {
 } from 'lucide-react'
 import React, { useEffect, useState } from 'react'
 import type { TraySummary } from '../api/client'
-import { api } from '../api/client'
+import { api, ApiError } from '../api/client'
 
 /**
  * 托盘速览面板（Wails 锚定小窗加载 /app/panel）。
@@ -208,10 +208,14 @@ export function TrayPanel() {
   const command = async (action: Parameters<typeof api.uiCommand>[0], fallbackUrl?: string) => {
     try {
       await api.uiCommand(action)
-    } catch {
-      // 非 Wails 构建（浏览器打开 /app/panel）没有原生窗口可驱动：
-      // 有回退地址则开浏览器，否则静默忽略。
-      if (fallbackUrl) window.open(fallbackUrl, '_blank')
+    } catch (cause) {
+      // 仅非 Wails 构建（503 no_ui_commander）回退到浏览器标签；
+      // Wails 内的任何失败都绝不能 window.open——WebView 会弹出带
+      // 地址栏的系统 Edge 窗口，破坏桌面应用形态。
+      const status = cause instanceof ApiError ? cause.status : 0
+      if (status === 503 && fallbackUrl) {
+        window.open(fallbackUrl, '_blank')
+      }
     }
   }
 

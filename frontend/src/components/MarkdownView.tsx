@@ -139,7 +139,15 @@ const defaultLinkOpen =
 md.renderer.rules.link_open = (tokens, idx, options, env, self) => {
   const target = tokens[idx].attrGet('href') || ''
   if (/^https?:\/\//i.test(target)) {
-    tokens[idx].attrSet('target', '_blank')
+    // 桌面 WebView 内绝不开 _blank：会弹出系统 Edge 窗口；
+    // 浏览器访问时保持新标签行为。
+    let inDesktop = false
+    try {
+      inDesktop = localStorage.getItem('forge_desktop') === '1'
+    } catch {
+      /* ignore */
+    }
+    if (!inDesktop) tokens[idx].attrSet('target', '_blank')
     tokens[idx].attrSet('rel', 'noopener noreferrer')
   }
   return defaultLinkOpen(tokens, idx, options, env, self)
