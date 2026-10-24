@@ -17,7 +17,9 @@ set FORGE_ADDR=0.0.0.0:8080
 
 echo.
 echo   正在启动 Forge 教师台...
-echo   登录账号: admin    密码: Forge-Test-2026!
+echo   登录账号: admin    密码: admin
+echo   （FORGE_ADMIN_PASSWORD 只在 data 目录全新、需要创建 admin 时生效；
+echo     当前库里的 admin 口令已改为 admin，由 scripts/devtools/setpass 设置）
 echo   学生访问: http://本机IP:8080/app （托盘左键可看扫码页）
 echo.
 
