@@ -39,6 +39,7 @@ type Server struct {
 	readinessChecks map[string]func(context.Context) error
 	presenceSource  func(cid string) map[string]time.Time
 	shutdownHook    func()
+	uiCommander     func(action string)
 	// LoginLimiter protects the public credential endpoint. Tests may replace
 	// it with a limiter driven by a fake clock.
 	LoginLimiter *auth.LoginLimiter
@@ -99,6 +100,13 @@ func (h *Server) SetPresenceSource(source func(cid string) map[string]time.Time)
 // 只允许注册一次；未注册时关机端点返回 503。
 func (h *Server) SetShutdownHook(hook func()) {
 	h.shutdownHook = hook
+}
+
+// SetUICommander 注入桌面 UI 指令通道（仅 Wails 外壳注册）：
+// 托盘面板 / 教师台的按钮可直接唤起对应原生窗口，不经过浏览器。
+// 非 Wails 构建不注册，端点返回 503，前端静默降级。
+func (h *Server) SetUICommander(commander func(action string)) {
+	h.uiCommander = commander
 }
 
 // AddReadinessCheck registers a startup-injected operational dependency.
@@ -316,6 +324,34 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		writeOut(w, h.traySummary(), 200)
+		return
+	}
+
+	// /ui/command（教师 → 原生窗口指令；仅 Wails 外壳注册了执行器才有效）
+	if len(parts) == 2 && parts[0] == "ui" && parts[1] == "command" && r.Method == "POST" {
+		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
+			return
+		}
+		var v struct {
+			Action string `json:"action"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		switch v.Action {
+		case "show-main", "open-join", "open-bigscreen":
+		default:
+			h.err(w, r, 400, fmt.Errorf("unknown ui action %q", v.Action))
+			return
+		}
+		if h.uiCommander == nil {
+			WriteError(w, r, http.StatusServiceUnavailable, "no_ui_commander",
+				"native windows are only available in the desktop build")
+			return
+		}
+		writeOut(w, map[string]any{"ok": true}, 200)
+		go h.uiCommander(v.Action)
 		return
 	}
 

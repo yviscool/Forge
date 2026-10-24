@@ -177,6 +177,37 @@ export interface MonitorSnapshot {
   participants: MonitorParticipant[]
 }
 
+export interface TraySummaryContest {
+  id: string
+  name: string
+  mode: ContestMode
+  status: string
+  startedAt?: string
+  endsAt?: string
+  windowEndsAt?: string
+}
+
+export interface TraySummaryEvent {
+  userName: string
+  problemCode: string
+  verdict: string
+  submittedAt: string
+}
+
+export interface TraySummary {
+  generatedAt: string
+  version?: string
+  contest?: TraySummaryContest
+  online: number
+  participants: number
+  submissions: number
+  queued: number
+  conflicts: number
+  recent: TraySummaryEvent[]
+}
+
+export type UICommand = 'show-main' | 'open-join' | 'open-bigscreen'
+
 export interface CSPTicketAssignment {
   user: User
   ticket: string
@@ -650,6 +681,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ code, language, source }),
     }),
+  traySummary: () => request<TraySummary>('/tray-summary'),
+  uiCommand: (action: UICommand) =>
+    request<{ ok: boolean }>('/ui/command', {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    }),
+  shutdownServer: () => request<{ stopping: boolean }>('/shutdown', { method: 'POST' }),
   monitor: (cid: string) =>
     request<MonitorSnapshot>(`/contests/${encoded(cid)}/monitor`),
   codeVersions: (cid: string, pid: string, userId?: string) =>

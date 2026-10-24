@@ -233,6 +233,7 @@ func main() {
 	if desktopMode {
 		quitRequested := make(chan struct{})
 		srv.SetShutdownHook(func() { close(quitRequested) })
+		srv.SetUICommander(desktop.DispatchUICommand)
 		runDesktopShell(cfg, log, httpSrv, stopWorkers, quitRequested)
 		return
 	}
