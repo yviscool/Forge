@@ -4,6 +4,9 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,6 +44,10 @@ type Server struct {
 	presenceSource  func(cid string) map[string]time.Time
 	shutdownHook    func()
 	uiCommander     func(action string)
+
+	desktopTokenMu  sync.Mutex
+	desktopToken    string
+	desktopTokenExp time.Time
 	// LoginLimiter protects the public credential endpoint. Tests may replace
 	// it with a limiter driven by a fake clock.
 	LoginLimiter *auth.LoginLimiter
@@ -114,6 +121,22 @@ func (h *Server) SetPresenceSource(source func(cid string) map[string]time.Time)
 // 只允许注册一次；未注册时关机端点返回 503。
 func (h *Server) SetShutdownHook(hook func()) {
 	h.shutdownHook = hook
+}
+
+// MintDesktopLoginToken 铸造一次性桌面登录令牌（60 秒、单次有效）。
+// 仅桌面壳在启动时调用；令牌经本机 webview URL 传递给 /auth/desktop-exchange
+// 换取管理员会话——教师无需在本地应用里反复输密码。
+func (h *Server) MintDesktopLoginToken() (string, error) {
+	raw := make([]byte, 24)
+	if _, err := rand.Read(raw); err != nil {
+		return "", err
+	}
+	token := base64.RawURLEncoding.EncodeToString(raw)
+	h.desktopTokenMu.Lock()
+	h.desktopToken = token
+	h.desktopTokenExp = time.Now().Add(60 * time.Second)
+	h.desktopTokenMu.Unlock()
+	return token, nil
 }
 
 // SetUICommander 注入桌面 UI 指令通道（仅 Wails 外壳注册）：
@@ -1678,6 +1701,54 @@ func (h *Server) authRoutes(w http.ResponseWriter, r *http.Request, rest []strin
 		writeOut(w, map[string]any{
 			"userId": sess.UserID, "role": domain.NormalizeRole(u.Role),
 			"username": u.Username, "name": u.Name,
+		}, 200)
+		return
+	}
+	// POST /auth/desktop-exchange（一次性桌面令牌换会话；令牌只在
+	// 本机 webview URL 中出现，持有即证明是桌面壳启动的主窗口）。
+	if len(rest) == 1 && rest[0] == "desktop-exchange" && r.Method == "POST" {
+		var v struct {
+			Token string `json:"token"`
+		}
+		if decode(r, &v) != nil {
+			h.err(w, r, 400, fmt.Errorf("invalid json"))
+			return
+		}
+		h.desktopTokenMu.Lock()
+		want, exp := h.desktopToken, h.desktopTokenExp
+		h.desktopToken = "" // 单次消费
+		h.desktopTokenMu.Unlock()
+		if want == "" || v.Token == "" ||
+			subtle.ConstantTimeCompare([]byte(v.Token), []byte(want)) != 1 ||
+			time.Now().After(exp) {
+			WriteError(w, r, 401, "invalid_token", "desktop login token is invalid or expired")
+			return
+		}
+		users, err := h.svc.Store().ListUsers()
+		if err != nil {
+			h.err(w, r, 500, err)
+			return
+		}
+		var admin domain.User
+		for _, u := range users {
+			if u.Username == "admin" && u.Role == domain.RoleAdmin {
+				admin = u
+				break
+			}
+		}
+		if admin.ID == "" {
+			WriteError(w, r, 404, "no_admin", "administrator account not found")
+			return
+		}
+		sess, err := h.auth.SessionForUser(admin.ID)
+		if err != nil {
+			h.err(w, r, 500, err)
+			return
+		}
+		h.setSessionCookie(w, r, sess.Token)
+		writeOut(w, map[string]any{
+			"userId": admin.ID, "role": domain.RoleAdmin,
+			"username": admin.Username, "name": admin.Name,
 		}, 200)
 		return
 	}

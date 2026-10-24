@@ -50,22 +50,25 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 
 	// 主窗口：教师台。加载本机 HTTP 服务（而非资产协议），
 	// 保证 SSE、Cookie 与学生端走同一条真实链路。
+	mainURL := urls.MainURL
+	if mainURL == "" {
+		mainURL = urls.Teacher
+	}
 	mainWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name:     "main",
 		Title:    "Forge 教师台",
-		URL:      urls.Teacher,
+		URL:      mainURL,
 		Width:    1280,
 		Height:   820,
 		MinWidth: 960, MinHeight: 640,
-		Hidden: true, // 就绪后再显示，避免白帧
+		// 不设 Hidden：Windows 下创建期 Show 会被未启动的事件循环丢弃，
+		// ApplicationStarted 也未必触发；让窗口随创建原生显示最稳。
 	})
 	// 关闭 = 隐藏到托盘；退出走托盘菜单或 /shutdown API（magpie lightweight.go:73）。
 	mainWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		e.Cancel()
 		mainWin.Hide()
 	})
-	// 就绪即显示主窗（窗口选项 Hidden:true 避免白帧，这里确定性亮出）。
-	mainWin.Show()
 
 	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收。
 	panel := app.Window.NewWithOptions(application.WebviewWindowOptions{

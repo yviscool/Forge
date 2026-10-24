@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -234,7 +235,7 @@ func main() {
 		quitRequested := make(chan struct{})
 		srv.SetShutdownHook(func() { close(quitRequested) })
 		srv.SetUICommander(desktop.DispatchUICommand)
-		runDesktopShell(cfg, log, httpSrv, stopWorkers, quitRequested)
+		runDesktopShell(cfg, log, httpSrv, srv, stopWorkers, quitRequested)
 		return
 	}
 
@@ -296,7 +297,7 @@ func localAppURL(addr string) string {
 // 外壳按构建标签选择：-tags "desktop wails" 为 Wails 原生窗口（主窗 + 托盘
 // 锚定速览面板 + 单实例）；否则为托盘菜单 + 浏览器（纯 Go，无 CGO）。
 // /shutdown API（托盘速览面板「退出服务」）与托盘退出都走同一收尾。
-func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, stopWorkers func(), quitRequested chan struct{}) {
+func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, srv *httpapi.Server, stopWorkers func(), quitRequested chan struct{}) {
 	healthz := desktop.LocalURL(cfg.Addr, "/healthz")
 	if !desktop.WaitForReady(healthz, 10*time.Second) {
 		log.Warn("desktop shell: health probe not ready; continuing without auto-open")
@@ -314,8 +315,22 @@ func runDesktopShell(cfg config.Config, log *slog.Logger, httpSrv *http.Server, 
 		log.Warn("auto-open teacher console failed; please open the URL manually", "url", teacherURL, "err", err)
 	}
 
+	// 桌面主窗带一次性登录令牌打开：主窗加载后自动换取管理员会话，
+	// 教师（以及面板/学生窗共享的 Cookie 存储）全程无感登录。
+	mainURL := teacherURL
+	if token, terr := srv.MintDesktopLoginToken(); terr == nil {
+		sep := "?"
+		if strings.Contains(mainURL, "?") {
+			sep = "&"
+		}
+		mainURL += sep + "dt=" + token
+	} else {
+		log.Warn("mint desktop login token failed", "err", terr)
+	}
+
 	trayURLs := desktop.TrayURLs{
 		Teacher:   teacherURL,
+		MainURL:   mainURL,
 		Student:   desktop.LocalURL(cfg.Addr, "/app"),
 		StudentQR: firstLANURL(cfg.Addr),
 		LAN:       joinURLs,

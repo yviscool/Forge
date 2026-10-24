@@ -36,6 +36,31 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
     if (authStatus === 'idle') setAuthStatus('checking')
   }, [authStatus, setAuthStatus])
 
+  // 桌面壳一次性登录令牌：主窗以 ?dt=<token> 打开时自动换取会话
+  // （令牌 60 秒单次有效，仅本机 webview 持有），然后清掉参数继续常规引导。
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const token = params.get('dt')
+    if (!token) return
+    params.delete('dt')
+    const rest = params.toString()
+    window.history.replaceState(
+      {},
+      '',
+      window.location.pathname + (rest ? `?${rest}` : '') + window.location.hash
+    )
+    void fetch('/api/v1/auth/desktop-exchange', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token }),
+    })
+      .then(() => {
+        queryClient.resetQueries({ queryKey: ['auth'] })
+        setAuthStatus('checking')
+      })
+      .catch(() => undefined)
+  }, [queryClient, setAuthStatus])
+
   useEffect(() => {
     const user = sessionQuery.data
     if (!user || (authStatus !== 'idle' && authStatus !== 'checking')) return

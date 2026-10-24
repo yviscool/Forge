@@ -137,6 +137,30 @@ func (a *Service) Login(login, password string) (domain.Session, error) {
 	return sess, nil
 }
 
+// SessionForUser 免密为既有用户签发会话（桌面壳一次性令牌交换专用；
+// 不经过 HTTP 公开路由，调用方必须已完成持有者校验）。
+func (a *Service) SessionForUser(userID string) (domain.Session, error) {
+	u, err := a.store.GetUser(userID)
+	if err != nil {
+		return domain.Session{}, err
+	}
+	tok, err := newToken()
+	if err != nil {
+		return domain.Session{}, err
+	}
+	now := a.clock.Now()
+	sess := domain.Session{
+		Token: tok, UserID: u.ID, Role: u.Role,
+		CreatedAt: now, ExpiresAt: now.Add(SessionTTL),
+	}
+	stored := sess
+	stored.Token = hashSessionToken(tok)
+	if err := a.store.SaveSession(stored); err != nil {
+		return domain.Session{}, err
+	}
+	return sess, nil
+}
+
 // Authenticate 校验 token 有效性（含过期惰性清理）。
 func (a *Service) Authenticate(token string) (domain.Session, error) {
 	token = strings.TrimSpace(token)
