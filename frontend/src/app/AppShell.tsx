@@ -53,7 +53,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="no-print sticky top-0 z-50 border-b border-[#e4e7ec]/80 bg-[#fffefa]/88 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 w-full max-w-[1440px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="flex h-16 w-full items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-6">
             <Link to="/" className="group flex min-w-0 items-center gap-3">
               <BrandMark />
@@ -168,12 +168,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-[1440px] flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <main className="flex w-full flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
         {children}
       </main>
 
       <footer className="no-print border-t border-[#e4e7ec]/80 bg-transparent">
-        <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-2 px-4 py-5 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <div className="flex w-full flex-col gap-2 px-4 py-5 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
           <p>Forge Contest Atelier · Built for serious practice.</p>
           <p className="font-mono tracking-wide">CSP / NOIP / GESP · local-first judging</p>
         </div>
