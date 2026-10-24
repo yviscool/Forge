@@ -81,6 +81,12 @@ type Contest struct {
 	// Mode 比赛组织方式（domain/contest_mode.go）：online 在线提交（默认）、
 	// noi NOI 全真模拟（赛中屏蔽反馈、以最后一次提交计分）、gesp GESP 机考。
 	Mode string `json:"mode,omitempty"`
+	// Season 赛季标识（如 "2026"）：准考证号按赛季发放，同一赛季内所有
+	// 模拟赛/正式赛共用同一套号。空值表示未归档，收题时回落到当前年份。
+	Season string `json:"season,omitempty"`
+	// TicketGroup 本场认证的组别（J 入门级 / S 提高级）：收题时据此挑出
+	// 考生在该赛季对应组别的准考证号。空值表示不按组别取号。
+	TicketGroup string `json:"ticketGroup,omitempty"`
 	// AllowedLanguages 允许提交的语言白名单（空=不限；复赛填 ["cpp"]）。
 	AllowedLanguages   []string  `json:"allowedLanguages,omitempty"`
 	ProblemIDs         []string  `json:"problemIds"`
@@ -221,9 +227,13 @@ const (
 )
 
 type Problem struct {
-	ID             string         `json:"id"`
-	ContestID      string         `json:"contestId"`
-	Code           string         `json:"code"`
+	ID        string `json:"id"`
+	ContestID string `json:"contestId"`
+	Code      string `json:"code"`
+	// Slug 题面英文名（如 poker）。CSP 复赛要求考生按
+	// <准考证号>/<英文名>/<英文名>.cpp 组织答案，因此它同时决定
+	// 文件 IO 的默认文件名与收题包里的目录名。
+	Slug           string         `json:"slug,omitempty"`
 	Title          string         `json:"title"`
 	Statement      string         `json:"statement"`
 	Constraints    string         `json:"constraints"`

@@ -28,6 +28,10 @@ export interface Contest {
   rankingMode?: RankingMode
   /** 比赛组织方式：online 在线提交 / noi NOI 全真模拟 / gesp GESP 机考。 */
   mode?: ContestMode
+  /** 准考证赛季（如 "2026"）：同一赛季同一组别的所有比赛共用一套号。 */
+  season?: string
+  /** 本场认证的组别：收题包按（赛季, 组别）反查准考证目录。 */
+  ticketGroup?: 'J' | 'S'
   allowedLanguages?: string[]
   problemIds?: string[]
   groupIds?: string[]
@@ -74,6 +78,8 @@ export interface Problem {
   id: string
   contestId: string
   code: string
+  /** 题面英文名（如 poker）：收题包里决定 <准考证号>/<英文名>/<英文名>.cpp。 */
+  slug?: string
   title: string
   statement: string
   input: string
@@ -111,6 +117,8 @@ export interface User {
   province?: string
   examTicket?: string
   groups?: string[]
+  hasPassword?: boolean
+  password?: string
   createdAt?: string
 }
 
@@ -216,9 +224,40 @@ export interface TraySummary {
 export interface CSPTicketAssignment {
   user: User
   ticket: string
+  season?: string
+  group?: 'J' | 'S'
+}
+
+/** 收题包清单：目录名、文件名与教师需要当场处置的告警。 */
+export interface CollectEntry {
+  userId: string
+  userName: string
+  username: string
+  ticket?: string
+  folder: string
+  problemId: string
+  problemCode: string
+  slug: string
+  fileName: string
+  language: string
+  code: string
+  verdict: string
+  score: number
+  submittedAt?: string
+}
+
+export interface CollectPackage {
+  contestId: string
+  contestName: string
+  season?: string
+  group?: string
+  entries: CollectEntry[]
+  warnings?: string[]
 }
 
 export interface CSPTicketRequest {
+  /** 赛季标识（如 "2026"）；空缺省为当前年份。 */
+  season?: string
   province: string
   group: 'J' | 'S'
   /** 序号补零位宽，缺省 5（HA-J00001）。 */
@@ -485,11 +524,12 @@ export const api = {
     description: string,
     rankingMode: RankingMode = 'oi',
     allowedLanguages: string[] = [],
-    mode: ContestMode = 'online'
+    mode: ContestMode = 'online',
+    ticketScope: { season?: string; ticketGroup?: 'J' | 'S' } = {}
   ) =>
     request<Contest>('/contests', {
       method: 'POST',
-      body: JSON.stringify({ name, description, rankingMode, allowedLanguages, mode }),
+      body: JSON.stringify({ name, description, rankingMode, allowedLanguages, mode, ...ticketScope }),
     }),
   startContest: (cid: string) =>
     request<Contest>(`/contests/${encoded(cid)}/start`, { method: 'POST' }),
@@ -497,7 +537,12 @@ export const api = {
     request<Contest>(`/contests/${encoded(cid)}/finish`, { method: 'POST' }),
   updateContestSettings: (
     cid: string,
-    settings: { rankingMode?: RankingMode; allowedLanguages?: string[] }
+    settings: {
+      rankingMode?: RankingMode
+      allowedLanguages?: string[]
+      season?: string
+      ticketGroup?: 'J' | 'S'
+    }
   ) =>
     request<Contest>(`/contests/${encoded(cid)}/settings`, {
       method: 'PUT',
@@ -649,6 +694,15 @@ export const api = {
     ),
   fetchTestFile: (cid: string, pid: string, name: string) =>
     requestBlob(`/contests/${encoded(cid)}/problems/${encoded(pid)}/files/${encoded(name)}`),
+  /** 收题包清单（?format=json）：下载 zip 前先看缺号/白卷告警。 */
+  collectManifest: (cid: string) =>
+    request<CollectPackage>(`/contests/${encoded(cid)}/collect?format=json`),
+  /** 收题包 zip：<准考证号>/<英文名>/<英文名>.<ext> + manifest.csv。 */
+  downloadCollectZip: (cid: string, season?: string, group?: string) =>
+    triggerProtectedDownload(
+      `/contests/${encoded(cid)}/collect`,
+      season && group ? `collect-${season}-${group}.zip` : `collect-${cid}.zip`
+    ),
 
   users: () => request<User[]>('/users'),
   createUser: (name: string, username = '', role: Role = 'student', password = '', province = '') =>
@@ -706,6 +760,8 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ password }),
     }),
+  deleteUser: (uid: string) =>
+    request<{ ok: boolean }>(`/users/${encoded(uid)}`, { method: 'DELETE' }),
   importUsersCsv: (csv: string) =>
     request<{ created: number; errors: string[] }>('/users/import', {
       method: 'POST',

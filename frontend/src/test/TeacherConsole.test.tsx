@@ -499,4 +499,92 @@ describe('TeacherConsole test data workflow', () => {
     expect(within(dialog).getAllByText(/密码未知，请由教师重置/).length).toBeGreaterThan(0)
     expect(within(dialog).queryByText('123456')).not.toBeInTheDocument()
   })
+
+  it('previews collection warnings before downloading the collect zip', async () => {
+    const user = userEvent.setup()
+    installBaseline({ files: [], missingPairs: [] })
+    const createObjectURL = vi
+      .spyOn(URL, 'createObjectURL')
+      .mockReturnValue('blob:collect-zip')
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    server.use(
+      apiRoutes.get('/contests/contest-1/collect', ({ request }) => {
+        const url = new URL(request.url)
+        if (url.searchParams.get('format') === 'json') {
+          return HttpResponse.json({
+            contestId: contest.id,
+            contestName: contest.name,
+            season: '2026',
+            group: 'J',
+            entries: [
+              {
+                userId: 'u1',
+                userName: 'Alice',
+                username: 's001',
+                ticket: 'HA-J00001',
+                folder: 'HA-J00001',
+                problemId: problem.id,
+                problemCode: 'A',
+                slug: 'poker',
+                fileName: 'poker.cpp',
+                language: 'cpp',
+                code: 'int main(){}',
+                verdict: 'accepted',
+                score: 100,
+              },
+            ],
+            warnings: ['s002 has no J ticket for season 2026; collected under username s002'],
+          })
+        }
+        return new HttpResponse(new Uint8Array([0x50, 0x4b]), {
+          headers: {
+            'Content-Type': 'application/zip',
+            'Content-Disposition': 'attachment; filename=collect-2026-J.zip',
+          },
+        })
+      })
+    )
+    renderConsole()
+
+    await user.click(await screen.findByRole('tab', { name: /实时提交/ }))
+    await user.click(screen.getByRole('button', { name: /导出收题包/ }))
+
+    // 下载前先把告警讲清楚：缺号的学生会落在登录名目录下。
+    expect(await screen.findByText('收题前请注意')).toBeInTheDocument()
+    expect(
+      await screen.findByText(/收题包已导出/)
+    ).toBeInTheDocument()
+    expect(
+      screen.getByText(/共 1 份答卷（2026\/J）。/)
+    ).toBeInTheDocument()
+    expect(createObjectURL).toHaveBeenCalled()
+    revokeObjectURL.mockRestore()
+    createObjectURL.mockRestore()
+  })
+
+  it('saves the ticket scope from the contest settings card', async () => {
+    const user = userEvent.setup()
+    installBaseline({ files: [], missingPairs: [] })
+    let savedScope: Record<string, unknown> | null = null
+    server.use(
+      apiRoutes.put('/contests/contest-1/settings', async ({ request }) => {
+        savedScope = (await request.json()) as Record<string, unknown>
+        return HttpResponse.json({
+          ...contest,
+          ...(savedScope as object),
+        })
+      })
+    )
+    renderConsole()
+
+    const seasonInput = await screen.findByRole('textbox', { name: '准考证赛季' })
+    await user.clear(seasonInput)
+    await user.type(seasonInput, '2026')
+    await user.selectOptions(screen.getByRole('combobox', { name: '认证组别' }), 'J')
+    await user.click(screen.getByRole('button', { name: '保存收题口径' }))
+
+    await waitFor(() => expect(savedScope).not.toBeNull())
+    expect(savedScope).toMatchObject({ season: '2026', ticketGroup: 'J' })
+    expect(await screen.findByText('收题口径已保存')).toBeInTheDocument()
+  })
 })

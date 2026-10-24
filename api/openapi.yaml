@@ -253,6 +253,18 @@ paths:
                   type: array
                   items:
                     type: string
+                season:
+                  type: string
+                  description: >-
+                    Ticket season (e.g. "2026"). Tickets are issued per season,
+                    and every contest of the same season/group shares one set.
+                ticketGroup:
+                  type: string
+                  enum: [J, S]
+                  description: >-
+                    Ticket group certified by this contest. Collect exports
+                    resolve admission tickets by (season, group); empty means an
+                    ordinary online contest that collects under usernames.
       responses:
         "201":
           description: Contest created as draft.
@@ -366,6 +378,13 @@ paths:
                   type: array
                   items:
                     type: string
+                season:
+                  type: string
+                  description: Ticket season; empty string clears the scope.
+                ticketGroup:
+                  type: string
+                  enum: [J, S]
+                  description: Ticket group; requires season, empty string clears the scope.
       responses:
         "200":
           description: Updated contest settings.
@@ -443,6 +462,38 @@ paths:
             text/csv:
               schema:
                 type: string
+        "403":
+          $ref: "#/components/responses/Forbidden"
+  /api/v1/contests/{cid}/collect:
+    parameters:
+      - $ref: "#/components/parameters/ContestID"
+    get:
+      tags: [contests]
+      operationId: collectSubmissions
+      summary: Export the submission collection package
+      description: >-
+        CSP-style collection: `<admission ticket>/<problem slug>/<slug>.<ext>`
+        plus a manifest.csv at the zip root. Each student contributes the last
+        submission per problem. Contests without a ticketGroup fall back to
+        username folders. `?format=json` returns the manifest and warnings
+        (missing tickets, missing slugs, blank sheets) instead of the zip.
+      parameters:
+        - in: query
+          name: format
+          schema:
+            type: string
+            enum: [json]
+      responses:
+        "200":
+          description: Collection zip (default) or manifest JSON (?format=json).
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CollectPackage"
         "403":
           $ref: "#/components/responses/Forbidden"
   /api/v1/contests/{cid}/problems:
@@ -1292,13 +1343,24 @@ paths:
       summary: List users
       responses:
         "200":
-          description: Users.
+          description: >-
+            Users with credential status. `password` carries the teacher-visible
+            plain password kept for unified ticket issuance; it never participates
+            in authentication (bcrypt hash only).
           content:
             application/json:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/User"
+                  allOf:
+                    - $ref: "#/components/schemas/User"
+                    - type: object
+                      properties:
+                        hasPassword:
+                          type: boolean
+                        password:
+                          type: string
+                          description: Plain password for the teacher to read aloud; empty when not recorded.
         "403":
           $ref: "#/components/responses/Forbidden"
     post:
@@ -1373,6 +1435,28 @@ paths:
                 $ref: "#/components/schemas/User"
         "403":
           $ref: "#/components/responses/Forbidden"
+    delete:
+      tags: [identity]
+      operationId: deleteUser
+      summary: Delete a user account
+      description: >-
+        Removes the account together with its credentials, sessions, group and
+        contest-list references, and its admission tickets. Teachers may only
+        delete student accounts; the last administrator cannot be deleted.
+      responses:
+        "200":
+          description: Account deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "403":
+          $ref: "#/components/responses/Forbidden"
   /api/v1/users/batch-province:
     post:
       tags: [identity]
@@ -1405,8 +1489,10 @@ paths:
       summary: Assign CSP admission tickets
       description: >-
         Tickets follow `PROVINCE-GROUP<zero-padded number>` (e.g. HA-J00001).
-        Sequence continues per (province, group). Provide exactly one of
-        `createCount` (create candidate accounts) or `userIds` (existing users).
+        A ticket is an identity for one (season, group): the sequence restarts
+        per season and every contest of the same season/group shares one set.
+        Provide exactly one of `createCount` (create candidate accounts) or
+        `userIds` (existing users); empty season defaults to the current year.
       requestBody:
         required: true
         content:
@@ -1415,6 +1501,9 @@ paths:
               type: object
               required: [province, group]
               properties:
+                season:
+                  type: string
+                  description: Ticket season (e.g. "2026"); empty defaults to the current year.
                 province:
                   type: string
                 group:
@@ -1861,7 +1950,10 @@ components:
           description: Built-in province code (e.g. HA); empty when unset.
         examTicket:
           type: string
-          description: Assigned CSP admission ticket (e.g. HA-J00001); empty when unassigned.
+          description: >-
+            Assigned CSP admission ticket (e.g. HA-J00001); empty when
+            unassigned. Display mirror of the authoritative tickets table
+            (unique per user, season and group).
         groups:
           type: array
           items:
@@ -1889,13 +1981,19 @@ components:
           type: boolean
     CSPTicketAssignment:
       type: object
-      required: [user, ticket]
+      required: [user, ticket, season, group]
       properties:
         user:
           $ref: "#/components/schemas/User"
         ticket:
           type: string
           example: HA-J00001
+        season:
+          type: string
+          example: "2026"
+        group:
+          type: string
+          enum: [J, S]
     Group:
       type: object
       required: [id, name]
@@ -1911,6 +2009,63 @@ components:
           items:
             type: string
         createdAt:
+          type: string
+          format: date-time
+    CollectPackage:
+      type: object
+      required: [contestId, contestName, entries]
+      properties:
+        contestId:
+          type: string
+        contestName:
+          type: string
+        season:
+          type: string
+        group:
+          type: string
+        entries:
+          type: array
+          items:
+            $ref: "#/components/schemas/CollectEntry"
+        warnings:
+          type: array
+          items:
+            type: string
+          description: >-
+            Non-fatal notices: participants without a ticket in this
+            (season, group), problems without a slug, participants who
+            submitted nothing.
+    CollectEntry:
+      type: object
+      required: [userId, userName, username, folder, problemId, problemCode, slug, fileName, language, code, verdict, score, submittedAt]
+      properties:
+        userId:
+          type: string
+        userName:
+          type: string
+        username:
+          type: string
+        ticket:
+          type: string
+        folder:
+          type: string
+        problemId:
+          type: string
+        problemCode:
+          type: string
+        slug:
+          type: string
+        fileName:
+          type: string
+        language:
+          type: string
+        code:
+          type: string
+        verdict:
+          type: string
+        score:
+          type: integer
+        submittedAt:
           type: string
           format: date-time
     Contest:
@@ -1932,6 +2087,12 @@ components:
         mode:
           type: string
           enum: [online, noi, gesp]
+        season:
+          type: string
+          description: Ticket season shared by every contest of the same exam period.
+        ticketGroup:
+          type: string
+          enum: [J, S]
         allowedLanguages:
           type: array
           items:
@@ -1985,6 +2146,11 @@ components:
           type: string
         code:
           type: string
+        slug:
+          type: string
+          description: >-
+            English problem name (e.g. poker). Decides the source file name in
+            the collection package (`<ticket>/<slug>/<slug>.cpp`).
         title:
           type: string
         statement:

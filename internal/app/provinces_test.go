@@ -233,10 +233,10 @@ func TestAssignCSPTicketsToExistingUsers(t *testing.T) {
 		t.Fatalf("existing-user assignment = %+v", out)
 	}
 
-	// 已有票号的账号拒绝二次发号。
+	// 已有票号的账号拒绝二次发号（同一赛季同一组别一号一人）。
 	if _, err := svc.AssignCSPTickets("teacher", CSPTicketRequest{
 		Province: "HA", Group: "J", UserIDs: []string{henan.ID},
-	}); err == nil || !strings.Contains(err.Error(), "already has ticket") {
+	}); err == nil || !strings.Contains(err.Error(), "already has a J ticket") {
 		t.Fatalf("double assignment must fail, got %v", err)
 	}
 

@@ -39,3 +39,24 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
       `-tags desktop` 系统托盘，headless 服务器部署不受影响）
 - [x] 测试完备：Go 全量 + storetest 契约 + HTTP 集成 + vitest 101 用例 + Playwright E2E 9/9
       （E2E 抓出并修复：监考快照 JSON null 击穿前端、Monaco diff 编辑器销毁时序、深色大屏对比度）
+
+# 赛季准考证与 CSP 收题包（2026-10 完成）
+
+- [x] 准考证独立成表 `Ticket(userID, season, group, province, number)`，唯一键
+      (userID, season, group)：号是「身份」而非「场次」，同一赛季所有比赛共用
+      一套号，跨赛季重新起号；users.examTicket 降级为冗余展示字段，
+      sqlite v9/v10 迁移把历史号按「号内解析组别 + 当前年份」搬进新表（幂等）
+- [x] `Contest.Season + TicketGroup`：建赛即声明口径（空 = 普通在线赛），
+      settings PUT 可改；比赛永远不拥有号，收题时按（赛季, 组别）反查
+- [x] `Problem.Slug` 题面英文名：小写字母开头、[a-z0-9_]，收题包文件名的唯一权威
+- [x] CSP 收题包导出 `GET /contests/{cid}/collect`：zip 按
+      「准考证号/题面英文名/英文名.扩展名」组织（无号退登录名，缺 slug 退题号小写），
+      每人每题收最后一次提交（口径与 NOI 榜单一致），附 manifest.csv 与
+      `?format=json` 清单（缺号/缺英文名/白卷告警）
+- [x] 考点发号体验：发号请求带赛季（缺省当前年份）、账号列表带教师可见明文口令
+      （鉴权仍只认 bcrypt hash）、DELETE /users 级联清理名单/凭据/会话/准考证
+- [x] 前端：建赛与设置面板的「赛季 + 组别」、题目编辑器 slug 字段、
+      实时提交页「导出收题包」（先清单后 zip）、准考证对话框赛季输入
+- [x] 测试：storetest Ticket/明文口令/删号级联契约（memory + sqlite 双实现）、
+      domain 布局纯函数、app 发号赛季隔离与收题用例、HTTP 集成（zip 结构 + 越权）、
+      vitest 收题流与收题口径保存；OpenAPI 对齐（redocly lint 通过）

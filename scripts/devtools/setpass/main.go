@@ -56,6 +56,9 @@ func main() {
 	if err := store.SetPasswordHash(target, string(hash)); err != nil {
 		log.Fatalf("set hash: %v", err)
 	}
+	if err := store.SetPasswordPlain(target, *password); err != nil {
+		log.Fatalf("set plain: %v", err)
+	}
 	if err := store.DeleteSessionsForUser(target); err != nil {
 		log.Fatalf("revoke sessions: %v", err)
 	}

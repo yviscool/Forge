@@ -220,12 +220,26 @@ export function TeacherConsole() {
     })
   }
   const [languageDraft, setLanguageDraft] = useState<string[]>([])
+  const [ticketScopeDraft, setTicketScopeDraft] = useState<{ season: string; ticketGroup: '' | 'J' | 'S' }>({
+    season: '',
+    ticketGroup: '',
+  })
   const [newContestForm, setNewContestForm] = useState<{
     name: string
     description: string
     mode: ContestMode
     rankingMode: RankingMode
-  }>({ name: '', description: '', rankingMode: 'oi', mode: 'online' })
+    season: string
+    ticketGroup: '' | 'J' | 'S'
+  }>({
+    name: '',
+    description: '',
+    rankingMode: 'oi',
+    mode: 'online',
+    // 准考证按赛季发号：新建比赛默认挂到当前赛季。
+    season: String(new Date().getFullYear()),
+    ticketGroup: '',
+  })
 
   // Problem Editor State
   const [editingProblem, setEditingProblem] = useState<Partial<Problem> | null>(null)
@@ -251,6 +265,7 @@ export function TeacherConsole() {
   const [seatMode, setSeatMode] = useState<'prefix' | 'csp'>('csp')
   const [cspProvince, setCspProvince] = useState('')
   const [cspGroup, setCspGroup] = useState<'J' | 'S'>('J')
+  const [cspSeason, setCspSeason] = useState(String(new Date().getFullYear()))
   const [cspDigits, setCspDigits] = useState(5)
   const [cspCount, setCspCount] = useState(20)
   const [isGeneratingCSP, setIsGeneratingCSP] = useState(false)
@@ -260,6 +275,8 @@ export function TeacherConsole() {
   >([])
   const [resetUser, setResetUser] = useState<User | null>(null)
   const [resetPassword, setResetPassword] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null)
+  const [deleteBusy, setDeleteBusy] = useState(false)
   const [resetBusy, setResetBusy] = useState(false)
   const [testFiles, setTestFiles] = useState<Record<string, TestFileInventory>>({})
   const [testFileBusy, setTestFileBusy] = useState('')
@@ -287,31 +304,56 @@ export function TeacherConsole() {
     refetch: refetchContests,
     isError: contestsError,
     error: contestsErrorCause,
+    isFetched: contestsFetched,
   } = useQuery({
     queryKey: ['contests'],
     queryFn: api.contests,
   })
 
-  // Set default contest
+  // 选中比赛：比赛被删除或数据被清空后，URL / localStorage 里可能残留
+  // 一个已经不存在的 id。此时必须把它清掉，否则试题、提交、排行榜
+  // 三个面板会各自拿旧 id 去请求，全部刷 "contest not found"。
   React.useEffect(() => {
-    if (contests.length > 0 && (!cid || !contests.some((contest) => contest.id === cid))) {
+    if (!contestsFetched) return
+    if (contests.length === 0) {
+      if (cid) setCid('')
+      return
+    }
+    if (!cid || !contests.some((contest) => contest.id === cid)) {
       setCid(contests[0].id)
     }
-  }, [contests, cid])
+  }, [contestsFetched, contests, cid])
 
   const currentContest = contests.find((c) => c.id === cid) || contests[0]
+  // 所有依赖比赛的请求都以"确实存在的那场"为准：cid 可能还停留在上一轮
+  // 渲染的旧值，直接拿它发请求就会打到已删除的比赛上。
+  const activeCid = currentContest?.id ?? ''
   const paperEditable = currentContest?.status === 'draft'
 
   React.useEffect(() => {
     setLanguageDraft(currentContest?.allowedLanguages || [])
-  }, [currentContest?.id, currentContest?.allowedLanguages])
+    setTicketScopeDraft({
+      season: currentContest?.season || '',
+      ticketGroup: (currentContest?.ticketGroup as '' | 'J' | 'S') || '',
+    })
+  }, [currentContest?.id, currentContest?.allowedLanguages, currentContest?.season, currentContest?.ticketGroup])
 
   React.useEffect(() => {
     if (!paperEditable) setEditingProblem(null)
   }, [paperEditable])
 
   React.useEffect(() => {
-    if (!cid || typeof window === 'undefined') return
+    if (typeof window === 'undefined') return
+    if (!cid) {
+      // 没有任何比赛可选：把残留的选择也抹掉，避免下次刷新又带回来。
+      localStorage.removeItem('forge_teacher_cid')
+      const stale = new URL(window.location.href)
+      if (stale.searchParams.has('contest')) {
+        stale.searchParams.delete('contest')
+        window.history.replaceState(null, '', `${stale.pathname}${stale.search}${stale.hash}`)
+      }
+      return
+    }
     localStorage.setItem('forge_teacher_cid', cid)
     const url = new URL(window.location.href)
     if (url.searchParams.get('contest') !== cid) {
@@ -326,9 +368,9 @@ export function TeacherConsole() {
     isError: problemsError,
     error: problemsErrorCause,
   } = useQuery({
-    queryKey: ['problems', cid],
-    queryFn: () => api.problems(cid),
-    enabled: !!cid,
+    queryKey: ['problems', activeCid],
+    queryFn: () => api.problems(activeCid),
+    enabled: !!activeCid,
   })
 
   const editingProblemId = editingProblem?.id
@@ -673,9 +715,9 @@ export function TeacherConsole() {
     isError: submissionsError,
     error: submissionsErrorCause,
   } = useQuery({
-    queryKey: ['submissions', cid],
-    queryFn: () => api.submissions(cid),
-    enabled: !!cid,
+    queryKey: ['submissions', activeCid],
+    queryFn: () => api.submissions(activeCid),
+    enabled: !!activeCid,
   })
 
   const {
@@ -684,14 +726,14 @@ export function TeacherConsole() {
     isError: ranksError,
     error: ranksErrorCause,
   } = useQuery({
-    queryKey: ['ranks', cid],
-    queryFn: () => api.ranking(cid),
-    enabled: !!cid,
+    queryKey: ['ranks', activeCid],
+    queryFn: () => api.ranking(activeCid),
+    enabled: !!activeCid,
   })
   const statisticsQuery = useQuery({
-    queryKey: ['statistics', cid],
-    queryFn: () => api.statistics(cid),
-    enabled: !!cid && activeTab === 'analytics',
+    queryKey: ['statistics', activeCid],
+    queryFn: () => api.statistics(activeCid),
+    enabled: !!activeCid && activeTab === 'analytics',
   })
   const statisticsProblems = statisticsQuery.data?.problems ?? []
   const queryFailures = [
@@ -716,7 +758,7 @@ export function TeacherConsole() {
   ].filter((item): item is NonNullable<typeof item> => item !== null)
 
   // SSE real-time listener
-  useSSE(cid, (type) => {
+  useSSE(activeCid, (type) => {
     if (type === 'stream.overflow') {
       void refetchSubmissions()
       void refetchRanks()
@@ -765,9 +807,20 @@ export function TeacherConsole() {
         newContestForm.description.trim(),
         newContestForm.rankingMode,
         [],
-        newContestForm.mode
+        newContestForm.mode,
+        {
+          season: newContestForm.season.trim(),
+          ticketGroup: newContestForm.ticketGroup || undefined,
+        }
       )
-      setNewContestForm({ name: '', description: '', rankingMode: 'oi', mode: 'online' })
+      setNewContestForm({
+        name: '',
+        description: '',
+        rankingMode: 'oi',
+        mode: 'online',
+        season: String(new Date().getFullYear()),
+        ticketGroup: '',
+      })
       setShowCreateContest(false)
       setCid(created.id)
       await refetchContests()
@@ -1047,6 +1100,7 @@ export function TeacherConsole() {
     setIsGeneratingCSP(true)
     try {
       const res = await api.generateCSPTickets({
+        season: cspSeason.trim() || undefined,
         province: cspProvince,
         group: cspGroup,
         numberLength: cspDigits,
@@ -1545,8 +1599,37 @@ export function TeacherConsole() {
               <option value="gesp">GESP 机考 · 客观题交卷即判</option>
             </Select>
           </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-700">准考证赛季</span>
+              <Input
+                placeholder="如 2026"
+                value={newContestForm.season}
+                onChange={(event) =>
+                  setNewContestForm({ ...newContestForm, season: event.target.value })
+                }
+              />
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-700">认证组别</span>
+              <Select
+                value={newContestForm.ticketGroup}
+                onChange={(event) =>
+                  setNewContestForm({
+                    ...newContestForm,
+                    ticketGroup: event.target.value as '' | 'J' | 'S',
+                  })
+                }
+              >
+                <option value="">不按准考证收题（普通在线赛）</option>
+                <option value="J">J · 入门级</option>
+                <option value="S">S · 提高级</option>
+              </Select>
+            </label>
+          </div>
           <p className="rounded-xl bg-slate-50 px-4 py-3 text-[11px] leading-5 text-slate-500">
-            新比赛以草稿创建。添加题目与考生后，再从顶部启动比赛。
+            新比赛以草稿创建。添加题目与考生后，再从顶部启动比赛。声明赛季与组别后，
+            收题包按「准考证号/题面英文名/英文名.cpp」组织，同赛季所有比赛共用一套号。
           </p>
         </div>
       </Dialog>
@@ -1665,6 +1748,32 @@ export function TeacherConsole() {
           aria-labelledby="teacher-tab-contests"
           className="grid gap-5 md:grid-cols-2"
         >
+          {!currentContest && (
+            <Card className="md:col-span-2">
+              <CardContent className="flex flex-col items-center justify-center gap-3 py-16 text-center">
+                <Layers className="h-10 w-10 text-slate-300" />
+                <p className="text-sm font-semibold text-slate-700">还没有任何比赛</p>
+                <p className="max-w-md text-xs leading-5 text-slate-500">
+                  新建一场比赛后，这里会显示试卷配置、榜单赛制与监考入口；也可以直接导入现成的比赛包。
+                </p>
+                <div className="flex gap-2 pt-1">
+                  <Button size="sm" className="gap-1.5" onClick={() => setShowCreateContest(true)}>
+                    <Plus className="h-3.5 w-3.5" /> 新建比赛
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5"
+                    onClick={() => setShowImportBundle(true)}
+                  >
+                    <Upload className="h-3.5 w-3.5" /> 导入比赛包
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+          {currentContest && (
+            <>
           <Card>
             <CardHeader>
               <CardTitle className="text-base flex items-center justify-between">
@@ -1713,6 +1822,71 @@ export function TeacherConsole() {
                 <div>
                   <span className="text-slate-400 text-xs block mb-1">试题数量:</span>
                   <p className="font-bold text-slate-800">{problems.length} 道题目</p>
+                </div>
+              </div>
+              {/* 准考证收题口径：比赛只引用（赛季, 组别），号在准考证表里 */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-xs font-bold text-slate-800">准考证收题口径</p>
+                    <p className="mt-0.5 text-[10px] text-slate-500">
+                      同一赛季同一组别的所有比赛共用一套准考证号；收题包按
+                      「准考证号/题面英文名/英文名.cpp」组织。清空则退回登录名目录。
+                    </p>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={!paperEditable}
+                    loading={pending === 'save-ticket-scope'}
+                    onClick={async () => {
+                      if (!cid) return
+                      setPending('save-ticket-scope')
+                      try {
+                        await api.updateContestSettings(cid, {
+                          season: ticketScopeDraft.season.trim(),
+                          ticketGroup: ticketScopeDraft.ticketGroup || undefined,
+                        })
+                        await refetchContests()
+                        toast.success('收题口径已保存')
+                      } catch (cause) {
+                        toast.error('保存收题口径失败', errorText(cause))
+                      } finally {
+                        setPending(null)
+                      }
+                    }}
+                    className="text-xs"
+                  >
+                    保存收题口径
+                  </Button>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                  <Input
+                    aria-label="准考证赛季"
+                    placeholder="如 2026"
+                    value={ticketScopeDraft.season}
+                    disabled={!paperEditable}
+                    onChange={(event) =>
+                      setTicketScopeDraft({ ...ticketScopeDraft, season: event.target.value })
+                    }
+                    className="h-9 text-xs"
+                  />
+                  <Select
+                    aria-label="认证组别"
+                    value={ticketScopeDraft.ticketGroup}
+                    disabled={!paperEditable}
+                    onChange={(event) =>
+                      setTicketScopeDraft({
+                        ...ticketScopeDraft,
+                        ticketGroup: event.target.value as '' | 'J' | 'S',
+                      })
+                    }
+                    className="h-9 text-xs"
+                  >
+                    <option value="">不按准考证收题（普通在线赛）</option>
+                    <option value="J">J · 入门级</option>
+                    <option value="S">S · 提高级</option>
+                  </Select>
                 </div>
               </div>
               <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
@@ -1783,6 +1957,8 @@ export function TeacherConsole() {
               <Scoreboard ranks={ranks} rankingMode={currentContest?.rankingMode} />
             </CardContent>
           </Card>
+            </>
+          )}
         </div>
       )}
 
@@ -1795,8 +1971,8 @@ export function TeacherConsole() {
           className="space-y-5"
         >
           {/* Group Management Section */}
-          <div className="grid gap-5 md:grid-cols-3">
-            <Card className="md:col-span-1">
+          <div className="grid gap-5 md:grid-cols-[280px_1fr]">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-sm">新建全局班级 / 组别</CardTitle>
               </CardHeader>
@@ -1898,7 +2074,7 @@ export function TeacherConsole() {
             </Card>
 
             {/* Users List & Creation */}
-            <Card className="md:col-span-2">
+            <Card>
               <CardHeader className="flex flex-row items-center justify-between pb-3">
                 <CardTitle className="text-sm">
                   全局学员名册 ({users.length} 人)
@@ -2016,8 +2192,8 @@ export function TeacherConsole() {
 
                 {/* Users Table */}
                 <div className="overflow-x-auto rounded-lg border border-slate-200">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 font-semibold text-slate-600 border-b border-slate-200">
+                  <table className="w-full min-w-[1000px] text-left text-xs">
+                    <thead className="whitespace-nowrap bg-slate-50 font-semibold text-slate-600 border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2">
                           <input
@@ -2038,6 +2214,7 @@ export function TeacherConsole() {
                         <th className="px-3 py-2">角色</th>
                         <th className="px-3 py-2">省份</th>
                         <th className="px-3 py-2">准考证号</th>
+                        <th className="px-3 py-2">密码</th>
                         <th className="px-3 py-2">所属组别</th>
                         <th className="px-3 py-2 text-right">账号操作</th>
                       </tr>
@@ -2056,7 +2233,7 @@ export function TeacherConsole() {
                                 onChange={() => toggleUserSelected(u.id)}
                               />
                             </td>
-                            <td className="px-3 py-2 font-medium">
+                            <td className="whitespace-nowrap px-3 py-2 font-medium">
                               <span className="text-slate-900 font-semibold">{u.name}</span>
                               {isDup && (
                                 <span className="ml-2 inline-flex items-center gap-0.5 text-[10px] bg-amber-50 text-amber-700 px-1.5 py-0.5 rounded border border-amber-200">
@@ -2082,7 +2259,18 @@ export function TeacherConsole() {
                             <td className="px-3 py-2 font-mono text-blue-800">
                               {u.examTicket || <span className="text-slate-500">—</span>}
                             </td>
-                            <td className="px-3 py-2 text-slate-500">
+                            <td className="px-3 py-2">
+                              {u.password ? (
+                                <span className="whitespace-nowrap rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 font-mono text-[11px] text-slate-700">
+                                  {u.password}
+                                </span>
+                              ) : u.hasPassword ? (
+                                <span className="text-[10px] text-slate-500">已设置（未记录）</span>
+                              ) : (
+                                <span className="text-[10px] text-slate-400">未设置</span>
+                              )}
+                            </td>
+                            <td className="whitespace-nowrap px-3 py-2 text-slate-500">
                               {u.groups && u.groups.length > 0 ? (
                                 u.groups.map((gid) => {
                                   const grp = groups.find((g) => g.id === gid)
@@ -2099,7 +2287,7 @@ export function TeacherConsole() {
                                 <span className="text-slate-500">未分班</span>
                               )}
                             </td>
-                            <td className="px-3 py-2 text-right">
+                            <td className="whitespace-nowrap px-3 py-2 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 {u.role === 'student' && (
                                   <Button
@@ -2136,6 +2324,15 @@ export function TeacherConsole() {
                                   className="h-7 gap-1 px-2 text-[10px] text-slate-600"
                                 >
                                   <KeyRound className="h-3 w-3" /> 重置密码
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={u.id === session?.userId}
+                                  onClick={() => setDeleteTarget(u)}
+                                  className="h-7 gap-1 px-2 text-[10px] text-red-600 disabled:text-slate-300"
+                                >
+                                  <Trash2 className="h-3 w-3" /> 删除
                                 </Button>
                               </div>
                             </td>
@@ -2177,6 +2374,20 @@ export function TeacherConsole() {
           aria-labelledby="teacher-tab-problems"
           className="space-y-5"
         >
+          {!currentContest && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+              <Layers className="h-4 w-4 shrink-0 text-slate-400" />
+              <span>当前还没有比赛，下面暂时是空的。</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto gap-1.5"
+                onClick={() => setShowCreateContest(true)}
+              >
+                <Plus className="h-3.5 w-3.5" /> 新建比赛
+              </Button>
+            </div>
+          )}
           {!paperEditable && currentContest && (
             <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950">
               <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-700" />
@@ -2475,6 +2686,20 @@ export function TeacherConsole() {
                   />
                 </div>
               </div>
+
+              {/* 题面英文名：收题包里的目录/文件名（<准考证号>/<slug>/<slug>.cpp） */}
+              {editingProblem.taskType !== 'choice' && (
+                <div>
+                  <Input
+                    placeholder="题面英文名 (slug，如 poker；小写字母开头，只含小写字母/数字/下划线)"
+                    value={editingProblem.slug || ''}
+                    onChange={(e) => setEditingProblem({ ...editingProblem, slug: e.target.value })}
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    CSP 复赛要求考生按「准考证号/英文名/英文名.cpp」保存答案；留空则收题包退回题号小写。
+                  </p>
+                </div>
+              )}
 
               {/* 文件式测试数据与自动评测点 */}
               {editingProblem.taskType !== 'choice' && editingProblem.id && (
@@ -3135,6 +3360,20 @@ export function TeacherConsole() {
           aria-labelledby="teacher-tab-analytics"
           className="space-y-5"
         >
+          {!currentContest && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-xs text-slate-600">
+              <Layers className="h-4 w-4 shrink-0 text-slate-400" />
+              <span>当前还没有比赛，下面暂时是空的。</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="ml-auto gap-1.5"
+                onClick={() => setShowCreateContest(true)}
+              >
+                <Plus className="h-3.5 w-3.5" /> 新建比赛
+              </Button>
+            </div>
+          )}
           <Card>
             <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 pb-3">
               <div>
@@ -3455,8 +3694,39 @@ export function TeacherConsole() {
           <CardHeader>
             <CardTitle className="text-base flex items-center justify-between">
               <span>提交流监控 (实时 SSE 连接)</span>
-              <span className="text-xs text-slate-400 font-normal">
-                最近载入 {submissions.length} 条提交记录
+              <span className="flex items-center gap-3">
+                <span className="text-xs text-slate-400 font-normal">
+                  最近载入 {submissions.length} 条提交记录
+                </span>
+                {cid && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    loading={pending === 'collect-zip'}
+                    onClick={async () => {
+                      setPending('collect-zip')
+                      try {
+                        // 先取清单：把缺号、缺英文名、白卷这些事讲在下载之前。
+                        const pkg = await api.collectManifest(cid)
+                        if (pkg.warnings?.length) {
+                          toast.warning('收题前请注意', pkg.warnings.slice(0, 5).join('\n'))
+                        }
+                        await api.downloadCollectZip(cid, pkg.season, pkg.group)
+                        toast.success(
+                          '收题包已导出',
+                          `共 ${pkg.entries.length} 份答卷${pkg.season ? `（${pkg.season}/${pkg.group}）` : ''}。`
+                        )
+                      } catch (cause) {
+                        toast.error('导出收题包失败', errorText(cause))
+                      } finally {
+                        setPending(null)
+                      }
+                    }}
+                    className="gap-1.5 text-xs"
+                  >
+                    <Download className="w-3.5 h-3.5" /> 导出收题包
+                  </Button>
+                )}
               </span>
             </CardTitle>
           </CardHeader>
@@ -3676,6 +3946,60 @@ export function TeacherConsole() {
       </Dialog>
 
       <Dialog
+        open={Boolean(deleteTarget)}
+        onClose={() => {
+          if (!deleteBusy) setDeleteTarget(null)
+        }}
+        title="删除账号"
+        eyebrow="Remove account"
+        width="sm"
+        footer={
+          <>
+            <Button variant="ghost" disabled={deleteBusy} onClick={() => setDeleteTarget(null)}>
+              取消
+            </Button>
+            <Button
+              loading={deleteBusy}
+              onClick={async () => {
+                if (!deleteTarget) return
+                setDeleteBusy(true)
+                try {
+                  await api.deleteUser(deleteTarget.id)
+                  toast.success(
+                    '账号已删除',
+                    `${deleteTarget.name}（${deleteTarget.username}）已从账号列表与所有名单中移除。`
+                  )
+                  setDeleteTarget(null)
+                  void refetchUsers()
+                } catch (cause) {
+                  toast.error('删除失败', errorText(cause))
+                } finally {
+                  setDeleteBusy(false)
+                }
+              }}
+            >
+              确认删除
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3 text-sm text-slate-600">
+          <p>
+            即将删除 <strong className="text-slate-900">{deleteTarget?.name}</strong>（
+            {deleteTarget?.username}）。
+          </p>
+          <ul className="list-disc space-y-1 pl-5 text-xs text-slate-500">
+            <li>账号、登录凭据与在线会话一并清除，立即失效</li>
+            <li>自动从所有班级花名册与比赛参赛名单中摘除</li>
+            <li>已分配的准考证号不会回收，该号码此后不再使用</li>
+          </ul>
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-[11px] leading-5 text-red-900">
+            此操作不可撤销。如需保留历史成绩，请先导出名单。
+          </p>
+        </div>
+      </Dialog>
+
+      <Dialog
         open={Boolean(editingUser)}
         onClose={() => setEditingUser(null)}
         title="编辑账号"
@@ -3876,6 +4200,16 @@ export function TeacherConsole() {
                 </Select>
               </div>
               <div>
+                <label className="mb-1 block font-semibold text-slate-700">赛季</label>
+                <Input
+                  aria-label="CSP 赛季"
+                  placeholder="如 2026"
+                  value={cspSeason}
+                  onChange={(e) => setCspSeason(e.target.value)}
+                  className="h-8 bg-white text-xs"
+                />
+              </div>
+              <div>
                 <label className="mb-1 block font-semibold text-slate-700">组别</label>
                 <Select
                   aria-label="CSP 组别"
@@ -3926,7 +4260,9 @@ export function TeacherConsole() {
                 预览号段：<span className="font-mono font-bold text-blue-800">
                   {cspProvince || '省份'}-{cspGroup}{'0'.repeat(Math.max(0, cspDigits - 1))}1
                 </span>
-                ～ 按本省本组当前最大序号续发，永不重号；统一初始密码只作用于新建账号。
+                ～ {cspSeason.trim() || '当前赛季'} 内按本省本组当前最大序号续发，永不重号；
+                同一赛季所有比赛共用这套号（考生答题文件夹名保持不变），跨赛季重新起号；
+                统一初始密码只作用于新建账号。
               </p>
             </div>
           )}

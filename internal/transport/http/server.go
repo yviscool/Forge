@@ -338,6 +338,8 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 				RankingMode      string   `json:"rankingMode"`
 				Mode             string   `json:"mode"`
 				AllowedLanguages []string `json:"allowedLanguages"`
+				Season           string   `json:"season"`
+				TicketGroup      string   `json:"ticketGroup"`
 			}
 			if decode(r, &v) != nil {
 				h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -350,6 +352,12 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			}
 			if len(v.AllowedLanguages) > 0 {
 				if c, err = h.svc.SetContestLanguages(c.ID, v.AllowedLanguages); err != nil {
+					h.err(w, r, 400, err)
+					return
+				}
+			}
+			if v.Season != "" || v.TicketGroup != "" {
+				if c, err = h.svc.SetContestTicketScope(c.ID, v.Season, v.TicketGroup); err != nil {
 					h.err(w, r, 400, err)
 					return
 				}
@@ -435,7 +443,16 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
 				return
 			}
-			writeOut(w, h.svc.ListUsers(), 200)
+			users := h.svc.ListUsers()
+			out := make([]userView, 0, len(users))
+			for _, u := range users {
+				out = append(out, userView{
+					User:        u,
+					HasPassword: h.svc.HasPassword(u.ID),
+					Password:    h.svc.PasswordPlain(u.ID),
+				})
+			}
+			writeOut(w, out, 200)
 		case "POST":
 			r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
 			if !ok {
@@ -546,6 +563,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		var v struct {
 			Province     string   `json:"province"`
 			Group        string   `json:"group"`
+			Season       string   `json:"season"`
 			NumberLength int      `json:"numberLength"`
 			CreateCount  int      `json:"createCount"`
 			UserIDs      []string `json:"userIds"`
@@ -559,6 +577,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		assignments, err := h.svc.AssignCSPTickets(sess.Role, app.CSPTicketRequest{
 			Province:     v.Province,
 			Group:        v.Group,
+			Season:       v.Season,
 			NumberLength: v.NumberLength,
 			CreateCount:  v.CreateCount,
 			UserIDs:      v.UserIDs,
@@ -583,10 +602,23 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /users/{id}（PUT 编辑账号：姓名/登录名/角色/省份）
+	// /users/{id}（PUT 编辑账号；DELETE 删除账号）
 	if len(parts) == 2 && parts[0] == "users" &&
 		parts[1] != "import" && parts[1] != "export" &&
 		parts[1] != "batch-province" && parts[1] != "csp-tickets" {
+		if r.Method == "DELETE" {
+			r2, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin)
+			if !ok {
+				return
+			}
+			sess, _ := sessionOf(r2)
+			if err := h.svc.DeleteUser(sess.Role, sess.UserID, parts[1]); err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+			writeOut(w, map[string]bool{"ok": true}, 200)
+			return
+		}
 		if r.Method != "PUT" {
 			h.err(w, r, 405, fmt.Errorf("method not allowed"))
 			return
@@ -1111,7 +1143,7 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 
-	// /contests/{cid}/settings（教师：榜单模式/语言白名单）
+	// /contests/{cid}/settings（教师：榜单模式/语言白名单/赛季与组别）
 	if len(rest) == 2 && rest[1] == "settings" && r.Method == "PUT" {
 		if _, ok := h.requireRole(w, r, domain.RoleTeacher, domain.RoleAdmin); !ok {
 			return
@@ -1120,6 +1152,8 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 			RankingMode      *string   `json:"rankingMode"`
 			Mode             *string   `json:"mode"`
 			AllowedLanguages *[]string `json:"allowedLanguages"`
+			Season           *string   `json:"season"`
+			TicketGroup      *string   `json:"ticketGroup"`
 		}
 		if decode(r, &v) != nil {
 			h.err(w, r, 400, fmt.Errorf("invalid json"))
@@ -1148,7 +1182,26 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 				return
 			}
 		}
+		if v.Season != nil || v.TicketGroup != nil {
+			season, group := c.Season, c.TicketGroup
+			if v.Season != nil {
+				season = *v.Season
+			}
+			if v.TicketGroup != nil {
+				group = *v.TicketGroup
+			}
+			if c, err = h.svc.SetContestTicketScope(cid, season, group); err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+		}
 		writeOut(w, c, 200)
+		return
+	}
+
+	// /contests/{cid}/collect（收题包导出：准考证号/英文名/英文名.cpp 的 zip）
+	if len(rest) == 2 && rest[1] == "collect" && r.Method == "GET" {
+		h.collectRoute(w, r, cid)
 		return
 	}
 
@@ -1900,4 +1953,13 @@ func (h *Server) redactSubmissions(r *http.Request, cid string, subs []domain.Su
 		}
 	}
 	return out
+}
+
+// userView 是账号列表的对外形态：在领域模型之上补口令状态与明文口令。
+// 明文只服务教师端"当面念给考生"的场景，鉴权仍然只比对 bcrypt 哈希；
+// 该结构只出现在教师/管理员可访问的 /users 列表里。
+type userView struct {
+	domain.User
+	HasPassword bool   `json:"hasPassword"`
+	Password    string `json:"password,omitempty"`
 }

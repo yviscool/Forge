@@ -267,6 +267,19 @@ func PasswordsAndSessions(t *testing.T, s ports.Store) {
 	if h, _ := s.GetPasswordHash(u.ID); h != "bcrypt-hash" {
 		t.Fatal("hash round-trip broken")
 	}
+	// 明文口令（考点统一发号场景）：教师可读，鉴权不消费。
+	if p, err := s.GetPasswordPlain(u.ID); err != nil || p != "" {
+		t.Fatalf("absent plain should be empty: %q %v", p, err)
+	}
+	if err := s.SetPasswordPlain("ghost", "x"); err == nil {
+		t.Fatal("ghost plain set should error")
+	}
+	if err := s.SetPasswordPlain(u.ID, "paper-plain"); err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := s.GetPasswordPlain(u.ID); p != "paper-plain" {
+		t.Fatalf("plain round-trip broken: %q", p)
+	}
 	if _, err := s.GetSession("ghost"); err == nil {
 		t.Fatal("ghost session should error")
 	}
@@ -351,6 +364,146 @@ func TransactionSemantics(t *testing.T, s ports.Store) {
 	}
 	if u, err := s.GetUser("tx-u2"); err != nil || u.Name != "TxUser2" {
 		t.Fatalf("tx-u2 should exist after commit: %+v %v", u, err)
+	}
+}
+
+// Tickets 准考证契约：唯一键 (userID, season, group)，号码在（赛季, 组别）内
+// 唯一，大小写不敏感；列表按（赛季, 组别, 号码）稳定排序。
+func Tickets(t *testing.T, s ports.Store) {
+	t.Helper()
+	u1, err := s.CreateUser(domain.User{Name: "甲", Role: "student"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u2, err := s.CreateUser(domain.User{Name: "乙", Role: "student"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mk := func(u domain.User, season, group, number string) domain.Ticket {
+		return domain.Ticket{
+			UserID: u.ID, Season: season, Group: group,
+			Province: "HA", Number: number,
+			CreatedAt: time.Now().UTC(),
+		}
+	}
+
+	t1, err := s.CreateTicket(mk(u1, "2026", "J", "HA-J00001"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(t1.ID, "tkt-") {
+		t.Fatalf("ticket id prefix broken: %s", t1.ID)
+	}
+	// 预置 ID 必须保留（sqlite 幂等迁移依赖稳定的 legacy ID）。
+	preset, err := s.CreateTicket(domain.Ticket{
+		ID: "tkt-fixed", UserID: u2.ID, Season: "2026", Group: "S",
+		Province: "HA", Number: "HA-S00001",
+	})
+	if err != nil || preset.ID != "tkt-fixed" {
+		t.Fatalf("preset id kept: %+v err=%v", preset, err)
+	}
+
+	// 同一人同赛季同组别只能有一张号（大小写不敏感）。
+	if _, err := s.CreateTicket(mk(u1, "2026", "J", "HA-J00009")); err == nil {
+		t.Fatal("duplicate (user, season, group) must be rejected")
+	}
+	if _, err := s.CreateTicket(mk(u1, "2026", "j", "HA-J00010")); err == nil {
+		t.Fatal("group comparison must be case-insensitive")
+	}
+	// 号码在（赛季, 组别）内不重复——即使是另一个人。
+	if _, err := s.CreateTicket(mk(u2, "2026", "J", "ha-j00001")); err == nil {
+		t.Fatal("duplicate ticket number within (season, group) must be rejected")
+	}
+	// 不同组别/不同赛季互不影响：同一人可以 J/S 双号、跨赛季重新发号。
+	if _, err := s.CreateTicket(mk(u1, "2026", "S", "HA-S00002")); err != nil {
+		t.Fatalf("same user may hold a ticket per group: %v", err)
+	}
+	if _, err := s.CreateTicket(mk(u1, "2027", "J", "HA-J00001")); err != nil {
+		t.Fatalf("new season restarts numbering: %v", err)
+	}
+
+	got, err := s.GetTicket(t1.ID)
+	if err != nil || got.Number != "HA-J00001" {
+		t.Fatalf("ticket round-trip: %+v %v", got, err)
+	}
+	if _, err := s.GetTicket("ghost"); err == nil {
+		t.Fatal("missing ticket should error")
+	}
+
+	got.Number = "HA-J00111"
+	if err := s.UpdateTicket(got); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := s.GetTicket(t1.ID); again.Number != "HA-J00111" {
+		t.Fatal("ticket update lost")
+	}
+	if err := s.UpdateTicket(domain.Ticket{ID: "ghost"}); err == nil {
+		t.Fatal("update ghost ticket should error")
+	}
+
+	all, err := s.ListTickets()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(all) != 4 {
+		t.Fatalf("tickets = %d, want 4", len(all))
+	}
+	for i := 1; i < len(all); i++ {
+		a, b := all[i-1], all[i]
+		if a.Season > b.Season ||
+			(a.Season == b.Season && a.Group > b.Group) ||
+			(a.Season == b.Season && a.Group == b.Group && a.Number > b.Number) {
+			t.Fatalf("tickets must sort by (season, group, number): %+v", all)
+		}
+	}
+
+	if err := s.DeleteTicket("tkt-fixed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetTicket("tkt-fixed"); err == nil {
+		t.Fatal("deleted ticket should be gone")
+	}
+	if err := s.DeleteTicket("tkt-fixed"); err == nil {
+		t.Fatal("deleting a missing ticket should error")
+	}
+}
+
+// DeleteUserCascade 删除账号必须连带清掉凭据、明文、会话；账号本身消失后
+// 重复删除报错。名单与准考证的引用清理属于服务层职责，不在端口契约内。
+func DeleteUserCascade(t *testing.T, s ports.Store) {
+	t.Helper()
+	u, err := s.CreateUser(domain.User{Name: "Gone", Role: "student"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPasswordHash(u.ID, "hash"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetPasswordPlain(u.ID, "plain"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SaveSession(domain.Session{Token: "tok-gone", UserID: u.ID}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteUser(u.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetUser(u.ID); err == nil {
+		t.Fatal("deleted user should be gone")
+	}
+	// 账号消失后凭据读取要么报"不存在"要么回空串，但绝不能回真值。
+	if h, _ := s.GetPasswordHash(u.ID); h != "" {
+		t.Fatalf("credentials must be wiped with the account: %q", h)
+	}
+	if p, _ := s.GetPasswordPlain(u.ID); p != "" {
+		t.Fatalf("plain password must be wiped with the account: %q", p)
+	}
+	if _, err := s.GetSession("tok-gone"); err == nil {
+		t.Fatal("sessions must be wiped with the account")
+	}
+	if err := s.DeleteUser(u.ID); err == nil {
+		t.Fatal("deleting a missing user should error")
 	}
 }
 

@@ -24,8 +24,11 @@ type Store struct {
 	problems    map[string]domain.Problem
 	submissions map[string]domain.Submission
 	subByReqID  map[string]string
+	tickets     map[string]domain.Ticket
 	passwords   map[string]string
-	sessions    map[string]domain.Session
+	// passwordPlain 教师可见的明文口令（统一发号场景）；登录校验仍只读 passwords。
+	passwordPlain map[string]string
+	sessions      map[string]domain.Session
 	// provinceStates 省份启用状态覆盖（编号 → 是否启用）；nil 视为全部启用。
 	provinceStates map[string]bool
 	// codeVersions 代码版本仓，按 "cid|pid|uid" 分桶，追加序即 Seq。
@@ -43,7 +46,9 @@ func New() *Store {
 		problems:       map[string]domain.Problem{},
 		submissions:    map[string]domain.Submission{},
 		subByReqID:     map[string]string{},
+		tickets:        map[string]domain.Ticket{},
 		passwords:      map[string]string{},
+		passwordPlain:  map[string]string{},
 		sessions:       map[string]domain.Session{},
 		provinceStates: map[string]bool{},
 		codeVersions:   map[string][]domain.CodeVersion{},
@@ -111,7 +116,9 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 		problems:       cloneMap(s.problems),
 		submissions:    cloneMap(s.submissions),
 		subByReqID:     cloneMap(s.subByReqID),
+		tickets:        cloneMap(s.tickets),
 		passwords:      cloneMap(s.passwords),
+		passwordPlain:  cloneMap(s.passwordPlain),
 		sessions:       cloneMap(s.sessions),
 		provinceStates: cloneMap(s.provinceStates),
 		codeVersions:   cloneCodeVersions(s.codeVersions),
@@ -129,7 +136,9 @@ func (s *Store) WithTx(ctx context.Context, fn func(tx ports.Store) error) error
 	s.problems = tx.problems
 	s.submissions = tx.submissions
 	s.subByReqID = tx.subByReqID
+	s.tickets = tx.tickets
 	s.passwords = tx.passwords
+	s.passwordPlain = tx.passwordPlain
 	s.sessions = tx.sessions
 	s.provinceStates = tx.provinceStates
 	s.codeVersions = tx.codeVersions
@@ -237,6 +246,81 @@ func (s *Store) SetProvinceState(code string, enabled bool) error {
 		return fmt.Errorf("unknown province %q", code)
 	}
 	s.provinceStates[canonical.Code] = enabled
+	return nil
+}
+
+func (s *Store) CreateTicket(t domain.Ticket) (domain.Ticket, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	t = domain.NormalizeTicket(t)
+	if t.ID == "" {
+		t.ID = s.nextLocked("tkt")
+	}
+	for _, existing := range s.tickets {
+		if existing.ID == t.ID {
+			continue
+		}
+		if existing.UserID == t.UserID &&
+			strings.EqualFold(existing.Season, t.Season) &&
+			strings.EqualFold(existing.Group, t.Group) {
+			return domain.Ticket{}, errors.New("ticket already exists for this candidate in the season")
+		}
+		if strings.EqualFold(existing.Season, t.Season) &&
+			strings.EqualFold(existing.Group, t.Group) &&
+			strings.EqualFold(existing.Number, t.Number) {
+			return domain.Ticket{}, fmt.Errorf("ticket %s already assigned in season %s", t.Number, t.Season)
+		}
+	}
+	s.tickets[t.ID] = t
+	return t, nil
+}
+
+func (s *Store) GetTicket(id string) (domain.Ticket, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	t, ok := s.tickets[id]
+	if !ok {
+		return domain.Ticket{}, errors.New("ticket not found")
+	}
+	return t, nil
+}
+
+func (s *Store) ListTickets() ([]domain.Ticket, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]domain.Ticket, 0, len(s.tickets))
+	for _, t := range s.tickets {
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Season != out[j].Season {
+			return out[i].Season < out[j].Season
+		}
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		return out[i].Number < out[j].Number
+	})
+	return out, nil
+}
+
+func (s *Store) UpdateTicket(t domain.Ticket) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tickets[t.ID]; !ok {
+		return errors.New("ticket not found")
+	}
+	s.tickets[t.ID] = domain.NormalizeTicket(t)
+	return nil
+}
+
+func (s *Store) DeleteTicket(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.tickets[id]; !ok {
+		return errors.New("ticket not found")
+	}
+	delete(s.tickets, id)
 	return nil
 }
 
@@ -543,6 +627,42 @@ func (s *Store) GetPasswordHash(userID string) (string, error) {
 		return "", errors.New("user not found")
 	}
 	return s.passwords[userID], nil
+}
+
+func (s *Store) SetPasswordPlain(userID, plain string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[userID]; !ok {
+		return errors.New("user not found")
+	}
+	s.passwordPlain[userID] = plain
+	return nil
+}
+
+func (s *Store) GetPasswordPlain(userID string) (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if _, ok := s.users[userID]; !ok {
+		return "", errors.New("user not found")
+	}
+	return s.passwordPlain[userID], nil
+}
+
+func (s *Store) DeleteUser(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.users[id]; !ok {
+		return errors.New("user not found")
+	}
+	delete(s.users, id)
+	delete(s.passwords, id)
+	delete(s.passwordPlain, id)
+	for token, sess := range s.sessions {
+		if sess.UserID == id {
+			delete(s.sessions, token)
+		}
+	}
+	return nil
 }
 
 func (s *Store) SaveSession(sess domain.Session) error {

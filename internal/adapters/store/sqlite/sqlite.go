@@ -20,7 +20,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const schemaVersion = 8
+const schemaVersion = 10
 
 type dbExecutor interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -51,6 +51,10 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	if err := migrateLegacyContestZipPasswords(db); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := migrateLegacyExamTickets(db); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -242,6 +246,44 @@ func migrate(db *sql.DB) error {
 			}
 		}
 		v = 8
+	}
+	if v < 9 {
+		ddl := []string{
+			// 考点统一发号场景需要教师把口令念给考生：明文随凭据一起存，
+			// 只经教师/管理员接口返回，学生端不读。空串表示历史账号未记录。
+			`ALTER TABLE credentials ADD COLUMN plain TEXT NOT NULL DEFAULT ''`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v9: %w", err)
+			}
+		}
+		v = 9
+	}
+
+	if v < 10 {
+		ddl := []string{
+			// 准考证独立成表：号是「身份」而非「场次」，唯一键 (userID, season, group)。
+			`CREATE TABLE IF NOT EXISTS tickets (
+				id TEXT PRIMARY KEY,
+				user_id TEXT NOT NULL,
+				season TEXT NOT NULL,
+				data TEXT NOT NULL
+			)`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_identity
+			 ON tickets(user_id, season, json_extract(data, '$.group'))`,
+			`CREATE UNIQUE INDEX IF NOT EXISTS idx_tickets_number
+			 ON tickets(season, json_extract(data, '$.group'),
+			            upper(json_extract(data, '$.number')))`,
+			`CREATE INDEX IF NOT EXISTS idx_tickets_scope
+			 ON tickets(season, json_extract(data, '$.group'))`,
+		}
+		for _, q := range ddl {
+			if _, err := db.Exec(q); err != nil {
+				return fmt.Errorf("migrate schema v10: %w", err)
+			}
+		}
+		v = 10
 	}
 	if v != schemaVersion {
 		return fmt.Errorf("unsupported sqlite schema version %d (want %d)", v, schemaVersion)
@@ -443,6 +485,7 @@ const (
 	tContests = "contests"
 	tProblems = "problems"
 	tSubs     = "submissions"
+	tTickets  = "tickets"
 )
 
 func (s *Store) NextID(prefix string) string {
@@ -476,6 +519,79 @@ func (s *Store) ListUsers() ([]domain.User, error) {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out, nil
+}
+
+func (s *Store) CreateTicket(t domain.Ticket) (domain.Ticket, error) {
+	if t.ID == "" {
+		t.ID = s.NextID("tkt")
+	}
+	if err := s.putTicket(t); err != nil {
+		return domain.Ticket{}, err
+	}
+	return t, nil
+}
+
+// putTicket 写入准考证。唯一索引兜底两件事：同赛季同组别一人一号，
+// 以及号码在（赛季, 组别）内不重复。
+func (s *Store) putTicket(t domain.Ticket) error {
+	t = domain.NormalizeTicket(t)
+	data, err := marshal(t)
+	if err != nil {
+		return err
+	}
+	_, err = s.ex.Exec(
+		`INSERT INTO tickets(id, user_id, season, data) VALUES(?, ?, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET user_id=excluded.user_id, season=excluded.season, data=excluded.data`,
+		t.ID, t.UserID, domain.NormalizeSeason(t.Season), data,
+	)
+	if err != nil && isUniqueViolation(err) {
+		return fmt.Errorf("ticket %s already assigned in season %s", t.Number, t.Season)
+	}
+	return err
+}
+
+func (s *Store) GetTicket(id string) (domain.Ticket, error) {
+	var t domain.Ticket
+	if err := s.get(tTickets, id, &t, "ticket"); err != nil {
+		return domain.Ticket{}, err
+	}
+	return t, nil
+}
+
+func (s *Store) ListTickets() ([]domain.Ticket, error) {
+	var out []domain.Ticket
+	if err := s.listAll(tTickets, &out); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Season != out[j].Season {
+			return out[i].Season < out[j].Season
+		}
+		if out[i].Group != out[j].Group {
+			return out[i].Group < out[j].Group
+		}
+		return out[i].Number < out[j].Number
+	})
+	return out, nil
+}
+
+func (s *Store) UpdateTicket(t domain.Ticket) error {
+	// Update 不得凭空造号：putTicket 是幂等 upsert，这里先确认存在。
+	if _, err := s.GetTicket(t.ID); err != nil {
+		return err
+	}
+	return s.putTicket(t)
+}
+
+func (s *Store) DeleteTicket(id string) error {
+	res, err := s.ex.Exec(`DELETE FROM tickets WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, rowsErr := res.RowsAffected(); rowsErr == nil && n == 0 {
+		return notFound("ticket")
+	}
+	return nil
 }
 
 func (s *Store) UpdateUser(u domain.User) error {
@@ -910,6 +1026,46 @@ func (s *Store) GetPasswordHash(userID string) (string, error) {
 	return hash, nil
 }
 
+// SetPasswordPlain 记录教师可见的明文口令（考点统一发号场景）。
+// 登录校验仍然只读 hash，明文不参与任何鉴权判断。
+func (s *Store) SetPasswordPlain(userID, plain string) error {
+	if _, err := s.GetUser(userID); err != nil {
+		return err
+	}
+	_, err := s.ex.Exec(`UPDATE credentials SET plain=? WHERE user_id=?`, plain, userID)
+	return err
+}
+
+func (s *Store) GetPasswordPlain(userID string) (string, error) {
+	if _, err := s.GetUser(userID); err != nil {
+		return "", err
+	}
+	var plain string
+	if err := s.ex.QueryRow(`SELECT plain FROM credentials WHERE user_id=?`, userID).Scan(&plain); err == sql.ErrNoRows {
+		return "", nil
+	} else if err != nil {
+		return "", err
+	}
+	return plain, nil
+}
+
+// DeleteUser 物理删除账号并连带清除凭据与会话。
+// 比赛名单、分组里的悬空引用由服务层在同一事务内先行清理。
+func (s *Store) DeleteUser(id string) error {
+	res, err := s.ex.Exec(`DELETE FROM users WHERE id=?`, id)
+	if err != nil {
+		return err
+	}
+	if n, rowsErr := res.RowsAffected(); rowsErr == nil && n == 0 {
+		return errors.New("user not found")
+	}
+	if _, err := s.ex.Exec(`DELETE FROM credentials WHERE user_id=?`, id); err != nil {
+		return err
+	}
+	_, err = s.ex.Exec(`DELETE FROM sessions WHERE user_id=?`, id)
+	return err
+}
+
 func (s *Store) SaveSession(sess domain.Session) error {
 	data, err := marshal(sess)
 	if err != nil {
@@ -973,4 +1129,80 @@ func (s *Store) DeleteExpiredSessions(now time.Time) (int, error) {
 		}
 	}
 	return len(expired), nil
+}
+
+// isUniqueViolation 识别 sqlite 的唯一索引冲突，便于把底层错误翻译成
+// 业务可读的提示（例如"该考生本赛季已有准考证"）。
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+// migrateLegacyExamTickets 把历史上挂在 users.examTicket 上的号搬进 tickets 表。
+// 号本身携带省份与组别（HA-J00001），赛季取当前年份；已存在的记录跳过，
+// 因此可以安全地重复执行。users.examTicket 保留为冗余展示字段。
+func migrateLegacyExamTickets(db *sql.DB) error {
+	rows, err := db.Query(`SELECT id, data FROM users
+		WHERE COALESCE(json_extract(data, '$.examTicket'), '') <> ''`)
+	if err != nil {
+		return err
+	}
+	type legacy struct {
+		id     string
+		ticket string
+	}
+	var pending []legacy
+	for rows.Next() {
+		var id, data string
+		if err := rows.Scan(&id, &data); err != nil {
+			rows.Close()
+			return err
+		}
+		var u domain.User
+		if err := json.Unmarshal([]byte(data), &u); err != nil {
+			continue
+		}
+		if u.ExamTicket == "" {
+			continue
+		}
+		pending = append(pending, legacy{id: id, ticket: u.ExamTicket})
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(pending) == 0 {
+		return nil
+	}
+
+	season := fmt.Sprintf("%d", time.Now().Year())
+	for _, item := range pending {
+		province, group, _, ok := domain.ParseTicket(item.ticket)
+		if !ok {
+			continue
+		}
+		t := domain.Ticket{
+			ID:        "tkt-legacy-" + item.id,
+			UserID:    item.id,
+			Season:    season,
+			Group:     group,
+			Province:  province,
+			Number:    item.ticket,
+			CreatedAt: time.Now(),
+		}
+		data, err := marshal(t)
+		if err != nil {
+			return err
+		}
+		if _, err := db.Exec(
+			`INSERT OR IGNORE INTO tickets(id, user_id, season, data) VALUES(?, ?, ?, ?)`,
+			t.ID, t.UserID, t.Season, data,
+		); err != nil {
+			return fmt.Errorf("migrate exam ticket for %s: %w", item.id, err)
+		}
+	}
+	return nil
 }

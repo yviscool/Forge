@@ -188,6 +188,9 @@ func (s *Service) BatchSetProvince(actorRole string, userIDs []string, province 
 // CSPTicketRequest CSP 准考证号分配请求：CreateCount>0 时批量创建考生账号；
 // 否则把号段分配给 UserIDs 指定的既有账号（教师只能给可管理的学生发号）。
 type CSPTicketRequest struct {
+	// Season 赛季标识（如 "2026"）。号在（赛季, 组别）内递增，同一赛季的
+	// 所有比赛共用同一套号；空值回落到当前年份。
+	Season       string
 	Province     string
 	Group        string
 	NumberLength int
@@ -200,12 +203,15 @@ type CSPTicketRequest struct {
 type CSPTicketAssignment struct {
 	User    domain.User `json:"user"`
 	Ticket  string      `json:"ticket"`
+	Season  string      `json:"season"`
+	Group   string      `json:"group"`
 	Created bool        `json:"created"`
 }
 
-// AssignCSPTickets 按省份+组别从当前最大序号之后连续发号，
-// 号码长度只影响补零宽度（超宽自然升位），同一 (省份, 组别) 永不重号。
-// 事务内完成取号与写库；sqlite 侧另有 exam_ticket 唯一索引兜底。
+// AssignCSPTickets 按（赛季, 组别）从当前最大序号之后连续发号，
+// 号码长度只影响补零宽度（超宽自然升位），同一（赛季, 组别）永不重号。
+// 号是身份而非场次：同一赛季内所有比赛共用同一套号，学生答题文件夹名
+// 在整个赛季里保持不变。
 func (s *Service) AssignCSPTickets(actorRole string, req CSPTicketRequest) ([]CSPTicketAssignment, error) {
 	province, err := s.normalizeEnabledProvince(req.Province)
 	if err != nil {
@@ -213,6 +219,13 @@ func (s *Service) AssignCSPTickets(actorRole string, req CSPTicketRequest) ([]CS
 	}
 	if province == "" {
 		return nil, errors.New("province is required")
+	}
+	season := domain.NormalizeSeason(req.Season)
+	if season == "" {
+		season = domain.CurrentSeason(s.clock.Now())
+	}
+	if err := domain.ValidateSeason(season); err != nil {
+		return nil, err
 	}
 	group := domain.NormalizeTicketGroup(req.Group)
 	if !domain.ValidTicketGroup(group) {
@@ -242,35 +255,73 @@ func (s *Service) AssignCSPTickets(actorRole string, req CSPTicketRequest) ([]CS
 	var out []CSPTicketAssignment
 	err = s.withTx(func(tx ports.Store) error {
 		out = nil
-		users, err := tx.ListUsers()
+		tickets, err := tx.ListTickets()
 		if err != nil {
 			return err
 		}
 		next := 1
-		for _, u := range users {
-			if n, ok := domain.ParseCSPTicketNumber(u.ExamTicket, province, group); ok && n >= next {
+		for _, t := range tickets {
+			if !t.BelongsTo(season, group) || t.Province != province {
+				continue
+			}
+			if n, ok := domain.ParseCSPTicketNumber(t.Number, province, group); ok && n >= next {
 				next = n + 1
 			}
 		}
 
-		issue := func() string {
-			ticket := domain.FormatCSPTicket(province, group, next, digits)
+		// taken 跟踪本次事务内已发出的（考生, 组别），避免同一批里重复发号。
+		taken := map[string]bool{}
+		for _, t := range tickets {
+			if t.BelongsTo(season, group) {
+				taken[t.UserID] = true
+			}
+		}
+
+		issue := func(userID string) (domain.Ticket, error) {
+			number := domain.FormatCSPTicket(province, group, next, digits)
 			next++
-			return ticket
+			return tx.CreateTicket(domain.Ticket{
+				ID:        tx.NextID("tkt"),
+				UserID:    userID,
+				Season:    season,
+				Group:     group,
+				Province:  province,
+				Number:    number,
+				CreatedAt: s.clock.Now(),
+			})
 		}
 
 		if req.CreateCount > 0 {
 			for i := 0; i < req.CreateCount; i++ {
-				ticket := issue()
-				created, err := s.createStudentWithTicket(tx, province, ticket)
+				number := domain.FormatCSPTicket(province, group, next, digits)
+				next++
+				created, err := s.createStudentWithTicket(tx, season, province, group, number)
 				if err != nil {
 					return err
 				}
-				out = append(out, CSPTicketAssignment{User: created, Ticket: ticket, Created: true})
+				if _, err := tx.CreateTicket(domain.Ticket{
+					ID:        tx.NextID("tkt"),
+					UserID:    created.ID,
+					Season:    season,
+					Group:     group,
+					Province:  province,
+					Number:    number,
+					CreatedAt: s.clock.Now(),
+				}); err != nil {
+					return err
+				}
+				taken[created.ID] = true
+				out = append(out, CSPTicketAssignment{
+					User: created, Ticket: number, Season: season, Group: group, Created: true,
+				})
 			}
 			return nil
 		}
 
+		users, err := tx.ListUsers()
+		if err != nil {
+			return err
+		}
 		byID := make(map[string]domain.User, len(users))
 		for _, u := range users {
 			byID[u.ID] = u
@@ -286,16 +337,25 @@ func (s *Service) AssignCSPTickets(actorRole string, req CSPTicketRequest) ([]CS
 			if target.Province != "" && target.Province != province {
 				return fmt.Errorf("user %s already belongs to province %s", target.Username, target.Province)
 			}
-			if target.ExamTicket != "" {
-				return fmt.Errorf("user %s already has ticket %s", target.Username, target.ExamTicket)
+			if taken[id] {
+				return fmt.Errorf("user %s already has a %s ticket for season %s", target.Username, group, season)
 			}
-			ticket := issue()
-			target.Province = province
-			target.ExamTicket = ticket
-			if err := tx.UpdateUser(target); err != nil {
+			issued, err := issue(id)
+			if err != nil {
 				return err
 			}
-			out = append(out, CSPTicketAssignment{User: target, Ticket: ticket, Created: false})
+			taken[id] = true
+			// users.examTicket 保留为冗余展示字段（主号）；权威数据在 tickets 表。
+			if target.Province == "" || target.ExamTicket == "" {
+				target.Province = province
+				target.ExamTicket = issued.Number
+				if err := tx.UpdateUser(target); err != nil {
+					return err
+				}
+			}
+			out = append(out, CSPTicketAssignment{
+				User: target, Ticket: issued.Number, Season: season, Group: group, Created: false,
+			})
 		}
 		return nil
 	})
@@ -307,7 +367,7 @@ func (s *Service) AssignCSPTickets(actorRole string, req CSPTicketRequest) ([]CS
 
 // createStudentWithTicket 在事务内创建一名带准考证号的考生账号。
 // 登录名取准考证号的紧凑小写形式；历史遗留同名时自动加后缀，准考证号本身不受影响。
-func (s *Service) createStudentWithTicket(tx ports.Store, province, ticket string) (domain.User, error) {
+func (s *Service) createStudentWithTicket(tx ports.Store, season, province, group, ticket string) (domain.User, error) {
 	compact := strings.ToLower(strings.NewReplacer("-", "", " ", "").Replace(ticket))
 	name := "考生" + ticket
 	users, err := tx.ListUsers()
@@ -338,6 +398,44 @@ func (s *Service) createStudentWithTicket(tx ports.Store, province, ticket strin
 		Groups:     []string{},
 		CreatedAt:  s.clock.Now(),
 	})
+}
+
+// ListTickets 返回准考证列表；season / group 为空表示不筛选。
+func (s *Service) ListTickets(season, group string) ([]domain.Ticket, error) {
+	all, err := s.store.ListTickets()
+	if err != nil {
+		return nil, err
+	}
+	season = domain.NormalizeSeason(season)
+	group = domain.NormalizeTicketGroup(group)
+	if season == "" && group == "" {
+		return all, nil
+	}
+	out := make([]domain.Ticket, 0, len(all))
+	for _, t := range all {
+		if season != "" && !strings.EqualFold(t.Season, season) {
+			continue
+		}
+		if group != "" && domain.NormalizeTicketGroup(t.Group) != group {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out, nil
+}
+
+// TicketFor 查找某考生在指定（赛季, 组别）下的准考证号；没有则返回空串。
+func (s *Service) TicketFor(userID, season, group string) (domain.Ticket, bool) {
+	all, err := s.store.ListTickets()
+	if err != nil {
+		return domain.Ticket{}, false
+	}
+	for _, t := range all {
+		if t.UserID == userID && t.BelongsTo(season, group) {
+			return t, true
+		}
+	}
+	return domain.Ticket{}, false
 }
 
 // ListProvinces 返回内置省份 + 启用状态 + 各省用户数（含教师/管理员以外全部账号）。

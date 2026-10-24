@@ -12,4 +12,6 @@ func TestStoreConformance(t *testing.T) {
 	storetest.TransactionSemantics(t, New())
 	storetest.ProvinceStates(t, New())
 	storetest.CodeVersions(t, New())
+	storetest.Tickets(t, New())
+	storetest.DeleteUserCascade(t, New())
 }

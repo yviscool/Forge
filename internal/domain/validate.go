@@ -29,6 +29,7 @@ func ValidateIdempotencyKey(key string) error {
 
 const (
 	maxProblemCodeRunes   = 32
+	maxProblemSlugRunes   = 32
 	maxProblemTitleRunes  = 300
 	maxProblemTextRunes   = 2 << 20
 	maxProblemsTestCases  = 2000
@@ -46,6 +47,34 @@ const (
 	maxOneChoiceOptionLen = 20_000
 )
 
+// ValidateProblemSlug 校验题面英文名。CSP 复赛要求考生按
+// <准考证号>/<英文名>/<英文名>.cpp 组织答案，这个字符串会直接变成
+// 目录名与源文件名，因此只允许小写字母开头、后续小写字母/数字/下划线。
+func ValidateProblemSlug(slug string) error {
+	s := NormalizeSlug(slug)
+	if s == "" {
+		return errors.New("problem slug is required")
+	}
+	if len([]rune(s)) > maxProblemSlugRunes {
+		return fmt.Errorf("problem slug exceeds %d characters", maxProblemSlugRunes)
+	}
+	for i, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z':
+		case i > 0 && (r >= '0' && r <= '9' || r == '_'):
+		default:
+			return fmt.Errorf(
+				"problem slug %q must start with a letter and use only lowercase letters, digits or underscore", s)
+		}
+	}
+	return nil
+}
+
+// NormalizeSlug 归一化题面英文名为小写无空白。
+func NormalizeSlug(slug string) string {
+	return strings.ToLower(strings.TrimSpace(slug))
+}
+
 // ValidateProblem 强制校验题面必要字段与合理性，与 SPEC 对齐。
 func ValidateProblem(p Problem) error {
 	if strings.TrimSpace(p.ContestID) == "" {
@@ -62,6 +91,11 @@ func ValidateProblem(p Problem) error {
 	}
 	if err := validateTextLength("title", p.Title, maxProblemTitleRunes); err != nil {
 		return err
+	}
+	if p.Slug != "" {
+		if err := ValidateProblemSlug(p.Slug); err != nil {
+			return err
+		}
 	}
 	for field, value := range map[string]string{
 		"statement":   p.Statement,

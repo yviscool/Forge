@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -120,6 +121,104 @@ func (s *Service) ListUsers() []domain.User {
 		return []domain.User{}
 	}
 	return us
+}
+
+// HasPassword 报告账号是否已设置登录口令。口令哈希永不离开 store：
+// 用户列表只回一个布尔值，避免凭据随快照、导出或日志扩散。
+func (s *Service) HasPassword(uid string) bool {
+	hash, err := s.store.GetPasswordHash(uid)
+	return err == nil && hash != ""
+}
+
+// PasswordPlain 返回教师可见的明文口令。考点统一发号时教师需要当面
+// 念给考生，因此凭据表额外留了一份；鉴权仍然只比对哈希。
+func (s *Service) PasswordPlain(uid string) string {
+	plain, err := s.store.GetPasswordPlain(uid)
+	if err != nil {
+		return ""
+	}
+	return plain
+}
+
+// DeleteUser 删除账号：先把引用从所有分组与比赛名单里摘掉，再物理删除
+// 账号、凭据与会话，避免留下"名单里有个不存在的人"这种打不开的比赛。
+func (s *Service) DeleteUser(actorRole, actorID, targetID string) error {
+	targetID = strings.TrimSpace(targetID)
+	if targetID == "" {
+		return errors.New("user id is required")
+	}
+	if targetID == actorID {
+		return errors.New("cannot delete the account you are signed in with")
+	}
+	return s.withTx(func(tx ports.Store) error {
+		target, err := tx.GetUser(targetID)
+		if err != nil {
+			return err
+		}
+		if !domain.CanManageUser(actorRole, target.Role) {
+			return fmt.Errorf("forbidden: %s cannot delete %s accounts", actorRole, target.Role)
+		}
+		if domain.NormalizeRole(target.Role) == domain.RoleAdmin {
+			users, err := tx.ListUsers()
+			if err != nil {
+				return err
+			}
+			admins := 0
+			for _, u := range users {
+				if domain.NormalizeRole(u.Role) == domain.RoleAdmin {
+					admins++
+				}
+			}
+			if admins <= 1 {
+				return errors.New("cannot delete the last administrator")
+			}
+		}
+
+		groups, err := tx.ListGroups()
+		if err != nil {
+			return err
+		}
+		for _, g := range groups {
+			if !slices.Contains(g.UserIDs, targetID) {
+				continue
+			}
+			g.UserIDs = slices.DeleteFunc(g.UserIDs, func(id string) bool { return id == targetID })
+			if err := tx.UpdateGroup(g); err != nil {
+				return err
+			}
+		}
+
+		contests, err := tx.ListContests()
+		if err != nil {
+			return err
+		}
+		for _, c := range contests {
+			if !slices.Contains(c.ParticipantUserIDs, targetID) {
+				continue
+			}
+			c.ParticipantUserIDs = slices.DeleteFunc(c.ParticipantUserIDs,
+				func(id string) bool { return id == targetID })
+			if err := tx.UpdateContest(c); err != nil {
+				return err
+			}
+		}
+
+		// 准考证随账号一起注销：留着会让（赛季, 组别）号段里出现永远
+		// 无法对号的空号，重新报名时教师也没法给同一个人补发。
+		tickets, err := tx.ListTickets()
+		if err != nil {
+			return err
+		}
+		for _, t := range tickets {
+			if t.UserID == targetID {
+				if err := tx.DeleteTicket(t.ID); err != nil {
+					return err
+				}
+			}
+		}
+
+		return tx.DeleteUser(targetID)
+	})
 }
 
 func (s *Service) ListGroups() []domain.Group {
@@ -887,6 +986,42 @@ func (s *Service) SetContestLanguages(cid string, langs []string) (domain.Contes
 		clean = append(clean, l)
 	}
 	c.AllowedLanguages = clean
+	if err := s.store.UpdateContest(c); err != nil {
+		return domain.Contest{}, err
+	}
+	s.emit("contest.updated", cid, c)
+	return c, nil
+}
+
+// SetContestTicketScope 设置本场比赛使用的赛季与组别。
+//
+// 准考证是"人"的属性而不是"场次"的属性：同一个人在同一赛季的同一组别里
+// 只有一张准考证，一整季的模拟赛、常规赛、正式赛都用同一张。
+// 比赛侧只声明"我要收哪一批人的题"，导出收题包时按 (赛季, 组别) 反查准考证。
+// 空赛季表示这场不按准考证收题（普通在线赛），导出时退回用户名目录。
+func (s *Service) SetContestTicketScope(cid, season, group string) (domain.Contest, error) {
+	c, err := s.store.GetContest(cid)
+	if err != nil {
+		return domain.Contest{}, err
+	}
+	if !c.CanModifySettings() {
+		return domain.Contest{}, errors.New("contest settings are frozen once the contest starts")
+	}
+	season = domain.NormalizeSeason(season)
+	if season != "" {
+		if err := domain.ValidateSeason(season); err != nil {
+			return domain.Contest{}, err
+		}
+	}
+	group = strings.ToUpper(strings.TrimSpace(group))
+	if group != "" && group != domain.TicketGroupJunior && group != domain.TicketGroupSenior {
+		return domain.Contest{}, fmt.Errorf("unknown ticket group %q", group)
+	}
+	if group != "" && season == "" {
+		return domain.Contest{}, errors.New("ticket group requires a season")
+	}
+	c.Season = season
+	c.TicketGroup = group
 	if err := s.store.UpdateContest(c); err != nil {
 		return domain.Contest{}, err
 	}

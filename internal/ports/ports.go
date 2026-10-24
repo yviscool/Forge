@@ -44,6 +44,14 @@ type Store interface {
 	// SetProvinceState 记录单个省份的启用/停用；code 必须是内置省份。
 	SetProvinceState(code string, enabled bool) error
 
+	// Tickets 准考证：唯一键 (userID, season, group)，号在（赛季, 组别）内唯一。
+	// 号是身份而非场次——同一赛季的所有比赛共用同一套号。
+	CreateTicket(t domain.Ticket) (domain.Ticket, error)
+	GetTicket(id string) (domain.Ticket, error)
+	ListTickets() ([]domain.Ticket, error)
+	UpdateTicket(t domain.Ticket) error
+	DeleteTicket(id string) error
+
 	CreateGroup(g domain.Group) (domain.Group, error)
 	GetGroup(id string) (domain.Group, error)
 	ListGroups() ([]domain.Group, error)
@@ -77,6 +85,12 @@ type Store interface {
 	// Credentials & sessions（auth 端口：hash 永不进 domain.User JSON）。
 	SetPasswordHash(userID, hash string) error
 	GetPasswordHash(userID string) (string, error)
+	// SetPasswordPlain 保存教师可见的明文口令，仅供教师端展示与口头传达；
+	// 登录校验只走 hash，明文不参与鉴权。
+	SetPasswordPlain(userID, plain string) error
+	GetPasswordPlain(userID string) (string, error)
+	// DeleteUser 删除账号及其凭据与会话；名单中的引用由服务层负责清理。
+	DeleteUser(id string) error
 	SaveSession(s domain.Session) error
 	GetSession(token string) (domain.Session, error)
 	DeleteSession(token string) error

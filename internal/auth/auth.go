@@ -418,6 +418,11 @@ func (a *Service) setPassword(uid, newPassword string) error {
 	if err := a.store.SetPasswordHash(uid, string(hash)); err != nil {
 		return err
 	}
+	// 考点统一发号：教师需要把口令当面念给考生，因此同时留一份明文。
+	// 鉴权仍只比对 hash；明文只在教师端账号列表里出现。
+	if err := a.store.SetPasswordPlain(uid, newPassword); err != nil {
+		return err
+	}
 	return a.store.DeleteSessionsForUser(uid)
 }
 
