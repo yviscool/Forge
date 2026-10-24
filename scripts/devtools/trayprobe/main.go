@@ -1,51 +1,35 @@
 package main
 
-// 一次性验证台：只托管 /tray 面板（真正的 desktop.JoinPageHandler），
-// 并用 stub 顶替 /ui/command（模拟 Wails 外壳的 200 应答）。
-// 用途：在真浏览器里确认面板点「打开教师台」不再弹新窗口，而是发指令。
+// 面板验证台：在另一个端口上用「当前源码里的」面板 HTML 回应 /tray，
+// 其余请求全部反代到正在运行的 Forge 实例（默认 127.0.0.1:8080）。
+// 这样能在不重启教师机实例的前提下，验证新版面板对真实外壳发指令。
+//
+//	go run ./scripts/devtools/trayprobe
+//	go run ./scripts/devtools/trayprobe -addr 127.0.0.1:18099 -upstream http://127.0.0.1:8080
 import (
-	"encoding/json"
-	"fmt"
+	"flag"
 	"log"
 	"net/http"
-	"sync"
+	"net/http/httputil"
+	"net/url"
 
 	"github.com/yviscool/forge/internal/platform/desktop"
 )
 
 func main() {
-	addr := "127.0.0.1:18099"
-	var mu sync.Mutex
-	var actions []string
+	addr := flag.String("addr", "127.0.0.1:18099", "listen address")
+	upstream := flag.String("upstream", "http://127.0.0.1:8080", "running forge instance")
+	flag.Parse()
 
-	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/ui/command":
-			var v struct {
-				Action string `json:"action"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&v)
-			mu.Lock()
-			actions = append(actions, v.Action)
-			mu.Unlock()
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"ok":true}`))
-		case "/__actions":
-			mu.Lock()
-			defer mu.Unlock()
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(actions)
-		case "/api/v1/tray-summary":
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"online":3,"participants":3,"submissions":9,"queued":0,"conflicts":0,` +
-				`"generatedAt":"2026-10-24T08:00:00Z",` +
-				`"contest":{"name":"CSP-J 模拟认证","mode":"online","status":"running","windowEndsAt":"2026-10-24T10:00:00Z"},` +
-				`"recent":[{"userName":"演示考生1","problemCode":"A","verdict":"accepted","submittedAt":"2026-10-24T07:59:00Z"}]}`))
-		default:
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			fmt.Fprintf(w, "<h1>stub %s</h1>", r.URL.Path)
-		}
-	})
+	target, err := url.Parse(*upstream)
+	if err != nil {
+		log.Fatalf("bad upstream: %v", err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	proxy.FlushInterval = -1 // SSE 实时流
 
-	log.Fatal(http.ListenAndServe(addr, desktop.JoinPageHandler(next, addr)))
+	// JoinPageHandler 接管 /tray、/tray-launcher、/join，其余原样透传。
+	h := desktop.JoinPageHandler(proxy, *addr)
+	log.Printf("tray probe on http://%s/tray?native=1 -> %s", *addr, *upstream)
+	log.Fatal(http.ListenAndServe(*addr, h))
 }

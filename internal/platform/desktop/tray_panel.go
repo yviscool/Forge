@@ -7,7 +7,7 @@ package desktop
 // WebView2 对任何 target=_blank / window.open 都会走 NewWindowRequested，
 // 而 Wails v3 beta.24 不接管它，于是系统默认浏览器（Edge）会弹出一个
 // 带地址栏、带 Edge 图标的「假控制台」。桌面外壳内（?native=1）所有
-// 「去」动作必须走 POST /ui/command，由 Go 侧打开原生窗口。
+// 「去」动作必须走 POST /api/v1/ui/command，由 Go 侧打开原生窗口。
 // 只有非外壳形态（浏览器里直接开 /tray）才允许 window.open 开新标签。
 const trayPanelHTML = `<!doctype html>
 <html lang="zh-CN">
@@ -135,7 +135,7 @@ async function act(action) {
   const url = ACTION_URL[action] || '/teacher'
   if (!NATIVE) { window.open(url, '_blank'); return }
   try {
-    const r = await fetch('/ui/command', {
+    const r = await fetch('/api/v1/ui/command', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: action }),

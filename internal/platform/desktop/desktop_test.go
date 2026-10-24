@@ -146,7 +146,9 @@ func TestTrayPanelNeverOpensExternalWindows(t *testing.T) {
 	}
 	for _, want := range []string{
 		"data-act=",
-		"/ui/command",
+		// 全站 API 都在 /api/v1 前缀下；漏掉前缀会被 SPA 兜底 302 掉，
+		// 指令到不了外壳（真机上表现为「点了没反应」）。
+		"/api/v1/ui/command",
 		"window.open = function",
 		"native=1",
 	} {
