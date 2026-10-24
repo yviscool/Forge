@@ -136,3 +136,28 @@ func TestTrayIconAsset(t *testing.T) {
 		t.Fatalf("ensure icon: %v", err)
 	}
 }
+
+// 托盘面板曾用 <a target="_blank"> 做「去」动作，WebView2 会把它交给系统
+// 默认浏览器（Edge），于是托盘里点「打开教师台」弹出一个带地址栏的假控制台。
+// 面板必须是原生窗口指令驱动，永远不出现新窗口语义。
+func TestTrayPanelNeverOpensExternalWindows(t *testing.T) {
+	if strings.Contains(trayPanelHTML, `target="_blank"`) {
+		t.Fatal("tray panel must not use target=_blank: WebView2 hands it to the system browser")
+	}
+	for _, want := range []string{
+		"data-act=",
+		"/ui/command",
+		"window.open = function",
+		"native=1",
+	} {
+		if !strings.Contains(trayPanelHTML, want) {
+			t.Fatalf("tray panel missing %q: actions must drive native windows via /ui/command", want)
+		}
+	}
+	// 四个「去」动作必须都在外壳指令白名单里，否则 /ui/command 会 400。
+	for _, action := range []string{"show-main", "open-bigscreen", "open-join", "open-student"} {
+		if !strings.Contains(trayPanelHTML, `"`+action+`"`) {
+			t.Fatalf("tray panel action %q missing", action)
+		}
+	}
+}

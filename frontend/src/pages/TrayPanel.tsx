@@ -15,7 +15,13 @@ import type { TraySummary } from '../api/client'
 import { api, ApiError } from '../api/client'
 
 /**
- * 托盘速览面板（Wails 锚定小窗加载 /app/panel）。
+ * 托盘速览面板（React 形态，路由 /panel）。
+ *
+ * ⚠️ 注意：桌面外壳（Wails）里的托盘小组件并不加载本组件——它加载的是
+ * Go 侧 internal/platform/desktop/tray_panel.go 里的静态 HTML（/tray?native=1）。
+ * 「托盘里点按钮弹出带地址栏的 Edge」这类问题的修复点在那边，不在这里。
+ * 本组件只服务浏览器里直接访问 /panel 的场景，保持与那份 HTML 行为一致。
+ *
  * 与 magpie 同构：主应用同一套用户体系的第二种形态——
  * 自含登录、三分区（监考 / 动态 / 服务）、SSE+轮询双驱动、
  * 快捷动作经 /ui/command 直接驱动原生窗口，全程不经过浏览器。
