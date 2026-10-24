@@ -75,10 +75,9 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	// 启动显示用 magpie 的 Windows 信号：WebView 首次导航完成后再 Show——
 	// 创建期/通用事件的显示时机在 beta.24 上不稳定（观察到偶发不显示）。
 	mainShown := &sync.Once{}
+	// 事件回调已在 UI 线程：直接 Show。包 InvokeSync 会嵌套同步（时好时坏的根因）。
 	mainWin.OnWindowEvent(events.Windows.WebViewNavigationCompleted, func(*application.WindowEvent) {
-		mainShown.Do(func() {
-			application.InvokeSync(func() { mainWin.Show() })
-		})
+		mainShown.Do(func() { mainWin.Show() })
 	})
 
 	// 托盘速览面板：React 面板形态（/app/panel），无边框、置顶、失焦即收、
@@ -97,12 +96,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		panel.Hide()
 	})
 
-	raiseMain = func() {
-		application.InvokeSync(func() {
-			mainWin.Show()
-			mainWin.Focus()
-		})
-	}
+	raiseMain = func() { application.InvokeSync(func() { mainWin.Show(); mainWin.Focus() }) }
 
 	// 投屏窗口族：地址在创建期固定（SetURL 在 beta.24 上不可靠），
 	// 打开 = Show + Focus；关闭 = 隐藏（下次打开回到本职页面）。
@@ -138,11 +132,18 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 
 	// UI 指令（面板/教师台按钮 → /ui/command）：
 	// show-main 唤起主窗；投屏/预览类一律系统浏览器。
+	// showMain = 显示主窗并回到教师台。主窗内允许自由切换分区（magpie 单窗
+	// 语义），托盘/指令唤起时用 JS 导航回教师台——已在教师台则不刷新。
+	showMain := func() {
+		mainWin.Show()
+		mainWin.Focus()
+		mainWin.ExecJS(`if (!(location.pathname + '/').includes('/teacher')) location.replace('/teacher')`)
+	}
 	SetUICommandHandler(func(action string) {
 		application.InvokeSync(func() {
 			switch action {
 			case "show-main":
-				reveal(mainWin)
+				showMain()
 			case "open-join":
 				reveal(joinWin)
 			case "open-bigscreen":
@@ -161,10 +162,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	tray.SetTooltip("Forge 竞赛工作台")
 	menu := app.NewMenu()
 	menu.Add("打开教师台").OnClick(func(*application.Context) {
-		application.InvokeSync(func() {
-			mainWin.Show()
-			mainWin.Focus()
-		})
+		application.InvokeSync(showMain)
 	})
 	menu.Add("学生扫码加入（投屏）").OnClick(func(*application.Context) {
 		application.InvokeSync(func() { reveal(joinWin) })

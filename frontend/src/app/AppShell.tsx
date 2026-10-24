@@ -31,25 +31,6 @@ function BrandMark() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  // 桌面壳（Wails 主窗/托盘面板）内：跨区导航交给原生窗口指令，
-  // 主窗始终停留在教师台——web 浏览器里保持普通 SPA 路由。
-  const inDesktopShell = () => {
-    try {
-      return localStorage.getItem('forge_desktop') === '1'
-    } catch {
-      return false
-    }
-  }
-  const desktopGoto = (action: 'open-student' | 'show-main', fallback: string) => {
-    if (!inDesktopShell()) {
-      window.location.assign(fallback)
-      return
-    }
-    void api.uiCommand(action).catch(() => {
-      window.location.assign(fallback)
-    })
-  }
-
   const location = useLocation()
   const queryClient = useQueryClient()
   const { session, logout } = useStore()
@@ -88,9 +69,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
 
             <nav className="hidden items-center gap-1 md:flex" aria-label="主导航">
-              <button
-                type="button"
-                onClick={() => desktopGoto('open-student', '/')}
+              <Link
+                to="/"
                 className={
                   !inTeacher
                     ? 'flex h-9 items-center gap-1.5 rounded-xl bg-[#14283d] px-3 text-xs font-bold text-white'
@@ -99,11 +79,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               >
                 <BookOpenCheck className="h-3.5 w-3.5" />
                 选手大厅
-              </button>
+              </Link>
               {isTeacher && (
-                <button
-                  type="button"
-                  onClick={() => desktopGoto('show-main', '/teacher')}
+                <Link
+                  to="/teacher"
                   className={
                     inTeacher
                       ? 'flex h-9 items-center gap-1.5 rounded-xl bg-[#14283d] px-3 text-xs font-bold text-white'
@@ -112,7 +91,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   <LayoutDashboard className="h-3.5 w-3.5" />
                   教师工作台
-                </button>
+                </Link>
               )}
             </nav>
           </div>
@@ -176,19 +155,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             )}
 
             {isTeacher && (
-              <button
-                type="button"
-                onClick={() =>
-                  inTeacher
-                    ? desktopGoto('open-student', '/')
-                    : desktopGoto('show-main', '/teacher')
-                }
+              <Link
+                to={inTeacher ? '/' : '/teacher'}
                 className="hidden h-9 items-center gap-1.5 rounded-xl border border-[#e4e7ec] bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-[#d0d5dd] hover:text-slate-900 sm:inline-flex"
               >
                 <Landmark className="h-3.5 w-3.5" />
                 {inTeacher ? '选手视角' : '教师工作台'}
                 <ArrowUpRight className="h-3 w-3 opacity-50" />
-              </button>
+              </Link>
             )}
           </div>
         </div>
