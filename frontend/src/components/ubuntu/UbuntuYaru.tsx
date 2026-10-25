@@ -20,7 +20,9 @@ import {
   Trash2,
   Video,
   X,
+  PanelLeft,
 } from 'lucide-react'
+import { MarkdownView } from '../MarkdownView'
 import { YARU_ICONS } from './yaruIcons'
 import { formatBytes } from '../../features/student/submissionFiles'
 import type { CommandLog } from '../UbuntuDesktop'
@@ -315,44 +317,46 @@ export interface NautilusItem {
   sizeBytes?: number
 }
 
-const PLACES: { id: string; label: string; icon: React.ReactNode }[] = [
-  { id: 'recent', label: '最近', icon: <Clock3 className="h-4 w-4" /> },
-  { id: 'home', label: '主文件夹', icon: <img src={YARU_ICONS.userHome} alt="" className="h-4 w-4" /> },
-  { id: 'desktop', label: '桌面', icon: <img src={YARU_ICONS.userDesktop} alt="" className="h-4 w-4" /> },
-  { id: 'documents', label: '文档', icon: <img src={YARU_ICONS.folder} alt="" className="h-4 w-4" /> },
-  { id: 'downloads', label: '下载', icon: <Download className="h-4 w-4" /> },
-  { id: 'music', label: '音乐', icon: <Music className="h-4 w-4" /> },
-  { id: 'pictures', label: '图片', icon: <ImageIcon className="h-4 w-4" /> },
-  { id: 'videos', label: '视频', icon: <Video className="h-4 w-4" /> },
-  { id: 'trash', label: '回收站', icon: <Trash2 className="h-4 w-4" /> },
-]
 
 export function NautilusWindow({
   homeName,
-  dirName,
+  pathSegments,
   items,
+  trashMode = false,
+  protectedNames = [],
   selectedId,
   onSelect,
   onOpen,
-  onNavigate,
+  onNavigateDepth,
   onNewFolder,
   onOpenTerminal,
   onRename,
+  onTrash,
+  onRestore,
+  onEmptyTrash,
   onMouseDown,
   onMinimize,
   onMaximize,
   onClose,
 }: {
   homeName: string
-  dirName: string
+  /** 相对主目录的层级段：[] = 主目录，['poker'] = 题面目录。 */
+  pathSegments: string[]
   items: NautilusItem[]
+  /** 回收站视图：菜单切换为 恢复 / 清空回收站。 */
+  trashMode?: boolean
+  /** 派生条目（题面文件夹/源文件/样例）：重命名与回收站对其禁用。 */
+  protectedNames?: string[]
   selectedId: string | null
   onSelect: (id: string | null) => void
   onOpen: (item: NautilusItem) => void
-  onNavigate: (level: 0 | 1) => void
-  onNewFolder: () => void
+  onNavigateDepth: (depth: number) => void
+  onNewFolder: (name: string) => void
   onOpenTerminal: () => void
-  onRename: (item: NautilusItem) => void
+  onRename: (oldName: string, newName: string) => void
+  onTrash: (name: string) => void
+  onRestore: (name: string) => void
+  onEmptyTrash: () => void
   onMouseDown?: (e: React.MouseEvent) => void
   onMinimize?: () => void
   onMaximize?: () => void
@@ -363,6 +367,7 @@ export function NautilusWindow({
   const [view, setView] = useState<'grid' | 'list'>('grid')
   // GNOME 属性对话框：null 关闭，'root' 表示主目录自身。
   const [properties, setProperties] = useState<NautilusItem | 'root' | null>(null)
+  const [dialog, setDialog] = useState<{ kind: 'mkdir' | 'rename'; value: string; target?: string } | null>(null)
 
   const openMenu = (event: React.MouseEvent, item: NautilusItem | null) => {
     event.preventDefault()
@@ -371,37 +376,117 @@ export function NautilusWindow({
     setMenu({ x: event.clientX, y: event.clientY, item })
   }
 
-  const menuItems = (item: NautilusItem | null): MenuItem[] =>
-    item
-      ? [
-          ...(item.kind === 'folder'
-            ? ([
-                { label: '打开', onClick: () => onOpen(item) },
-                { label: '在终端中打开', onClick: onOpenTerminal },
-                { separator: true },
-              ] as MenuItem[])
-            : ([
-                { label: '用 Geany 打开', onClick: () => onOpen(item) },
-                { separator: true },
-              ] as MenuItem[])),
-          { label: '剪切', shortcut: 'Ctrl+X', onClick: () => {} },
-          { label: '复制', shortcut: 'Ctrl+C', onClick: () => {} },
-          { separator: true },
-          { label: '重命名…', shortcut: 'F2', onClick: () => onRename(item) },
-          { label: '移动到回收站', shortcut: 'Delete', danger: true, onClick: () => onRename(item) },
-          { separator: true },
-          { label: '压缩…', onClick: () => {} },
-          { label: '属性', shortcut: 'Ctrl+I', onClick: () => setProperties(item) },
-        ]
-      : [
-          { label: '新建文件夹', shortcut: 'Shift+Ctrl+N', onClick: onNewFolder },
-          { separator: true },
-          { label: '粘贴', shortcut: 'Ctrl+V', disabled: true },
-          { separator: true },
-          { label: '在终端中打开', onClick: onOpenTerminal },
-          { separator: true },
-          { label: '属性', onClick: () => setProperties('root') },
-        ]
+  const isProtected = (item: NautilusItem | null) =>
+    !!item && protectedNames.includes(item.name)
+
+  const menuItems = (item: NautilusItem | null): MenuItem[] => {
+    if (trashMode) {
+      return item
+        ? [
+            { label: '恢复', onClick: () => onRestore(item.name) },
+            { separator: true },
+            { label: '属性', onClick: () => setProperties(item) },
+          ]
+        : [
+            { label: '清空回收站', danger: true, onClick: () => onEmptyTrash() },
+            { separator: true },
+            { label: '属性', onClick: () => setProperties('root') },
+          ]
+    }
+    if (item) {
+      const movable = !isProtected(item)
+      const common: MenuItem[] = [
+        { label: '剪切', shortcut: 'Ctrl+X', disabled: true },
+        { label: '复制', shortcut: 'Ctrl+C', disabled: true },
+      ]
+      return [
+        ...(item.kind === 'folder'
+          ? ([
+              { label: '打开', onClick: () => onOpen(item) },
+              { label: '在终端中打开', onClick: onOpenTerminal },
+              { separator: true },
+            ] as MenuItem[])
+          : ([
+              { label: '用 Geany 打开', onClick: () => onOpen(item) },
+              { separator: true },
+            ] as MenuItem[])),
+        ...common,
+        { separator: true },
+        {
+          label: '重命名…',
+          shortcut: 'F2',
+          disabled: !movable,
+          onClick: () => setDialog({ kind: 'rename', value: item.name, target: item.name }),
+        },
+        {
+          label: '移动到回收站',
+          shortcut: 'Delete',
+          danger: true,
+          disabled: !movable,
+          onClick: () => onTrash(item.name),
+        },
+        { separator: true },
+        { label: '压缩…', disabled: true },
+        { label: '属性', shortcut: 'Ctrl+I', onClick: () => setProperties(item) },
+      ]
+    }
+    return [
+      { label: '新建文件夹', shortcut: 'Shift+Ctrl+N', onClick: () => setDialog({ kind: 'mkdir', value: '' }) },
+      { separator: true },
+      { label: '粘贴', shortcut: 'Ctrl+V', disabled: true },
+      { separator: true },
+      { label: '在终端中打开', onClick: onOpenTerminal },
+      { separator: true },
+      { label: '更改背景…', disabled: true },
+      { label: '属性', onClick: () => setProperties('root') },
+    ]
+  }
+
+  const pathbar = (
+    <div className="flex items-center gap-0.5">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation()
+          onNavigateDepth(0)
+        }}
+        className="rounded-md px-2.5 py-0.5 text-[12px] font-semibold text-[#3D3D3D] hover:bg-black/10"
+        style={pathSegments.length === 0 && !trashMode ? { background: 'rgba(0,0,0,0.09)' } : undefined}
+      >
+        {trashMode ? '回收站' : homeName}
+      </button>
+      {!trashMode &&
+        pathSegments.map((segment, index) => (
+          <React.Fragment key={index}>
+            <ChevronRight className="h-3 w-3 opacity-50" />
+            <button
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation()
+                onNavigateDepth(index + 1)
+              }}
+              className="rounded-md px-2.5 py-0.5 text-[12px] font-semibold text-[#3D3D3D] hover:bg-black/10"
+              style={index === pathSegments.length - 1 ? { background: 'rgba(0,0,0,0.09)' } : undefined}
+            >
+              {segment}
+            </button>
+          </React.Fragment>
+        ))}
+    </div>
+  )
+
+  const places: { id: string; label: string; icon: React.ReactNode }[] = [
+    { id: 'recent', label: '最近', icon: <Clock3 className="h-4 w-4" /> },
+    { id: 'home', label: '主文件夹', icon: <img src={YARU_ICONS.userHome} alt="" className="h-4 w-4" /> },
+    { id: 'desktop', label: '桌面', icon: <img src={YARU_ICONS.userDesktop} alt="" className="h-4 w-4" /> },
+    { id: 'documents', label: '文档', icon: <img src={YARU_ICONS.folder} alt="" className="h-4 w-4" /> },
+    { id: 'downloads', label: '下载', icon: <Download className="h-4 w-4" /> },
+    { id: 'music', label: '音乐', icon: <Music className="h-4 w-4" /> },
+    { id: 'pictures', label: '图片', icon: <ImageIcon className="h-4 w-4" /> },
+    { id: 'videos', label: '视频', icon: <Video className="h-4 w-4" /> },
+    { id: 'trash', label: '回收站', icon: <Trash2 className="h-4 w-4" /> },
+  ]
+  const activePlaceId = trashMode ? 'trash' : activePlace
 
   return (
     <div
@@ -413,37 +498,7 @@ export function NautilusWindow({
         onMinimize={onMinimize}
         onMaximize={onMaximize}
         onClose={onClose}
-        left={
-          <div className="flex items-center gap-0.5">
-            <button
-              type="button"
-              onClick={(event) => {
-                event.stopPropagation()
-                onNavigate(0)
-              }}
-              className="rounded-md px-2.5 py-0.5 text-[12px] font-semibold text-[#3D3D3D] hover:bg-black/10"
-              style={dirName === '' ? { background: 'rgba(0,0,0,0.09)' } : undefined}
-            >
-              {homeName}
-            </button>
-            {dirName !== '' && (
-              <>
-                <ChevronRight className="h-3 w-3 opacity-50" />
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    onNavigate(1)
-                  }}
-                  className="rounded-md px-2.5 py-0.5 text-[12px] font-semibold text-[#3D3D3D] hover:bg-black/10"
-                  style={{ background: 'rgba(0,0,0,0.09)' }}
-                >
-                  {dirName}
-                </button>
-              </>
-            )}
-          </div>
-        }
+        left={pathbar}
         actions={
           <div className="flex items-center gap-1">
             <button
@@ -478,8 +533,8 @@ export function NautilusWindow({
           className="w-44 shrink-0 overflow-y-auto border-r py-2"
           style={{ background: YARU.sidebarBg, borderColor: YARU.sidebarBorder }}
         >
-          {PLACES.map((place) => {
-            const active = place.id === activePlace
+          {places.map((place) => {
+            const active = place.id === activePlaceId
             return (
               <button
                 key={place.id}
@@ -487,6 +542,7 @@ export function NautilusWindow({
                 onClick={() => {
                   setActivePlace(place.id)
                   onSelect(null)
+                  if (place.id === 'trash') onNavigateDepth(-1)
                 }}
                 className="mx-1.5 flex h-[30px] w-[calc(100%-12px)] items-center gap-2 rounded-md px-2.5 text-left text-[13px]"
                 style={
@@ -508,7 +564,7 @@ export function NautilusWindow({
           })}
         </div>
 
-        {/* 图标视图 */}
+        {/* 图标/列表视图 */}
         <div
           className="relative min-h-0 flex-1 overflow-y-auto"
           style={{ background: YARU.contentBg }}
@@ -518,8 +574,8 @@ export function NautilusWindow({
           <div
             className={
               view === 'grid'
-                ? `grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 p-4${activePlace !== 'home' ? ' hidden' : ''}`
-                : `flex flex-col p-2${activePlace !== 'home' ? ' hidden' : ''}`
+                ? `grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 p-4${activePlace !== 'home' && !trashMode ? ' hidden' : ''}`
+                : `flex flex-col p-2${activePlace !== 'home' && !trashMode ? ' hidden' : ''}`
             }
           >
             {items.map((item) => {
@@ -561,11 +617,9 @@ export function NautilusWindow({
               )
             })}
           </div>
-          {view === 'list' && (
+          {view === 'list' && (activePlace === 'home' || trashMode) && (
             <div className="mx-1 border-b" style={{ borderColor: '#EDEDED' }}>
-              <div
-                className="flex items-center gap-2 px-2 py-1 text-[11px] font-bold text-[#8F8F8F]"
-              >
+              <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-bold text-[#8F8F8F]">
                 <span className="w-5" />
                 <span className="flex-1">名称</span>
                 <span className="w-20 text-right">大小</span>
@@ -599,23 +653,80 @@ export function NautilusWindow({
                       {item.name}
                     </span>
                     <span className={`w-20 text-right text-[11px] ${selected ? 'text-white/80' : 'text-[#8F8F8F]'}`}>
-                      {item.kind === 'source' ? formatBytes(item.sizeBytes ?? 0) : `${items.length} 项`}
+                      {item.kind === 'source' ? formatBytes(item.sizeBytes ?? 0) : ''}
                     </span>
                   </button>
                 )
               })}
             </div>
           )}
-          {(activePlace !== 'home' || items.length === 0) && (
+          {(items.length === 0 || (activePlace !== 'home' && !trashMode)) && (
             <p className="grid place-items-center py-16 text-[13px] text-slate-400">
-              {activePlace !== 'home' ? '此文件夹为空（模拟桌面仅挂载考生主目录）' : '此文件夹为空'}
+              {trashMode
+                ? '回收站是空的'
+                : activePlace !== 'home'
+                  ? '此文件夹为空（模拟桌面仅挂载考生主目录）'
+                  : '此文件夹为空'}
             </p>
           )}
         </div>
       </div>
-      {menu && (
-        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />
+
+      {/* 新建文件夹 / 重命名 对话框 */}
+      {dialog && (
+        <div
+          className="absolute inset-0 z-20 grid place-items-center bg-black/30"
+          onMouseDown={() => setDialog(null)}
+        >
+          <div
+            className="w-80 overflow-hidden rounded-xl border border-black/30 shadow-2xl"
+            style={{ background: YARU.contentBg, fontFamily: YARU_SANS }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="flex h-9 items-center justify-center text-[13px] font-bold text-[#2D2D2D]"
+              style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
+            >
+              {dialog.kind === 'mkdir' ? '新建文件夹' : `重命名「${dialog.target}」`}
+            </div>
+            <form
+              className="space-y-3 px-4 py-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                if (dialog.kind === 'mkdir') onNewFolder(dialog.value.trim())
+                else if (dialog.target) onRename(dialog.target, dialog.value.trim())
+                setDialog(null)
+              }}
+            >
+              <input
+                autoFocus
+                value={dialog.value}
+                onChange={(event) => setDialog({ ...dialog, value: event.target.value })}
+                placeholder="文件夹名称"
+                aria-label={dialog.kind === 'mkdir' ? '文件夹名称' : '新名称'}
+                className="w-full rounded-lg border border-[#CFCFCF] bg-white px-3 py-2 text-[13px] text-[#2D2D2D] outline-none focus:border-[#E95420]"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDialog(null)}
+                  className="h-7 rounded-md border border-[#CFCFCF] bg-white px-3 text-[12px] font-bold text-[#3D3D3D] hover:bg-[#F0F0EE]"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="h-7 rounded-md px-3 text-[12px] font-bold text-white hover:opacity-90"
+                  style={{ background: YARU.accent }}
+                >
+                  {dialog.kind === 'mkdir' ? '创建' : '重命名'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
+
       {properties !== null && (
         <div
           className="absolute inset-0 z-20 grid place-items-center bg-black/30"
@@ -654,8 +765,7 @@ export function NautilusWindow({
                           ? `${(properties as NautilusItem).sizeBytes ?? 0} 字节`
                           : '—',
                       ],
-                      ['位置', `/home/${homeName}${dirName ? `/${dirName}` : ''}`],
-                      ['编码', (properties as NautilusItem).kind === 'source' ? 'UTF-8' : undefined],
+                      ['位置', `/home/${homeName}${pathSegments.length ? `/${pathSegments.join('/')}` : ''}`],
                     ]
               )
                 .filter(([, value]) => value !== undefined)
@@ -679,6 +789,10 @@ export function NautilusWindow({
             </div>
           </div>
         </div>
+      )}
+
+      {menu && (
+        <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />
       )}
     </div>
   )
@@ -720,6 +834,8 @@ export function GeanyWindow({
   tabs,
   activeTabId,
   onSelectTab,
+  onCloseDoc,
+  canSubmit = true,
   onPickUploadFile,
   uploadFile,
   uploadMismatch,
@@ -742,10 +858,13 @@ export function GeanyWindow({
   onRun: () => void
   onDoctor: () => void
   onSave: () => void
-  /** 每题一个文件标签（真实 Geany 的多文档形态）。 */
+  /** 打开的文档标签：一题或一个自建文件。 */
   tabs: { id: string; name: string }[]
-  activeTabId: string
+  activeTabId: string | null
   onSelectTab: (id: string) => void
+  onCloseDoc?: (id: string) => void
+  /** 提交按钮只对绑定题目的文档生效。 */
+  canSubmit?: boolean
   onPickUploadFile: () => void
   uploadFile: { name: string; size: number } | null
   uploadMismatch: string | null
@@ -764,6 +883,7 @@ export function GeanyWindow({
   const editorRef = useRef<GeanyEditorHandle | null>(null)
   const [caret, setCaret] = useState({ line: 1, column: 1 })
   const symbols = parseGeanySymbols(code)
+  const hasDoc = tabs.length > 0 && activeTabId != null
 
   const runEditor = (cmd: string) => editorRef.current?.trigger('geany', cmd, null)
 
@@ -772,20 +892,18 @@ export function GeanyWindow({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'F8') {
         event.preventDefault()
-        doCompile()
+        if (hasDoc) onCompile()
       } else if (event.key === 'F5') {
         event.preventDefault()
         onRun()
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault()
-        onSave()
+        if (hasDoc) onSave()
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-    // doCompile 随渲染重建，按引用入依赖会造成每次渲染重挂监听；语义上只依赖这三个回调。
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onCompile, onRun, onSave])
+  }, [onCompile, onRun, onSave, hasDoc])
 
   const doCompile = () => {
     setMessageTab('compiler')
@@ -824,10 +942,16 @@ export function GeanyWindow({
     文件: [
       { label: '新建', shortcut: 'Ctrl+N' },
       { label: '打开…', shortcut: 'Ctrl+O', onClick: onPickUploadFile },
-      { label: '保存', shortcut: 'Ctrl+S' },
+      { label: '保存', shortcut: 'Ctrl+S', onClick: onSave, disabled: !hasDoc },
       { label: '另存为…', shortcut: 'Shift+Ctrl+S' },
       { separator: true },
-      { label: '关闭', shortcut: 'Ctrl+W' },
+      {
+        label: '关闭',
+        shortcut: 'Ctrl+W',
+        onClick: () => {
+          if (activeTabId) onCloseDoc?.(activeTabId)
+        },
+      },
       { label: '退出', shortcut: 'Ctrl+Q', onClick: onClose },
     ],
     编辑: menuItems,
@@ -840,11 +964,11 @@ export function GeanyWindow({
       { label: '切换侧边栏', shortcut: 'Ctrl+B' },
       { label: '全屏', shortcut: 'F11' },
     ],
-    文档: [{ label: `${fileName} (UTF-8)`, disabled: true }],
+    文档: [{ label: hasDoc ? `${fileName} (UTF-8)` : '未打开文档', disabled: true }],
     项目: [{ label: '未打开项目', disabled: true }],
     构建: [
-      { label: '编译', shortcut: 'F8', onClick: doCompile },
-      { label: '构建', shortcut: 'F9', onClick: doCompile },
+      { label: '编译', shortcut: 'F8', onClick: doCompile, disabled: !hasDoc },
+      { label: '构建', shortcut: 'F9', onClick: doCompile, disabled: !hasDoc },
       { separator: true },
       { label: '运行', shortcut: 'F5', onClick: onRun },
     ],
@@ -861,7 +985,7 @@ export function GeanyWindow({
       style={{ fontFamily: YARU_SANS }}
     >
       <YaruTitleBar
-        title={`${fileName} - /home/${homeName}/${dirName} - Geany`}
+        title={`${fileName} - /home/${homeName}${dirName ? `/${dirName}` : ''} - Geany`}
         onMouseDown={onMouseDown}
         onMinimize={onMinimize}
         onMaximize={onMaximize}
@@ -888,9 +1012,9 @@ export function GeanyWindow({
         {[
           { icon: <FileText className="h-4 w-4" />, label: '新建' },
           { icon: <FolderOpen className="h-4 w-4" />, label: '打开', onClick: onPickUploadFile },
-          { icon: <Download className="h-4 w-4 rotate-180" />, label: '保存' },
+          { icon: <Download className="h-4 w-4 rotate-180" />, label: '保存', onClick: onSave, disabled: !hasDoc },
           { separator: true },
-          { icon: <Play className="h-4 w-4 text-emerald-700" />, label: '编译 (F8)', onClick: doCompile },
+          { icon: <Play className="h-4 w-4 text-emerald-700" />, label: '编译 (F8)', onClick: doCompile, disabled: !hasDoc },
           { icon: <Play className="h-4 w-4 text-blue-700" />, label: '在终端中运行 (F5)', onClick: onRun },
           { separator: true },
           { icon: <Search className="h-4 w-4" />, label: '查找' },
@@ -903,7 +1027,8 @@ export function GeanyWindow({
               type="button"
               title={btn.label}
               onClick={btn.onClick}
-              className="grid h-7 w-7 place-items-center rounded text-[#3D3D3D] hover:bg-black/10"
+              disabled={btn.disabled}
+              className="grid h-7 w-7 place-items-center rounded text-[#3D3D3D] hover:bg-black/10 disabled:opacity-40"
             >
               {btn.icon}
             </button>
@@ -943,8 +1068,9 @@ export function GeanyWindow({
           <button
             type="button"
             onClick={onSubmit}
-            disabled={submitting}
-            className="h-6 rounded bg-[#2C64C5] px-2.5 text-[10px] font-bold text-white hover:bg-[#1F4FA5] disabled:opacity-60"
+            disabled={submitting || !canSubmit}
+            title={canSubmit ? undefined : '自建文件不参与收题：请打开题面文件夹里的源文件提交'}
+            className="h-6 rounded bg-[#2C64C5] px-2.5 text-[10px] font-bold text-white hover:bg-[#1F4FA5] disabled:opacity-50"
           >
             {submitting ? '提交中...' : '正式提交'}
           </button>
@@ -977,7 +1103,7 @@ export function GeanyWindow({
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto py-1 text-[12px] text-[#3D3D3D]">
             {sidebarTab === 'symbols' ? (
-              symbols.length ? (
+              hasDoc && symbols.length ? (
                 symbols.map((symbol, index) => (
                   <button
                     key={index}
@@ -995,7 +1121,7 @@ export function GeanyWindow({
               ) : (
                 <p className="px-3 py-2 text-[11px] text-slate-400">没有标签</p>
               )
-            ) : (
+            ) : tabs.length ? (
               tabs.map((entry) => (
                 <button
                   key={entry.id}
@@ -1014,27 +1140,41 @@ export function GeanyWindow({
                   </span>
                 </button>
               ))
+            ) : (
+              <p className="px-3 py-2 text-[11px] text-slate-400">没有打开的文档</p>
             )}
           </div>
         </div>
 
         <div className="flex min-w-0 flex-1 flex-col" style={{ background: YARU.contentBg }}>
-          {/* 编辑器标签页：一题一个文件标签，与真实 Geany 的多文档一致 */}
+          {/* 编辑器标签页：一题或一个自建文件一个标签 */}
           <div className="flex h-7 shrink-0 items-stretch overflow-x-auto border-b border-[#D9D9D6]" style={{ background: '#EFEFED' }}>
             {tabs.map((entry) => {
               const active = entry.id === activeTabId
               return (
-                <button
+                <div
                   key={entry.id}
-                  type="button"
-                  onClick={() => onSelectTab(entry.id)}
-                  className="flex shrink-0 items-center gap-1.5 border-r border-[#D9D9D6] px-3 text-[12px]"
+                  className={`flex shrink-0 items-center gap-1.5 border-r border-[#D9D9D6] px-3 text-[12px] ${
+                    active ? '' : 'hover:bg-black/5'
+                  }`}
                   style={{ background: active ? YARU.contentBg : 'transparent', color: '#2D2D2D' }}
                 >
-                  <img src={YARU_ICONS.textGeneric} alt="" className="h-3.5 w-3.5" />
-                  <span style={{ fontFamily: YARU_MONO }}>{entry.name}</span>
-                  <X className="h-3 w-3 opacity-50" />
-                </button>
+                  <button type="button" onClick={() => onSelectTab(entry.id)} className="flex items-center gap-1.5">
+                    <img src={YARU_ICONS.textGeneric} alt="" className="h-3.5 w-3.5" />
+                    <span style={{ fontFamily: YARU_MONO }}>{entry.name}</span>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`关闭 ${entry.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      onCloseDoc?.(entry.id)
+                    }}
+                    className="opacity-50 transition hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </div>
               )
             })}
           </div>
@@ -1045,15 +1185,21 @@ export function GeanyWindow({
               setMenu({ x: event.clientX, y: event.clientY })
             }}
           >
-            <MonacoSlot
-              code={code}
-              onCode={onCode}
-              readOnly={readOnly}
-              onReady={(editor) => {
-                editorRef.current = editor
-              }}
-              onCursor={(line, column) => setCaret({ line, column })}
-            />
+            {hasDoc ? (
+              <MonacoSlot
+                code={code}
+                onCode={onCode}
+                readOnly={readOnly}
+                onReady={(editor) => {
+                  editorRef.current = editor
+                }}
+                onCursor={(line, column) => setCaret({ line, column })}
+              />
+            ) : (
+              <div className="grid h-full place-items-center text-[13px] text-slate-400">
+                没有打开的文档 —— 从「文件」打开，或在文件管理器中双击源文件。
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1085,7 +1231,7 @@ export function GeanyWindow({
         <div className="h-[calc(100%-1.75rem)] overflow-y-auto p-2 text-[12px] leading-5" style={{ fontFamily: YARU_MONO }}>
           {messageTab === 'status' && (
             <p className="text-[#3D3D3D]">
-              {fileName} 已载入。{readOnly ? '（只读预览：考试未开始或已结束）' : ''}
+              {hasDoc ? `${fileName} 已载入。${readOnly ? '（只读文件）' : ''}` : '没有打开的文档。'}
             </p>
           )}
           {messageTab === 'compiler' && (
@@ -1144,9 +1290,11 @@ export function GeanyWindow({
       </div>
 
       {uploadMismatch && uploadFile && (
-        <div className="absolute bottom-[10.2rem] left-0 right-0 border-t border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-900">
-          文件名与题面英文名不一致：本题目录为 <span style={{ fontFamily: YARU_MONO }}>{uploadMismatch}</span>，当前选择{' '}
-          <span style={{ fontFamily: YARU_MONO }}>{uploadFile.name}</span>。
+        <div className="absolute bottom-[10.2rem] left-0 right-0 border-t border-amber-300 bg-amber-50 px-3 py-1 text-[11px] font-semibold leading-4 text-amber-800">
+          文件名与题面英文名不一致：本题目录为{' '}
+          <span className="font-mono">{uploadMismatch}</span>，当前选择{' '}
+          <span className="font-mono">{uploadFile.name}</span>
+          。真实考场按文件名/目录对应题目，请确认没有选错文件。
         </div>
       )}
 
@@ -1459,10 +1607,24 @@ export function TerminalWindow({
 
 // ---------------------------------------------------------------- Evince 题面
 
+// Evince 文档查看器高仿（GNOME Papers/Evince，Yaru 浅色）：
+// 头栏 = 侧栏开关 + 缩放组 + 居中标题；侧栏 = 页面缩略图；正文 = 灰底上的
+// 白色 A4 分页。题面内容按行数分页，页脚带页码。
+function paginateStatement(markdown: string, linesPerPage = 26): string[] {
+  const lines = markdown.replace(/\r/g, '').split('\n')
+  const pages: string[] = []
+  for (let i = 0; i < lines.length; i += linesPerPage) {
+    pages.push(lines.slice(i, i + linesPerPage).join('\n'))
+  }
+  return pages.length ? pages : ['（本题暂无题面内容）']
+}
+
+const EVINCE_ZOOM_STEPS = [0.6, 0.8, 1, 1.25, 1.5, 2]
+
 export function EvinceWindow({
   fileName,
   title,
-  children,
+  content,
   onMouseDown,
   onMinimize,
   onMaximize,
@@ -1470,36 +1632,132 @@ export function EvinceWindow({
 }: {
   fileName: string
   title: string
-  children: React.ReactNode
+  content: string
   onMouseDown?: (e: React.MouseEvent) => void
   onMinimize?: () => void
   onMaximize?: () => void
   onClose?: () => void
 }) {
+  const pages = paginateStatement(content)
+  const [zoomIndex, setZoomIndex] = useState(2)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
+  const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
+  const pageRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  const gotoPage = (index: number) => {
+    pageRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
+
   return (
     <div
       className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-black/40 shadow-[0_14px_48px_rgba(0,0,0,0.5)]"
       style={{ fontFamily: YARU_SANS }}
     >
       <YaruHeaderBar
-        title={`${fileName} — ${title}`}
+        title={fileName}
         onMouseDown={onMouseDown}
         onMinimize={onMinimize}
         onMaximize={onMaximize}
         onClose={onClose}
-        actions={
+        left={
           <div className="flex items-center gap-1">
-            <button type="button" className="grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10" aria-label="缩小">
-              <span className="text-[13px] font-bold leading-none">−</span>
+            <button
+              type="button"
+              onClick={() => setSidebarOpen((open) => !open)}
+              className={`grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10 ${
+                sidebarOpen ? 'bg-black/10' : ''
+              }`}
+              aria-label="侧栏"
+              title="切换侧栏"
+            >
+              <PanelLeft className="h-4 w-4" />
             </button>
-            <span className="min-w-[38px] text-center text-[11px] font-semibold text-[#3D3D3D]">100%</span>
-            <button type="button" className="grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10" aria-label="放大">
-              <span className="text-[13px] font-bold leading-none">+</span>
-            </button>
+            <div className="ml-1 flex items-center gap-0.5 rounded-md border border-[#CFCFCF] bg-white px-1">
+              <button
+                type="button"
+                onClick={() => setZoomIndex((index) => Math.max(0, index - 1))}
+                disabled={zoomIndex === 0}
+                className="grid h-6 w-6 place-items-center text-[14px] font-bold text-[#3D3D3D] disabled:opacity-30"
+                aria-label="缩小"
+              >
+                −
+              </button>
+              <span className="min-w-[42px] text-center text-[11px] font-semibold text-[#3D3D3D]">
+                {Math.round(zoom * 100)}%
+              </span>
+              <button
+                type="button"
+                onClick={() => setZoomIndex((index) => Math.min(EVINCE_ZOOM_STEPS.length - 1, index + 1))}
+                disabled={zoomIndex === EVINCE_ZOOM_STEPS.length - 1}
+                className="grid h-6 w-6 place-items-center text-[14px] font-bold text-[#3D3D3D] disabled:opacity-30"
+                aria-label="放大"
+              >
+                +
+              </button>
+            </div>
           </div>
         }
+        actions={
+          <span className="mr-1 text-[11px] font-semibold text-[#575757]" style={{ fontFamily: YARU_MONO }}>
+            1 / {pages.length}
+          </span>
+        }
       />
-      <div className="min-h-0 flex-1 overflow-y-auto bg-white">{children}</div>
+      <div className="flex min-h-0 flex-1">
+        {/* 缩略图侧栏 */}
+        {sidebarOpen && (
+          <div
+            className="w-36 shrink-0 overflow-y-auto border-r py-3"
+            style={{ background: YARU.sidebarBg, borderColor: YARU.sidebarBorder }}
+          >
+            <p className="mb-2 truncate px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+              {title}
+            </p>
+            {pages.map((_, index) => (
+              <button
+                key={index}
+                type="button"
+                onClick={() => gotoPage(index)}
+                className="mx-auto mb-2 flex flex-col items-center gap-1"
+              >
+                <div className="h-[96px] w-[68px] rounded-sm border border-[#C9C9C9] bg-white p-1.5 shadow-sm">
+                  {Array.from({ length: 7 }).map((_, bar) => (
+                    <div
+                      key={bar}
+                      className="mb-1 h-[3px] rounded-sm bg-slate-300"
+                      style={{ width: `${88 - bar * 9}%` }}
+                    />
+                  ))}
+                </div>
+                <span className="text-[10px] font-semibold text-[#575757]">{index + 1}</span>
+              </button>
+            ))}
+          </div>
+        )}
+        {/* 页面区：灰底 + 白色 A4 */}
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[#8C8C8C] p-6">
+          <div className="mx-auto flex flex-col items-center gap-6" style={{ zoom }}>
+            {pages.map((page, index) => (
+              <div
+                key={index}
+                ref={(el) => {
+                  pageRefs.current[index] = el
+                }}
+                className="relative w-full max-w-[720px] bg-white px-10 py-12 shadow-[0_2px_12px_rgba(0,0,0,0.35)]"
+                style={{ minHeight: '920px' }}
+              >
+                <MarkdownView source={page} />
+                <span
+                  className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[11px] font-semibold text-slate-500"
+                  style={{ fontFamily: YARU_MONO }}
+                >
+                  — {index + 1} —
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
     </div>
   )
 }

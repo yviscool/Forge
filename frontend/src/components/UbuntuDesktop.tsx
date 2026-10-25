@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Contest, Problem, api } from '../api/client'
 import { useStore } from '../store/useStore'
-import { MarkdownView } from './MarkdownView'
 import {
   ContextMenu,
   EvinceWindow,
@@ -17,9 +16,21 @@ import {
   type MenuItem,
 } from './ubuntu/UbuntuYaru'
 import { YARU_ICONS } from './ubuntu/yaruIcons'
+import {
+  dirKey,
+  findItem,
+  listDir,
+  mkdir as vfsMkdir,
+  renameItem as vfsRename,
+  restoreItem as vfsRestore,
+  trashItem as vfsTrash,
+  writeFile as vfsWrite,
+  type VfsItem,
+} from './ubuntu/vfs'
 import { ContestTimer } from './ContestTimer'
 import { Button } from './ui/button'
 import { useToast } from './ui/toast'
+import { byteLength } from '../features/student/submissionFiles'
 import {
   LayoutGrid,
   Terminal as TerminalIcon,
@@ -161,6 +172,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     return () => clearInterval(t)
   }, [serverTimeOffset])
 
+  type DirEntry = {
+    name: string
+    kind: 'dir' | 'file'
+    content?: string
+    readonly?: boolean
+    problemId?: string
+    sizeBytes?: number
+  }
+
   // Window manager state
   const [zCounter, setZCounter] = useState(20)
   const bumpZ = () => {
@@ -170,8 +190,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   }
 
   const [windows, setWindows] = useState<Record<WindowKey, WindowState>>({
-    files: { isOpen: true, isMinimized: false, isMaximized: false, x: 80, y: 46, w: 880, h: 560, zIndex: 10 },
-    editor: { isOpen: true, isMinimized: false, isMaximized: false, x: 210, y: 84, w: 920, h: 620, zIndex: 12 },
+    files: { isOpen: false, isMinimized: false, isMaximized: false, x: 80, y: 46, w: 880, h: 560, zIndex: 10 },
+    editor: { isOpen: false, isMinimized: false, isMaximized: false, x: 210, y: 84, w: 920, h: 620, zIndex: 12 },
     terminal: { isOpen: false, isMinimized: false, isMaximized: false, x: 170, y: 220, w: 660, h: 420, zIndex: 14 },
     pdf: { isOpen: false, isMinimized: false, isMaximized: false, x: 120, y: 60, w: 680, h: 580, zIndex: 11 },
     doctor: { isOpen: false, isMinimized: false, isMaximized: false, x: 320, y: 120, w: 560, h: 480, zIndex: 15 },
@@ -269,6 +289,21 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
   // Nautilus 选中项与 Geany 编译器输出。
   const [selectedNautilus, setSelectedNautilus] = useState<string | null>(null)
+  // 虚拟文件系统：考生自建的文件夹/文件按目录路径存放；回收站记录来源目录。
+  const [userFiles, setUserFiles] = useState<Record<string, VfsItem[]>>({})
+  const [trash, setTrash] = useState<{ item: VfsItem; fromKey: string }[]>([])
+  const [trashView, setTrashView] = useState(false)
+  // Geany 文档模型：标签 = 打开的文档（题目源文件或 VFS 文件）。
+  type GeanyDoc = {
+    id: string
+    kind: 'problem' | 'vfs'
+    name: string
+    problemId?: string
+    dirKey?: string
+    readonly?: boolean
+  }
+  const [openDocs, setOpenDocs] = useState<GeanyDoc[]>([])
+  const [activeDocId, setActiveDocId] = useState<string | null>(null)
   // Alt+Tab 窗口切换器（GNOME 行为：按住 Alt 连按 Tab 轮选，松开 Alt 落点）。
   const [switcher, setSwitcher] = useState<{ index: number } | null>(null)
   // 桌面空白处右键菜单。
@@ -384,30 +419,154 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
 
 
-  // File Manager navigation state
+  // File Manager navigation state：文件管理器的路径独立于编辑器，初始落在主目录。
   const currentTaskDir = taskDirOf(activeProblem)
-  const [currentPath, setCurrentPath] = useState<string[]>(['home', homeName, currentTaskDir])
+  const [currentPath, setCurrentPath] = useState<string[]>(['home', homeName])
 
-  // Sync path when active problem changes
-  useEffect(() => {
-    if (activeProblem) {
-      setCurrentPath(['home', homeName, taskDirOf(activeProblem)])
+  // 当前目录的可见条目：题目派生（源文件/样例）+ 考生自建（VFS）。
+  const homeKey = dirKey(currentPath.slice(2))
+  const dirEntries: DirEntry[] = (() => {
+    if (currentPath.length === 2) {
+      return [
+        ...problems.map((p) => ({ name: taskDirOf(p), kind: 'dir' as const })),
+        ...listDir(userFiles['']).map(
+          (item): DirEntry => ({
+            name: item.name,
+            kind: item.kind,
+            content: item.content,
+            readonly: item.readonly,
+            sizeBytes: item.kind === 'file' ? byteLength(item.content ?? '') : undefined,
+          })
+        ),
+      ]
     }
-  }, [activeProblem, homeName])
+    const base: DirEntry[] = []
+    const dirName = currentPath[2]
+    const problem = currentPath.length === 3 ? problems.find((p) => taskDirOf(p) === dirName) : undefined
+    if (problem) {
+      base.push({
+        name: `${taskDirOf(problem)}.cpp`,
+        kind: 'file',
+        content: problem.id === activeProblem?.id ? code : undefined,
+        problemId: problem.id,
+      })
+      if (problem.ioMode === 'file') {
+        base.push({
+          name: problem.inFile || `${taskDirOf(problem)}.in`,
+          kind: 'file',
+          readonly: true,
+          content: sampleIO(problem, 'in'),
+        })
+        base.push({
+          name: problem.outFile || `${taskDirOf(problem)}.out`,
+          kind: 'file',
+          readonly: true,
+          content: sampleIO(problem, 'out'),
+        })
+      }
+    }
+    return [
+      ...base,
+      ...listDir(userFiles[homeKey]).map(
+        (item): DirEntry => ({
+          name: item.name,
+          kind: item.kind,
+          content: item.content,
+          readonly: item.readonly,
+          sizeBytes: item.kind === 'file' ? byteLength(item.content ?? '') : undefined,
+        })
+      ),
+    ]
+  })()
 
-  // 终端 Tab 补全的候选：根目录给题面文件夹，题目目录给源文件与样例文件。
-  const terminalCompletions =
-    currentPath.length > 2
-      ? [
-          `${currentTaskDir}.cpp`,
-          ...(activeProblem?.ioMode === 'file'
-            ? [
-                activeProblem.inFile || `${currentTaskDir}.in`,
-                activeProblem.outFile || `${currentTaskDir}.out`,
-              ]
-            : []),
-        ]
-      : problems.map((p) => taskDirOf(p))
+  const protectedNames = dirEntries
+    .filter((entry) => entry.problemId != null || entry.readonly)
+    .map((entry) => entry.name)
+    .concat(currentPath.length === 2 ? [] : [])
+    .filter((name, index, all) => all.indexOf(name) === index)
+
+  const terminalCompletions = dirEntries.map((entry) => entry.name)
+
+  // ---- Geany 文档模型 ----
+  const activeDoc = openDocs.find((d) => d.id === activeDocId) ?? null
+  const activeVfsItem =
+    activeDoc?.kind === 'vfs'
+      ? findItem(userFiles[activeDoc.dirKey ?? ''], activeDoc.name)
+      : null
+  const docCode =
+    activeDoc?.kind === 'problem' ? code : (activeVfsItem?.content ?? '')
+  const docReadOnly = activeDoc?.kind === 'vfs' ? !!activeVfsItem?.readonly : false
+  const docPath = activeDoc ? (activeDoc.dirKey ?? '') : currentPath.slice(2).join('/')
+  const activeDocProblem =
+    activeDoc?.kind === 'problem'
+      ? problems.find((p) => p.id === activeDoc.problemId) ?? null
+      : null
+
+  const setDocCode = (value: string) => {
+    if (!activeDoc) return
+    if (activeDoc.kind === 'problem') {
+      setCode(value)
+      return
+    }
+    const key = activeDoc.dirKey ?? ''
+    setUserFiles((prev) => {
+      const result = vfsWrite(prev[key] ?? [], activeDoc.name, value)
+      return result.ok ? { ...prev, [key]: result.items } : prev
+    })
+  }
+
+  const openProblemDoc = (problem: Problem) => {
+    const id = `problem:${problem.id}`
+    setOpenDocs((prev) =>
+      prev.some((d) => d.id === id)
+        ? prev
+        : [
+            ...prev,
+            {
+              id,
+              kind: 'problem' as const,
+              name: `${taskDirOf(problem)}.cpp`,
+              problemId: problem.id,
+              dirKey: taskDirOf(problem),
+            },
+          ]
+    )
+    setActiveDocId(id)
+    setActiveProblem(problem)
+    focusWindow('editor')
+  }
+
+  const openVfsDoc = (key: string, item: VfsItem) => {
+    const id = `vfs:${key}/${item.name}`
+    setOpenDocs((prev) =>
+      prev.some((d) => d.id === id)
+        ? prev
+        : [
+            ...prev,
+            {
+              id,
+              kind: 'vfs' as const,
+              name: item.name,
+              dirKey: key,
+              readonly: item.readonly,
+            },
+          ]
+    )
+    setActiveDocId(id)
+    focusWindow('editor')
+  }
+
+  const closeDoc = (id: string) => {
+    setOpenDocs((prev) => {
+      const index = prev.findIndex((d) => d.id === id)
+      if (index < 0) return prev
+      const next = prev.filter((d) => d.id !== id)
+      if (activeDocId === id) {
+        setActiveDocId(next.length ? next[Math.max(0, index - 1)].id : null)
+      }
+      return next
+    })
+  }
 
   // Interactive Terminal state
   const [terminalLogs, setTerminalLogs] = useState<CommandLog[]>([
@@ -493,27 +652,37 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
       case 'ls': {
         const isDetailed = parts.includes('-l')
-        const taskCode = currentTaskDir
-        const sourceFile = `${taskCode}.cpp`
-        const codeSize = new Blob([code || '']).size
-        const dateStr = 'Oct 08 18:50'
-
         if (isDetailed) {
+          const rows = dirEntries.map((entry) => {
+            const size = entry.kind === 'dir' ? 4096 : byteLength(entry.content ?? '')
+            const mode = entry.kind === 'dir' ? 'drwxr-xr-x' : '-rw-r--r--'
+            return `${mode} 1 noilinux noilinux ${size.toString().padStart(5, ' ')} Oct 08 18:50 ${entry.name}`
+          })
           setTerminalLogs((prev) => [
             ...prev,
-            { type: 'output', text: 'total 12' },
-            { type: 'output', text: `drwxr-xr-x 2 noilinux noilinux 4096 ${dateStr} .` },
-            { type: 'output', text: `drwxr-xr-x 4 noilinux noilinux 4096 ${dateStr} ..` },
-            {
-              type: 'output',
-              text: `-rw-r--r-- 1 noilinux noilinux ${codeSize.toString().padStart(5, ' ')} ${dateStr} ${sourceFile}`,
-            },
+            { type: 'output', text: `total ${dirEntries.length}` },
+            ...rows.map((text) => ({ type: 'output' as const, text })),
           ])
         } else {
           setTerminalLogs((prev) => [
             ...prev,
-            { type: 'output', text: `${sourceFile}  ${taskCode}.in  ${taskCode}.out` },
+            { type: 'output', text: dirEntries.map((entry) => entry.name).join('  ') || '(空目录)' },
           ])
+        }
+        break
+      }
+
+      case 'mkdir': {
+        const name = parts[1]
+        if (!name) {
+          setTerminalLogs((prev) => [...prev, { type: 'error', text: 'mkdir: missing operand' }])
+          break
+        }
+        const result = vfsMkdir(userFiles[homeKey] ?? [], name)
+        if (result.ok) {
+          setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
+        } else {
+          setTerminalLogs((prev) => [...prev, { type: 'error', text: `mkdir: ${result.error}` }])
         }
         break
       }
@@ -528,10 +697,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             setCurrentPath((prev) => prev.slice(0, prev.length - 1))
           }
         } else {
-          const matchProb = problems.find((p) => taskDirOf(p) === target.toLowerCase())
-          if (matchProb) {
-            setActiveProblem(matchProb)
-            setCurrentPath(['home', homeName, taskDirOf(matchProb)])
+          const dirEntry = dirEntries.find(
+            (entry) => entry.kind === 'dir' && entry.name.toLowerCase() === target.toLowerCase()
+          )
+          if (dirEntry) {
+            setCurrentPath((prev) => [...prev, dirEntry.name])
+            const problem = problems.find((p) => taskDirOf(p) === dirEntry.name)
+            if (problem) setActiveProblem(problem)
           } else {
             setTerminalLogs((prev) => [...prev, { type: 'error', text: `cd: no such file or directory: ${target}` }])
           }
@@ -543,33 +715,20 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         const fileToCat = parts[1]
         if (!fileToCat) {
           setTerminalLogs((prev) => [...prev, { type: 'error', text: 'cat: missing filename' }])
-        } else if (fileToCat === `${currentTaskDir}.cpp`) {
-          setTerminalLogs((prev) => [
-            ...prev,
-            { type: 'output', text: code || '// Empty file (0 bytes)' },
-          ])
-        } else if (
-          activeProblem?.ioMode === 'file' &&
-          fileToCat === (activeProblem.inFile || `${currentTaskDir}.in`)
-        ) {
-          const sample = sampleIO(activeProblem, 'in')
-          setTerminalLogs((prev) => [
-            ...prev,
-            { type: 'output', text: sample || '(空文件：本题样例输入未提供)' },
-          ])
-        } else if (
-          activeProblem?.ioMode === 'file' &&
-          fileToCat === (activeProblem.outFile || `${currentTaskDir}.out`)
-        ) {
-          const sample = sampleIO(activeProblem, 'out')
-          setTerminalLogs((prev) => [
-            ...prev,
-            { type: 'output', text: sample || '(空文件：本题样例输出未提供)' },
-          ])
-        } else if (problems.some((p) => taskDirOf(p) === fileToCat)) {
+        } else if (dirEntries.some((entry) => entry.name === fileToCat && entry.kind === 'dir')) {
           setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: Is a directory` }])
         } else {
-          setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: No such file` }])
+          const entry = dirEntries.find((e) => e.name === fileToCat)
+          if (!entry) {
+            setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: No such file` }])
+          } else {
+            const content =
+              entry.content ??
+              (entry.problemId && entry.problemId !== activeProblem?.id
+                ? '(先在 Geany 中打开该题文档后，内容才会同步到终端)'
+                : '// Empty file (0 bytes)')
+            setTerminalLogs((prev) => [...prev, { type: 'output', text: content }])
+          }
         }
         break
       }
@@ -961,40 +1120,97 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             >
               <NautilusWindow
                 homeName={homeName}
-                dirName={currentPath.length > 2 ? currentPath[2] : ''}
+                pathSegments={currentPath.slice(2)}
+                trashMode={trashView}
+                protectedNames={protectedNames}
                 items={
-                  currentPath.length > 2
-                    ? [
-                        {
-                          id: 'source',
-                          name: `${currentTaskDir}.cpp`,
-                          kind: 'source' as const,
-                          sizeBytes: new Blob([code || '']).size,
-                        },
-                      ]
-                    : problems.map((p) => ({
-                        id: `folder-${p.id}`,
-                        name: taskDirOf(p),
-                        kind: 'folder' as const,
+                  trashView
+                    ? trash.map((entry) => ({
+                        id: entry.item.name,
+                        name: entry.item.name,
+                        kind: entry.item.kind === 'dir' ? ('folder' as const) : ('source' as const),
+                        sizeBytes: byteLength(entry.item.content ?? ''),
+                      }))
+                    : dirEntries.map((entry) => ({
+                        id: entry.name,
+                        name: entry.name,
+                        kind: entry.kind === 'dir' ? ('folder' as const) : ('source' as const),
+                        sizeBytes: entry.sizeBytes,
                       }))
                 }
                 selectedId={selectedNautilus}
                 onSelect={setSelectedNautilus}
-                onNavigate={(level) => {
+                onNavigateDepth={(level) => {
+                  if (level === -1) {
+                    setTrashView(true)
+                    return
+                  }
+                  setTrashView(false)
                   if (level === 0) setCurrentPath(['home', homeName])
+                  else setCurrentPath(['home', homeName, ...currentPath.slice(2).slice(0, level)])
                 }}
                 onOpen={(item) => {
+                  if (trashView) return
                   if (item.kind === 'folder') {
-                    const problem = problems.find((p) => taskDirOf(p) === item.name)
-                    if (problem) setActiveProblem(problem)
-                    setCurrentPath(['home', homeName, item.name])
+                    setCurrentPath((prev) => [...prev, item.name])
                   } else {
-                    focusWindow('editor')
+                    const entry = dirEntries.find((e) => e.name === item.name)
+                    if (entry?.problemId) {
+                      const problem = problems.find((p) => p.id === entry.problemId)
+                      if (problem) openProblemDoc(problem)
+                    } else {
+                      openVfsDoc(homeKey, {
+                        name: item.name,
+                        kind: 'file',
+                        content: entry?.content,
+                        readonly: entry?.readonly,
+                      })
+                    }
                   }
                 }}
-                onNewFolder={() => toast.notify('info', '模拟桌面', '考试桌面不允许新建文件夹。')}
+                onNewFolder={(name) => {
+                  const result = vfsMkdir(userFiles[homeKey] ?? [], name)
+                  if (result.ok) {
+                    setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
+                    toast.success('已创建文件夹', name)
+                  } else {
+                    toast.error('无法创建文件夹', result.error ?? '')
+                  }
+                }}
+                onRename={(oldName, newName) => {
+                  const result = vfsRename(userFiles[homeKey] ?? [], oldName, newName)
+                  if (result.ok) {
+                    setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
+                    toast.success('已重命名', `${oldName} → ${newName}`)
+                  } else {
+                    toast.error('无法重命名', result.error ?? '')
+                  }
+                }}
+                onTrash={(name) => {
+                  const result = vfsTrash(userFiles[homeKey] ?? [], name)
+                  if (result.removed) {
+                    setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
+                    setTrash((prev) => [...prev, { item: result.removed!, fromKey: homeKey }])
+                    toast.success('已移到回收站', name)
+                  }
+                }}
+                onRestore={(name) => {
+                  const entry = trash.find((t) => t.item.name === name)
+                  if (!entry) return
+                  const result = vfsRestore(userFiles[entry.fromKey] ?? [], entry.item)
+                  if (result.ok) {
+                    setUserFiles((prev) => ({ ...prev, [entry.fromKey]: result.items }))
+                    setTrash((prev) => prev.filter((t) => t.item.name !== name))
+                    toast.success('已恢复', name)
+                  } else {
+                    toast.error('无法恢复', result.error ?? '')
+                  }
+                }}
+                onEmptyTrash={() => {
+                  setTrash([])
+                  toast.success('回收站已清空')
+                }}
                 onOpenTerminal={() => toggleWindow('terminal')}
-                onRename={() => toast.notify('info', '模拟桌面', '考试桌面文件不允许重命名。')}
                 onMouseDown={(e) => handleTitleMouseDown('files', e)}
                 onMinimize={() => setWindows((p) => ({ ...p, files: { ...p.files, isMinimized: true } }))}
                 onMaximize={() => setWindows((p) => ({ ...p, files: { ...p.files, isMaximized: !p.files.isMaximized } }))}
@@ -1019,28 +1235,44 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               className="absolute flex flex-col overflow-hidden"
             >
               <GeanyWindow
-                dirName={currentTaskDir}
-                fileName={`${currentTaskDir}.cpp`}
+                dirName={docPath}
+                fileName={activeDoc?.name ?? `${currentTaskDir}.cpp`}
                 homeName={homeName}
-                code={code}
-                onCode={setCode}
-                readOnly={false}
+                code={docCode}
+                onCode={setDocCode}
+                readOnly={docReadOnly}
                 compilerLog={geanyCompilerLog}
                 onCompile={() => {
-                  setGeanyCompilerLog(buildStaticCheckLog(code, `${currentTaskDir}.cpp`, activeProblem))
+                  setGeanyCompilerLog(
+                    buildStaticCheckLog(
+                      docCode,
+                      activeDoc?.name ?? `${currentTaskDir}.cpp`,
+                      activeDoc?.kind === 'problem' ? activeDocProblem : null
+                    )
+                  )
                   focusWindow('editor')
                 }}
                 onRun={() => toggleWindow('terminal')}
-                onSave={() => onSave?.()}
-                tabs={problems.map((p) => ({ id: p.id, name: `${taskDirOf(p)}.cpp` }))}
-                activeTabId={activeProblem?.id ?? ''}
+                onSave={() => {
+                  if (activeDoc?.kind === 'problem') onSave?.()
+                  else toast.success('已保存', '自建文件保存在模拟桌面的文件夹里。')
+                }}
+                tabs={openDocs.map((d) => ({ id: d.id, name: d.name }))}
+                activeTabId={activeDocId}
                 onSelectTab={(id) => {
-                  const next = problems.find((x) => x.id === id)
-                  if (next) {
-                    setActiveProblem(next)
-                    setCurrentPath(['home', homeName, taskDirOf(next)])
+                  const doc = openDocs.find((d) => d.id === id)
+                  if (!doc) return
+                  setActiveDocId(id)
+                  if (doc.kind === 'problem') {
+                    const next = problems.find((x) => x.id === doc.problemId)
+                    if (next) {
+                      setActiveProblem(next)
+                      setCurrentPath(['home', homeName, taskDirOf(next)])
+                    }
                   }
                 }}
+                onCloseDoc={closeDoc}
+                canSubmit={activeDoc?.kind === 'problem'}
                 onDoctor={() => focusWindow('doctor')}
                 onPickUploadFile={onPickUploadFile}
                 uploadFile={uploadFile}
@@ -1105,15 +1337,12 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               <EvinceWindow
                 fileName={`${currentTaskDir}.pdf`}
                 title={`${activeProblem.code}. ${activeProblem.title}`}
+                content={activeProblem.statement}
                 onMouseDown={(e) => handleTitleMouseDown('pdf', e)}
                 onMinimize={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMinimized: true } }))}
                 onMaximize={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMaximized: !p.pdf.isMaximized } }))}
                 onClose={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isOpen: false } }))}
-              >
-                <div className="px-6 py-5">
-                  <MarkdownView source={activeProblem.statement} />
-                </div>
-              </EvinceWindow>
+              />
             </div>
           )}
 
