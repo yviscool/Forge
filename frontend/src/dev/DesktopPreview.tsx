@@ -37,6 +37,18 @@ const problem: Problem = {
   testCases: [],
 }
 
+const problemB: Problem = {
+  ...problem,
+  id: 'prb-2',
+  code: 'B',
+  slug: undefined,
+  title: '数字组合',
+  statement: '## 题目描述\n\n从 1..n 中选若干个数，使和为 k。',
+  ioMode: 'stdio',
+  inFile: undefined,
+  outFile: undefined,
+}
+
 export function DesktopPreview() {
   useStore.setState({
     session: {
@@ -49,17 +61,18 @@ export function DesktopPreview() {
     authStatus: 'authenticated',
     desktopMode: true,
   })
+  const [active, setActive] = useState(problem)
   const [code, setCode] = useState(
-    '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    freopen("poker.in", "r", stdin);\n    freopen("poker.out", "w", stdout);\n    int n;\n    cin >> n;\n    vector<int> cnt(14);\n    for (int i = 0; i < n; i++) {\n        int x;\n        cin >> x;\n        cnt[x]++;\n    }\n    for (int i = 1; i <= 13; i++) cout << cnt[i] << "\\n";\n    return 0;\n}\n'
+    '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    freopen("poker.in", "r", stdin);\n    freopen("poker.out", "w", stdout);\n    int n;\n    cin >> n;\n    vector<int> cnt(14);\n    for (int i = 0; i < n; i++) {\n        int x;\n        cin >> x;\n        cnt[x]++;\n    }\n    for (int i = 1; i <= 13; i++) cout << cnt[i] << "\\n";\n    int unused_total;\n}\n'
   )
   return (
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
       <ToastProvider>
       <UbuntuDesktop
         contest={contest}
-        problems={[problem]}
-        activeProblem={problem}
-        setActiveProblem={() => {}}
+        problems={[problem, problemB]}
+        activeProblem={active}
+        setActiveProblem={setActive}
         code={code}
         setCode={setCode}
         onExitDesktop={() => {}}
@@ -69,6 +82,7 @@ export function DesktopPreview() {
         uploadMismatch={null}
         onPickUploadFile={() => {}}
         onClearUploadFile={() => {}}
+        onSave={() => {}}
       />
       </ToastProvider>
     </QueryClientProvider>

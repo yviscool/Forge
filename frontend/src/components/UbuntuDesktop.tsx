@@ -4,6 +4,7 @@ import { Contest, Problem, api } from '../api/client'
 import { useStore } from '../store/useStore'
 import { MarkdownView } from './MarkdownView'
 import {
+  ContextMenu,
   EvinceWindow,
   GeanyWindow,
   NautilusWindow,
@@ -13,6 +14,7 @@ import {
   YaruHeaderBar,
   registerMonacoSlot,
   type GeanyEditorHandle,
+  type MenuItem,
 } from './ubuntu/UbuntuYaru'
 import { YARU_ICONS } from './ubuntu/yaruIcons'
 import { ContestTimer } from './ContestTimer'
@@ -54,6 +56,11 @@ registerMonacoSlot(function GeanyMonacoSlot({ code, onCode, readOnly, onReady, o
           onReady({
             trigger: (srcCmd, cmd) => editor.trigger(srcCmd, cmd, null),
             getPosition: () => editor.getPosition() ?? { lineNumber: 1, column: 1 },
+            reveal: (line) => {
+              editor.revealLineInCenter(line)
+              editor.setPosition({ lineNumber: line, column: 1 })
+              editor.focus()
+            },
           } as GeanyEditorHandle)
         }
         onCursorChange={onCursor}
@@ -72,6 +79,8 @@ interface UbuntuDesktopProps {
   onExitDesktop: () => void
   onSubmit: () => void
   submitting: boolean
+  /** Ctrl+S 显式保存：把当前草稿立即写入本机（Geany 快捷键链路）。 */
+  onSave?: () => void
   /** 已选择待上传的源文件（真实考场方式：选择文件 → 上传）。 */
   uploadFile: { name: string; size: number } | null
   /** 文件名与题面英文名不一致时的提示（本题期望的目录名）。 */
@@ -94,8 +103,10 @@ interface WindowState {
 }
 
 export interface CommandLog {
-  type: 'input' | 'output' | 'error' | 'success'
+  type: 'input' | 'output' | 'error' | 'success' | 'warn'
   text: string
+  /** 编译诊断对应的源码行号：Geany 编译器窗格点击跳行用。 */
+  line?: number
 }
 
 export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
@@ -108,6 +119,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   onExitDesktop,
   onSubmit,
   submitting,
+  onSave,
   uploadFile,
   uploadMismatch,
   onPickUploadFile,
@@ -257,10 +269,18 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
   // Nautilus 选中项与 Geany 编译器输出。
   const [selectedNautilus, setSelectedNautilus] = useState<string | null>(null)
+  // Alt+Tab 窗口切换器（GNOME 行为：按住 Alt 连按 Tab 轮选，松开 Alt 落点）。
+  const [switcher, setSwitcher] = useState<{ index: number } | null>(null)
+  // 桌面空白处右键菜单。
+  const [desktopMenu, setDesktopMenu] = useState<{ x: number; y: number } | null>(null)
   const [geanyCompilerLog, setGeanyCompilerLog] = useState<CommandLog[]>([])
 
   // 静态预检（浏览器内无真实编译器）：终端 g++ 与 Geany 编译按钮共用同一份输出。
-  const buildStaticCheckLog = (source: string, target: string): CommandLog[] => {
+  const buildStaticCheckLog = (
+    source: string,
+    target: string,
+    problem: Problem | null
+  ): CommandLog[] => {
     if (!source || source.trim().length === 0) {
       return [
         {
@@ -288,12 +308,81 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         },
       ]
     }
-    return [
-      { type: 'output', text: '静态检查：检测到 main()，花括号数量平衡。' },
-      { type: 'output', text: '注意：浏览器预览没有执行真实编译器，这不代表源码可以编译通过。' },
-      { type: 'output', text: '请使用“正式提交”，由服务端评测机或教师复核给出最终结论。' },
-    ]
+
+    // 软警告（-Wall 口径）：浏览器做不了真编译，但这几类是考场高频失分点，
+    // 用正则扫得出来就值得当场念给考生听。
+    const srcLines = source.split('\n')
+    const warnings: CommandLog[] = []
+    if (/\bint\s+main\s*\(/.test(source) && !/\breturn\s+0\s*;/.test(source)) {
+      const lastLine = srcLines.length
+      warnings.push({
+        type: 'warn',
+        line: lastLine,
+        text: `${target}:${lastLine}: warning: control reaches end of non-void function [-Wreturn-type]`,
+      })
+    }
+    for (const match of source.matchAll(/\bint\s+([a-zA-Z_]\w*)\s*(?:=\s*[^;]+)?;|\bdouble\s+([a-zA-Z_]\w*)\s*(?:=\s*[^;]+)?;/g)) {
+      const name = match[1] ?? match[2]
+      if (!name) continue
+      const occurrences = source.split(name).length - 1
+      if (occurrences <= 1) {
+        const line = srcLines.findIndex((l) => l.includes(name)) + 1
+        warnings.push({
+          type: 'warn',
+          line,
+          text: `${target}:${line}: warning: unused variable '${name}' [-Wunused-variable]`,
+        })
+      }
+    }
+    if (/\bgets\s*\(/.test(source)) {
+      const line = srcLines.findIndex((l) => /\bgets\s*\(/.test(l)) + 1
+      warnings.push({
+        type: 'warn',
+        line,
+        text: `${target}:${line}: warning: the \`gets' function is dangerous and should not be used. [-Wdeprecated-declarations]`,
+      })
+    }
+    // freopen 拼错文件名：本机能跑、评测读不到输入直接 0 分——最值得练的坑。
+    if (problem?.ioMode === 'file') {
+      const inFile = problem.inFile || `${taskDirOf(problem)}.in`
+      const outFile = problem.outFile || `${taskDirOf(problem)}.out`
+      const opened = Array.from(source.matchAll(/freopen\s*\(\s*"([^"]+)"/g)).map((m) => m[1])
+      if (opened.length > 0 && !(opened.includes(inFile) && opened.includes(outFile))) {
+        const line = srcLines.findIndex((l) => l.includes('freopen')) + 1
+        warnings.push({
+          type: 'warn',
+          line,
+          text: `${target}:${line}: warning: freopen 的文件名与题目要求不符（应为 ${inFile} / ${outFile}）——本机能跑，评测时读不到输入将直接 0 分！`,
+        })
+      }
+    }
+
+    const out: CommandLog[] = [{ type: 'output', text: '静态检查：检测到 main()，花括号数量平衡。' }]
+    out.push(...warnings)
+    if (warnings.length > 0) {
+      out.push({
+        type: 'output',
+        text: `${warnings.length} 条警告，0 个错误。带下划线的行可点击跳转；这不代表源码可以编译通过。`,
+      })
+    }
+    out.push({ type: 'output', text: '注意：浏览器预览没有执行真实编译器，最终以服务端评测为准。' })
+    return out
   }
+
+  // 题面样例：cat poker.in / poker.out 直接给官方样例（学生考前看样例是真实习惯）。
+  const sampleIO = (problem: Problem | null, kind: 'in' | 'out'): string => {
+    if (!problem?.examples) return ''
+    const text = problem.examples.replace(/\r/g, '')
+    const label = kind === 'in' ? '输入样例' : '输出样例'
+    const seg = text.split(new RegExp(`${label}[^：:\n]*[：:]?`))[1] ?? ''
+    if (kind === 'in') {
+      const end = seg.indexOf('输出样例')
+      return (end >= 0 ? seg.slice(0, end) : seg).trim()
+    }
+    return seg.trim()
+  }
+
+
 
   // File Manager navigation state
   const currentTaskDir = taskDirOf(activeProblem)
@@ -306,6 +395,20 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     }
   }, [activeProblem, homeName])
 
+  // 终端 Tab 补全的候选：根目录给题面文件夹，题目目录给源文件与样例文件。
+  const terminalCompletions =
+    currentPath.length > 2
+      ? [
+          `${currentTaskDir}.cpp`,
+          ...(activeProblem?.ioMode === 'file'
+            ? [
+                activeProblem.inFile || `${currentTaskDir}.in`,
+                activeProblem.outFile || `${currentTaskDir}.out`,
+              ]
+            : []),
+        ]
+      : problems.map((p) => taskDirOf(p))
+
   // Interactive Terminal state
   const [terminalLogs, setTerminalLogs] = useState<CommandLog[]>([
     { type: 'output', text: 'Welcome to Ubuntu 20.04.1 LTS (GNU/Linux 5.4.0-42-generic x86_64)' },
@@ -314,6 +417,42 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     { type: 'output', text: `Last login: exam session for ${homeName} on pts/0` },
     { type: 'output', text: 'Type "help" to see available exam room commands (g++, ls, cat, cd, etc.).' },
   ])
+
+  // Alt+Tab：真实考点里窗口切换全靠它；Windows 浏览器可能被系统截获，Linux 下可用。
+  useEffect(() => {
+    const openKeys = (Object.keys(windows) as WindowKey[]).filter(
+      (key) => windows[key].isOpen && !windows[key].isMinimized
+    )
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Tab' && event.altKey) {
+        event.preventDefault()
+        setSwitcher((current) => {
+          if (!openKeys.length) return null
+          if (!current) return { index: openKeys.length > 1 ? 1 : 0 }
+          return { index: (current.index + 1) % openKeys.length }
+        })
+      } else if (event.key === 'Escape') {
+        setSwitcher(null)
+      }
+    }
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Alt') {
+        setSwitcher((current) => {
+          if (current && openKeys.length) {
+            focusWindow(openKeys[current.index % openKeys.length])
+          }
+          return null
+        })
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    window.addEventListener('keyup', onKeyUp)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('keyup', onKeyUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [windows])
 
   // Terminal Command Execution Logic
   const handleTerminalCommand = (cmd: string) => {
@@ -409,6 +548,26 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             ...prev,
             { type: 'output', text: code || '// Empty file (0 bytes)' },
           ])
+        } else if (
+          activeProblem?.ioMode === 'file' &&
+          fileToCat === (activeProblem.inFile || `${currentTaskDir}.in`)
+        ) {
+          const sample = sampleIO(activeProblem, 'in')
+          setTerminalLogs((prev) => [
+            ...prev,
+            { type: 'output', text: sample || '(空文件：本题样例输入未提供)' },
+          ])
+        } else if (
+          activeProblem?.ioMode === 'file' &&
+          fileToCat === (activeProblem.outFile || `${currentTaskDir}.out`)
+        ) {
+          const sample = sampleIO(activeProblem, 'out')
+          setTerminalLogs((prev) => [
+            ...prev,
+            { type: 'output', text: sample || '(空文件：本题样例输出未提供)' },
+          ])
+        } else if (problems.some((p) => taskDirOf(p) === fileToCat)) {
+          setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: Is a directory` }])
         } else {
           setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: No such file` }])
         }
@@ -443,50 +602,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             ])
             return
           }
-
-          if (!code || code.trim().length === 0) {
-            setTerminalLogs((prev) => [
-              ...prev,
-              {
-                type: 'error',
-                text: `${targetSource}: fatal error: 0 bytes input file\ncompilation terminated.`,
-              },
-            ])
-            return
-          }
-
-          const openBraces = (code.match(/{/g) || []).length
-          const closeBraces = (code.match(/}/g) || []).length
-          const hasMain = /\bmain\s*\(/.test(code)
-
-          if (!hasMain) {
-            setTerminalLogs((prev) => [
-              ...prev,
-              {
-                type: 'error',
-                text: `/usr/lib/gcc/x86_64-linux-gnu/7/../../../x86_64-linux-gnu/Scrt1.o: In function '_start':\n(.text+0x20): undefined reference to 'main'\ncollect2: error: ld returned 1 exit status`,
-              },
-            ])
-          } else if (openBraces !== closeBraces) {
-            setTerminalLogs((prev) => [
-              ...prev,
-              {
-                type: 'error',
-                text: `${targetSource}: error: expected '}' at end of input (unmatched curly braces: ${openBraces} open, ${closeBraces} close)\ncompilation terminated.`,
-              },
-            ])
-          } else {
-            setTerminalLogs((prev) => [
-              ...prev,
-              {
-                type: 'output',
-                text:
-                  '静态检查：检测到 main()，花括号数量平衡。\n' +
-                  '注意：浏览器预览没有执行真实编译器，这不代表源码可以编译通过。\n' +
-                  '请使用“正式提交”，由服务端评测机或教师复核给出最终结论。',
-              },
-            ])
-          }
+          setTerminalLogs((prev) => [...prev, ...buildStaticCheckLog(code, targetSource, activeProblem)])
         } else if (trimmed.startsWith('./')) {
           setTerminalLogs((prev) => [
             ...prev,
@@ -589,6 +705,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const checkResults = runFileCheck()
   const passCount = checkResults.filter((r) => r.status === 'pass').length
 
+  // Alt+Tab 切换器的候选项：只列打开且未最小化的窗口。
+  const switcherEntries = [
+    { key: 'files' as WindowKey, label: '文件', icon: <img src={YARU_ICONS.nautilus} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
+    { key: 'editor' as WindowKey, label: 'Geany', icon: <img src={YARU_ICONS.geany} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
+    { key: 'terminal' as WindowKey, label: '终端', icon: <img src={YARU_ICONS.terminalApp} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
+    { key: 'pdf' as WindowKey, label: 'Evince', icon: <img src={YARU_ICONS.evince} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
+    { key: 'doctor' as WindowKey, label: '考场体检', icon: <Sparkles className="h-12 w-12 text-amber-400" /> },
+  ].filter((entry) => windows[entry.key].isOpen && !windows[entry.key].isMinimized)
+
   return (
     <div
       className="fixed inset-0 z-50 flex flex-col bg-black text-slate-100 select-none overflow-hidden"
@@ -656,7 +781,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {/* Nautilus Files */}
           <button
             onClick={() => toggleWindow('files')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-150 ${
               windows.files.isOpen && !windows.files.isMinimized ? 'bg-orange-500/20 text-orange-400' : 'text-slate-300 hover:bg-white/10'
             }`}
             title="Files (Nautilus 文件管理器)"
@@ -670,7 +795,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {/* Gedit / Code Editor */}
           <button
             onClick={() => toggleWindow('editor')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-150 ${
               windows.editor.isOpen && !windows.editor.isMinimized ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-white/10'
             }`}
             title="Geany 代码编辑器"
@@ -684,7 +809,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {/* Terminal */}
           <button
             onClick={() => toggleWindow('terminal')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-150 ${
               windows.terminal.isOpen && !windows.terminal.isMinimized ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-300 hover:bg-white/10'
             }`}
             title="Terminal (GNOME 终端)"
@@ -698,7 +823,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {/* PDF Viewer */}
           <button
             onClick={() => toggleWindow('pdf')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-150 ${
               windows.pdf.isOpen && !windows.pdf.isMinimized ? 'bg-red-500/20 text-red-400' : 'text-slate-300 hover:bg-white/10'
             }`}
             title="Evince (试卷题面查看器)"
@@ -712,7 +837,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {/* Exam Doctor */}
           <button
             onClick={() => toggleWindow('doctor')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
+            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-150 ${
               windows.doctor.isOpen && !windows.doctor.isMinimized ? 'bg-amber-500/20 text-amber-400' : 'text-slate-300 hover:bg-white/10'
             }`}
             title="CCF 考场防踩坑体检医生"
@@ -749,7 +874,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         </div>
 
         {/* Desktop Canvas (Wallpaper + Desktop Icons) */}
-        <div className="flex-1 relative p-6 overflow-hidden">
+        <div
+          className="flex-1 relative p-6 overflow-hidden"
+          onContextMenu={(event) => {
+            event.preventDefault()
+            setDesktopMenu({ x: event.clientX, y: event.clientY })
+          }}
+        >
           {/* Desktop Icons Grid */}
           <div className="grid grid-cols-1 gap-6 w-24">
             {/* 1. User Home Folder */}
@@ -863,17 +994,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 }}
                 onNewFolder={() => toast.notify('info', '模拟桌面', '考试桌面不允许新建文件夹。')}
                 onOpenTerminal={() => toggleWindow('terminal')}
-                onProperties={(item) =>
-                  toast.notify(
-                    'info',
-                    item ? `属性 — ${item.name}` : '属性 — 主文件夹',
-                    item
-                      ? item.kind === 'source'
-                        ? `C++ 源文件 · ${item.sizeBytes ?? 0} 字节 · 编码 UTF-8`
-                        : '文件夹 · 位于考生主目录下'
-                      : `/home/${homeName}`
-                  )
-                }
                 onRename={() => toast.notify('info', '模拟桌面', '考试桌面文件不允许重命名。')}
                 onMouseDown={(e) => handleTitleMouseDown('files', e)}
                 onMinimize={() => setWindows((p) => ({ ...p, files: { ...p.files, isMinimized: true } }))}
@@ -907,10 +1027,20 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 readOnly={false}
                 compilerLog={geanyCompilerLog}
                 onCompile={() => {
-                  setGeanyCompilerLog(buildStaticCheckLog(code, `${currentTaskDir}.cpp`))
+                  setGeanyCompilerLog(buildStaticCheckLog(code, `${currentTaskDir}.cpp`, activeProblem))
                   focusWindow('editor')
                 }}
                 onRun={() => toggleWindow('terminal')}
+                onSave={() => onSave?.()}
+                tabs={problems.map((p) => ({ id: p.id, name: `${taskDirOf(p)}.cpp` }))}
+                activeTabId={activeProblem?.id ?? ''}
+                onSelectTab={(id) => {
+                  const next = problems.find((x) => x.id === id)
+                  if (next) {
+                    setActiveProblem(next)
+                    setCurrentPath(['home', homeName, taskDirOf(next)])
+                  }
+                }}
                 onDoctor={() => focusWindow('doctor')}
                 onPickUploadFile={onPickUploadFile}
                 uploadFile={uploadFile}
@@ -946,6 +1076,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 path={currentPath.slice(2).join('/')}
                 logs={terminalLogs}
                 onCommand={handleTerminalCommand}
+                onHint={(text) => setTerminalLogs((prev) => [...prev, { type: 'output', text }])}
+                onClearScreen={() => setTerminalLogs([])}
+                completions={terminalCompletions}
                 onMouseDown={(e) => handleTitleMouseDown('terminal', e)}
                 onMinimize={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isMinimized: true } }))}
                 onMaximize={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isMaximized: !p.terminal.isMaximized } }))}
@@ -1103,6 +1236,45 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           )}
         </div>
       </div>
+        {switcher && switcherEntries.length > 0 && (
+          <div className="absolute inset-0 z-[80] grid place-items-center bg-black/40">
+            <div className="flex max-w-[82%] flex-wrap items-center justify-center gap-3 rounded-2xl border border-white/15 bg-[#1C1C1C]/95 p-4 shadow-2xl">
+              {switcherEntries.map((entry, index) => (
+                <div
+                  key={entry.key}
+                  className={`flex w-24 flex-col items-center gap-1.5 rounded-xl p-3 ${
+                    index === switcher.index ? 'bg-white/15 ring-2 ring-[#E95420]' : ''
+                  }`}
+                >
+                  {entry.icon}
+                  <span className="text-[11px] font-semibold text-white">{entry.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {desktopMenu && (
+          <ContextMenu
+            x={desktopMenu.x}
+            y={desktopMenu.y}
+            items={[
+              { label: '新建文件夹', shortcut: 'Shift+Ctrl+N', disabled: true },
+              { label: '粘贴', shortcut: 'Ctrl+V', disabled: true },
+              { separator: true },
+              { label: '在终端中打开', onClick: () => toggleWindow('terminal') },
+              { separator: true },
+              { label: '更改背景…', disabled: true },
+              { label: '显示设置', disabled: true },
+              { separator: true },
+              {
+                label: '属性',
+                onClick: () =>
+                  toast.notify('info', '桌面属性', 'NOI Linux 2.0 模拟桌面 · Ubuntu 20.04.1 LTS (Yaru)'),
+              },
+            ] as MenuItem[]}
+            onClose={() => setDesktopMenu(null)}
+          />
+        )}
     </div>
   )
 }
