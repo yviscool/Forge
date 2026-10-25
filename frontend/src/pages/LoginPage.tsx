@@ -90,7 +90,7 @@ export function LoginPage() {
 
   return (
     <div className="grid min-h-[calc(100vh-13rem)] overflow-hidden rounded-[2rem] border border-white/60 bg-[#fffefa] shadow-[0_30px_90px_-42px_rgba(20,40,61,0.42)] lg:grid-cols-[1.08fr_0.92fr]">
-      <section className="relative hidden overflow-hidden bg-[#14283d] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
+      <section className="login-showcase relative hidden overflow-hidden bg-[#14283d] p-10 text-white lg:flex lg:flex-col lg:justify-between xl:p-14">
         <div className="absolute inset-0 forge-grid opacity-20" aria-hidden="true" />
         <div
           className="absolute -left-24 top-1/4 h-80 w-80 rounded-full bg-forge-500/20 blur-3xl"
@@ -114,7 +114,7 @@ export function LoginPage() {
             </span>
           </Link>
 
-          <div className="mt-20 max-w-xl">
+          <div className="login-intro mt-20 max-w-xl">
             <Badge variant="accent" dot className="border-forge-400/30 bg-forge-400/10 text-forge-100">
               为严肃竞赛而作
             </Badge>
@@ -129,7 +129,7 @@ export function LoginPage() {
           </div>
         </div>
 
-        <div className="relative mt-12 grid gap-3 sm:grid-cols-2">
+        <div className="login-features relative mt-12 grid gap-3 sm:grid-cols-2">
           {[
             { icon: ShieldCheck, title: '考场级安全', text: '时间窗口、机位绑定与即时广播。' },
             { icon: Sparkles, title: '沉浸式作答', text: '题面、编辑器、草稿与评测闭环。' },
@@ -138,17 +138,17 @@ export function LoginPage() {
           ].map(({ icon: Icon, title, text }) => (
             <div
               key={title}
-              className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-sm"
+              className="login-feature rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur-sm"
             >
-              <Icon className="h-4 w-4 text-forge-200" />
-              <p className="mt-3 text-xs font-bold text-white">{title}</p>
-              <p className="mt-1 text-[11px] leading-5 text-white/45">{text}</p>
+              <Icon className="h-4 w-4 shrink-0 text-forge-200" />
+              <p className="login-feature-title mt-3 text-xs font-bold text-white">{title}</p>
+              <p className="login-feature-text mt-1 text-[11px] leading-5 text-white/45">{text}</p>
             </div>
           ))}
         </div>
       </section>
 
-      <section className="relative flex items-center justify-center px-5 py-12 sm:px-10 lg:px-14">
+      <section className="login-form-col relative flex items-center justify-center px-5 py-12 sm:px-10 lg:px-14">
         <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-forge-600 via-amber-400 to-teal-600 lg:hidden" />
         <div className="w-full max-w-md animate-rise">
           <div className="mb-9 lg:hidden">

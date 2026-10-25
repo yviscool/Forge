@@ -258,3 +258,45 @@ kbd,
     display: none !important;
   }
 }
+
+/* 登录页一屏适配：双栏卡片的 min-h 只按外壳 13rem 预算设计，左侧展示栏
+   内容固有高度更大，视口不够时整页出滚动条。矮视口下收紧留白，卖点
+   卡片压成「图标 + 标题」的横排小卡（描述隐藏），保住视觉分量。
+   阈值按实测反推：1024–1535px 宽需 ≥960px 高，≥1536px 宽需 ≥1080px 高。
+   窄屏（<1024px）不套双栏，保持原样。 */
+@media (min-width: 1024px) and (max-height: 959px),
+  (min-width: 1536px) and (max-height: 1079px) {
+  .login-showcase {
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+  }
+
+  .login-intro {
+    margin-top: 1.5rem;
+  }
+
+  .login-features {
+    gap: 0.5rem;
+    margin-top: 1.5rem;
+  }
+
+  .login-feature {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.6rem 0.8rem;
+  }
+
+  .login-feature-title {
+    margin-top: 0;
+  }
+
+  .login-feature-text {
+    display: none;
+  }
+
+  .login-form-col {
+    padding-top: 1.5rem;
+    padding-bottom: 1.5rem;
+  }
+}
