@@ -1933,7 +1933,7 @@ export function EvinceWindow({
 }) {
   const [zoomIndex, setZoomIndex] = useState(2)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sidebarView, setSidebarView] = useState<'thumbnails' | 'index'>('thumbnails')
+  const [sidebarView, setSidebarView] = useState<'thumbnails' | 'index'>('index')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState<number | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
