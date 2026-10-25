@@ -330,30 +330,50 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   }
 
   useEffect(() => {
+    // 拖拽/缩放节流：mousemove 只记录意图，每帧（rAF）commit 一次，
+    // 避免高频 setWindows 造成整树重渲染卡顿。
+    const pendingRef = { rect: null as WindowRect | null, key: null as WindowKey | null }
+    let rafId = 0
+    const flush = () => {
+      rafId = 0
+      const { rect, key } = pendingRef
+      pendingRef.rect = null
+      pendingRef.key = null
+      if (!key || !rect) return
+      setWindows((prev) => {
+        const cur = prev[key]
+        if (cur.x === rect.x && cur.y === rect.y && cur.w === rect.w && cur.h === rect.h) return prev
+        return { ...prev, [key]: { ...cur, x: rect.x, y: rect.y, w: rect.w, h: rect.h } }
+      })
+    }
+    const schedule = (key: WindowKey, rect: WindowRect) => {
+      pendingRef.key = key
+      pendingRef.rect = rect
+      if (!rafId) rafId = requestAnimationFrame(flush)
+    }
+
     const handleMouseMove = (e: MouseEvent) => {
       if (draggingKey) {
         const vp = viewport()
         const nx = Math.max(0, e.clientX - dragOffsetRef.current.ox)
         const ny = Math.max(30, e.clientY - dragOffsetRef.current.oy)
-        setWindows((prev) => ({
-          ...prev,
-          [draggingKey]: { ...prev[draggingKey], x: nx, y: ny },
-        }))
-        lastFreeRectRef.current[draggingKey] = { x: nx, y: ny, w: windows[draggingKey].w, h: windows[draggingKey].h }
-        setSnapPreview(detectSnapZone({ x: e.clientX, y: e.clientY }, vp))
+        const w = windows[draggingKey].w
+        const h = windows[draggingKey].h
+        schedule(draggingKey, { x: nx, y: ny, w, h })
+        lastFreeRectRef.current[draggingKey] = { x: nx, y: ny, w, h }
+        const zone = detectSnapZone({ x: e.clientX, y: e.clientY }, vp)
+        setSnapPreview((prev) => (prev === zone ? prev : zone))
         return
       }
       if (resizing) {
         const dx = e.clientX - resizeStartPointerRef.current.x
         const dy = e.clientY - resizeStartPointerRef.current.y
-        const next = applyResize(resizing.start, resizing.dir, dx, dy, viewport())
-        setWindows((prev) => ({
-          ...prev,
-          [resizing.key]: { ...prev[resizing.key], x: next.x, y: next.y, w: next.w, h: next.h },
-        }))
+        schedule(resizing.key, applyResize(resizing.start, resizing.dir, dx, dy, viewport()))
       }
     }
     const handleMouseUp = () => {
+      if (rafId) cancelAnimationFrame(rafId)
+      rafId = 0
       if (draggingKey && snapPreview) {
         // 贴边落位：记住自由矩形以便拖离还原。
         const rect = snapRect(snapPreview, viewport())
@@ -371,6 +391,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           },
         }))
       }
+      pendingRef.rect = null
+      pendingRef.key = null
       setDraggingKey(null)
       setSnapPreview(null)
       setResizing(null)
@@ -381,6 +403,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       window.addEventListener('mouseup', handleMouseUp)
     }
     return () => {
+      if (rafId) cancelAnimationFrame(rafId)
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
@@ -622,7 +645,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
   // 当前目录的可见条目：题目派生（源文件/样例）+ 考生自建（VFS）。
   const homeKey = dirKey(currentPath.slice(2))
-  const dirEntries: DirEntry[] = (() => {
+  const dirEntries: DirEntry[] = React.useMemo(() => {
     if (currentPath.length === 2) {
       return [
         ...problems.map((p) => ({ name: taskDirOf(p), kind: 'dir' as const })),
@@ -682,7 +705,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         })
       ),
     ]
-  })()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentPath, problems, activeProblem, code, userFiles, drafts, session?.userId, contest?.id])
 
   const protectedNames = dirEntries
     .filter((entry) => entry.problemId != null || entry.readonly)

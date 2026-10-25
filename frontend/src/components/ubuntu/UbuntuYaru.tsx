@@ -141,7 +141,10 @@ export function YaruHeaderBar({
   return (
     <div
       onMouseDown={onMouseDown}
-      onDoubleClick={onMaximize}
+      onDoubleClick={(e) => {
+        if (e.target instanceof Element && e.target.closest('button')) return
+        onMaximize?.()
+      }}
       className="relative flex h-10 shrink-0 items-center px-2.5"
       style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
     >
@@ -183,7 +186,10 @@ export function YaruTitleBar({
   return (
     <div
       onMouseDown={onMouseDown}
-      onDoubleClick={onMaximize}
+      onDoubleClick={(e) => {
+        if (e.target instanceof Element && e.target.closest('button')) return
+        onMaximize?.()
+      }}
       className="flex h-8 shrink-0 items-center px-2"
       style={{ background: YARU.ssdBg, borderBottom: `1px solid ${YARU.ssdBorder}` }}
     >
@@ -985,7 +991,7 @@ export function GeanyWindow({
   const [sidebarTab, setSidebarTab] = useState<'symbols' | 'docs'>('symbols')
   const editorRef = useRef<GeanyEditorHandle | null>(null)
   const [caret, setCaret] = useState({ line: 1, column: 1 })
-  const symbols = parseGeanySymbols(code)
+  const symbols = React.useMemo(() => parseGeanySymbols(code), [code])
   const hasDoc = tabs.length > 0 && activeTabId != null
 
   const runEditor = (cmd: string) => editorRef.current?.trigger('geany', cmd, null)
@@ -2004,7 +2010,10 @@ export function EvinceWindow({
       {/* Evince 3.36 头栏（NOI Linux 2.0 实际版本）：← →｜第 N 页共 M 页（可输入跳页）｜− % +｜侧栏｜菜单｜窗口钮 */}
       <div
         onMouseDown={onMouseDown}
-        onDoubleClick={onMaximize}
+        onDoubleClick={(e) => {
+        if (e.target instanceof Element && e.target.closest('button')) return
+        onMaximize?.()
+      }}
         className="relative flex h-11 shrink-0 items-center gap-1 px-2"
         style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
       >
