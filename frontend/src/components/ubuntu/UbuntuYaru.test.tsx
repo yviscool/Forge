@@ -286,22 +286,21 @@ describe('EvinceWindow', () => {
     onClose: vi.fn(),
   }
 
-  it('真 PDF 模式：iframe src 携带 page/zoom；菜单缩放更新 src 与副标题页码', async () => {
+  it('真 PDF 模式：src 携带 page/zoom；头栏缩放与页码输入跳页', async () => {
     render(<EvinceWindow {...base} pdfUrl="/api/v1/contests/c1/pdf" />)
     const srcOf = () => screen.getByTitle('day1.pdf').getAttribute('src') ?? ''
     expect(srcOf()).toContain('page=1')
     expect(srcOf()).toContain('zoom=100')
-    // Papers 双行标题副标题
-    expect(screen.getByText(/第 1 页/)).toBeInTheDocument()
-    // 汉堡菜单 → 放大
-    fireEvent.click(screen.getByLabelText('主菜单'))
-    fireEvent.click(await screen.findByText('放大'))
+    // 3.36 常驻缩放组
+    fireEvent.click(screen.getByLabelText('放大'))
     await waitFor(() => expect(srcOf()).toContain('zoom=125'))
-    // 菜单 → 下一页（副标题同步）
-    fireEvent.click(screen.getByLabelText('主菜单'))
-    fireEvent.click(await screen.findByText('下一页'))
+    fireEvent.click(screen.getByLabelText('缩小'))
+    await waitFor(() => expect(srcOf()).toContain('zoom=100'))
+    // 页码输入框回车跳页
+    const pageInput = screen.getByLabelText('页码')
+    await userEvent.clear(pageInput)
+    await userEvent.type(pageInput, '2{Enter}')
     await waitFor(() => expect(srcOf()).toMatch(/page=2&/))
-    expect(await screen.findByText(/第 2 页/)).toBeInTheDocument()
   })
 
   it('键盘翻页：PgDn 递增并钳制到 1..max', async () => {

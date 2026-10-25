@@ -308,6 +308,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   }
 
   const handleTitleMouseDown = (key: WindowKey, e: React.MouseEvent) => {
+    // 头栏内的按钮（关闭/最小化/菜单等）不进入拖拽，否则拖拽启动会吞掉 click。
+    if (e.target instanceof Element && e.target.closest('button')) return
     focusWindow(key)
     const w = windows[key]
     const vp = viewport()

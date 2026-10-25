@@ -1937,6 +1937,7 @@ export function EvinceWindow({
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState<number | null>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [pageDraft, setPageDraft] = useState<string | null>(null)
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
 
   // 真 PDF 模式：从响应头读总页数（标题副标题与翻页钳制用）。
@@ -2000,18 +2001,18 @@ export function EvinceWindow({
       className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-black/40 shadow-[0_14px_48px_rgba(0,0,0,0.5)] outline-none"
       style={{ fontFamily: YARU_SANS }}
     >
-      {/* Papers 头栏：历史 ← → | 双行标题 | 侧栏 + 汉堡 */}
+      {/* Evince 3.36 头栏（NOI Linux 2.0 实际版本）：← →｜第 N 页共 M 页（可输入跳页）｜− % +｜侧栏｜菜单｜窗口钮 */}
       <div
         onMouseDown={onMouseDown}
         onDoubleClick={onMaximize}
-        className="relative flex h-12 shrink-0 items-center gap-1 px-2"
+        className="relative flex h-11 shrink-0 items-center gap-1 px-2"
         style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
       >
         <button
           type="button"
           disabled
           aria-label="后退"
-          className="grid h-8 w-8 place-items-center rounded-full text-slate-400 disabled:opacity-40"
+          className="grid h-7 w-7 place-items-center rounded-md text-slate-400 disabled:opacity-40"
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
@@ -2019,26 +2020,62 @@ export function EvinceWindow({
           type="button"
           disabled
           aria-label="前进"
-          className="grid h-8 w-8 place-items-center rounded-full text-slate-400 disabled:opacity-40"
+          className="grid h-7 w-7 place-items-center rounded-md text-slate-400 disabled:opacity-40"
         >
           <ChevronRight className="h-4 w-4" />
         </button>
 
-        {/* 双行标题：文件名 / 第 N 页，共 M 页 */}
-        <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
-          <span className="max-w-[45vw] truncate text-[13px] font-bold" style={{ color: YARU.headerbarFg }}>
-            {fileName}
-          </span>
-          <span className="text-[10px] font-semibold text-slate-500">
-            第 {page} 页{maxPage != null ? `，共 ${maxPage} 页` : ''}
-          </span>
-        </div>
+        {/* 页码控件：第 [N] 页，共 M 页 —— N 为可编辑输入框（回车跳页，失焦还原） */}
+        <form
+          className="ml-2 flex items-center gap-1 rounded-md border border-[#CFCFCF] bg-white px-2 py-0.5 text-[12px] text-[#3D3D3D]"
+          onSubmit={(event) => {
+            event.preventDefault()
+            const parsed = Number(pageDraft)
+            if (Number.isFinite(parsed)) gotoPageClamped(Math.round(parsed))
+            setPageDraft(null)
+          }}
+        >
+          <span>第</span>
+          <input
+            aria-label="页码"
+            className="w-8 border-0 bg-transparent p-0 text-center font-mono text-[12px] outline-none"
+            value={pageDraft ?? String(page)}
+            onChange={(event) => setPageDraft(event.target.value)}
+            onBlur={() => setPageDraft(null)}
+            inputMode="numeric"
+          />
+          <span>页{maxPage != null ? `，共 ${maxPage} 页` : ''}</span>
+        </form>
 
         <div className="ml-auto flex items-center gap-1">
+          {/* 缩放组（3.36 常驻头栏） */}
+          <div className="mr-1 flex items-center gap-0.5 rounded-md border border-[#CFCFCF] bg-white px-1">
+            <button
+              type="button"
+              onClick={() => zoomTo(zoomIndex - 1)}
+              disabled={zoomIndex <= 0}
+              className="grid h-6 w-6 place-items-center text-[14px] font-bold text-[#3D3D3D] disabled:opacity-30"
+              aria-label="缩小"
+            >
+              −
+            </button>
+            <span className="min-w-[42px] text-center text-[11px] font-semibold text-[#3D3D3D]">
+              {Math.round(zoom * 100)}%
+            </span>
+            <button
+              type="button"
+              onClick={() => zoomTo(zoomIndex + 1)}
+              disabled={zoomIndex >= EVINCE_ZOOM_STEPS.length - 1}
+              className="grid h-6 w-6 place-items-center text-[14px] font-bold text-[#3D3D3D] disabled:opacity-30"
+              aria-label="放大"
+            >
+              +
+            </button>
+          </div>
           <button
             type="button"
             onClick={() => setSidebarOpen((open) => !open)}
-            className={`grid h-8 w-8 place-items-center rounded-full text-[#3D3D3D] hover:bg-black/10 ${
+            className={`grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10 ${
               sidebarOpen ? 'bg-black/10' : ''
             }`}
             aria-label="侧栏"
@@ -2052,46 +2089,15 @@ export function EvinceWindow({
               const rect = event.currentTarget.getBoundingClientRect()
               setMenu({ x: Math.min(rect.right - 210, window.innerWidth - 230), y: rect.bottom + 4 })
             }}
-            className="grid h-8 w-8 place-items-center rounded-full text-[#3D3D3D] hover:bg-black/10"
+            className="grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10"
             aria-label="主菜单"
           >
             <MenuIcon className="h-4 w-4" />
           </button>
           <div className="ml-1.5 flex items-center gap-2">
-            {onMinimize && (
-              <button
-                type="button"
-                onClick={onMinimize}
-                aria-label="min"
-                className="grid h-[18px] w-[18px] place-items-center rounded-full bg-[#BFBFBF]/80 text-[#3D3D3D] hover:bg-[#9A9A9A]"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10">
-                  <rect x="1.5" y="4.5" width="7" height="1.6" fill="currentColor" />
-                </svg>
-              </button>
-            )}
-            {onMaximize && (
-              <button
-                type="button"
-                onClick={onMaximize}
-                aria-label="max"
-                className="grid h-[18px] w-[18px] place-items-center rounded-full bg-[#BFBFBF]/80 text-[#3D3D3D] hover:bg-[#9A9A9A]"
-              >
-                <svg width="10" height="10" viewBox="0 0 10 10">
-                  <rect x="1.8" y="1.8" width="6.4" height="6.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                </svg>
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="close"
-              className="grid h-[18px] w-[18px] place-items-center rounded-full bg-[#BFBFBF]/80 text-[#3D3D3D] hover:bg-[#E95420] hover:text-white"
-            >
-              <svg width="10" height="10" viewBox="0 0 10 10">
-                <path d="M2 2 L8 8 M8 2 L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-              </svg>
-            </button>
+            {onMinimize && <IconButton kind="min" onClick={onMinimize} />}
+            {onMaximize && <IconButton kind="max" onClick={onMaximize} />}
+            <IconButton kind="close" onClick={onClose} />
           </div>
         </div>
       </div>
