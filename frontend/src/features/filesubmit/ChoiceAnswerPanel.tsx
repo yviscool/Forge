@@ -259,7 +259,7 @@ export function ChoiceAnswerPanel({
   if (!meta) return <LoadingBlock label="正在加载答题卡..." />
 
   return (
-    <div className="space-y-5 pb-24">
+    <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-3">
         <Button variant="ghost" onClick={onBack} aria-label="返回题目列表">
           <ArrowLeft className="h-4 w-4" />
@@ -309,8 +309,10 @@ export function ChoiceAnswerPanel({
                   maxLength={256}
                   autoComplete="off"
                   disabled={outsideWindow}
-                  value={(answers[block.id] || []).join(' ')}
-                  onChange={(event) => setQuestionAnswer(block.id, event.target.value.trim() ? [event.target.value] : [])}
+                  value={(answers[block.id] || [])[0] || ''}
+                  onChange={(event) =>
+                    setQuestionAnswer(block.id, event.target.value ? [event.target.value] : [])
+                  }
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') event.preventDefault()
                   }}
@@ -375,9 +377,9 @@ export function ChoiceAnswerPanel({
         })}
       </div>
 
-      {/* 底部递交栏：进度 + 题号网格 + 递交按钮 */}
-      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-[#e4e7ec] bg-[#fffefa]/95 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center gap-4 px-4 py-3 sm:px-6">
+      {/* 底部递交栏：进度 + 题号网格 + 递交按钮（sticky 跟随滚动，不遮页脚） */}
+      <div className="sticky bottom-4 z-30 rounded-2xl border border-[#e4e7ec] bg-[#fffefa]/95 shadow-lift backdrop-blur-xl">
+        <div className="flex w-full flex-wrap items-center gap-4 px-4 py-3 sm:px-5">
           <div className="min-w-40 flex-1">
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500">
               <span>
