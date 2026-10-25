@@ -83,7 +83,13 @@ function serializeAnswers(answers: AnswerSheet): string {
     .map(Number)
     .filter(Number.isFinite)
     .sort((a, b) => a - b)
-  const body = ids.map((id) => `${id}: ${(answers[id] || []).join(',')}`).join('\n')
+  const body = ids
+    .map((id) => {
+      // 与 LemonNext 一致：多选按选项字母顺序序列化（与点击顺序无关）。
+      const values = (answers[id] || []).slice().sort()
+      return `${id}: ${values.join(',')}`
+    })
+    .join('\n')
   return body ? `${body}\n` : ''
 }
 

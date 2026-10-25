@@ -215,6 +215,7 @@ export function FileSubmitWorkspace() {
     return (
       <div className="space-y-5">
         <TaskSubmitPanel
+          key={selectedTask.id}
           data={data}
           task={selectedTask}
           taskIndex={selectedTaskIndex}
@@ -353,6 +354,8 @@ export function FileSubmitWorkspace() {
                         aria-label={`进入题目 ${index + 1} ${task.title}`}
                         onClick={() => setSelectedTaskId(task.id)}
                         onKeyDown={(event) => {
+                          // 行内按钮/链接（查看、样例）自己处理 Enter，不触发行导航。
+                          if ((event.target as HTMLElement).closest('button, a')) return
                           if (event.key === 'Enter' || event.key === ' ') {
                             event.preventDefault()
                             setSelectedTaskId(task.id)
@@ -647,7 +650,11 @@ function FolderUploadCard({
         className="hidden"
         multiple
         {...({ webkitdirectory: '', directory: '' } as Record<string, string>)}
-        onChange={(event) => handleFiles(event.target.files)}
+        onChange={(event) => {
+          handleFiles(event.target.files)
+          // 重置 value，否则再次选择同一个文件夹不会触发 change。
+          event.target.value = ''
+        }}
       />
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <Button variant="outline" onClick={handlePick} disabled={blocked}>

@@ -40,6 +40,12 @@ const LANGUAGES: Array<{ value: string; label: string; monaco: string }> = [
   { value: 'pascal', label: 'Pascal', monaco: 'pascal' },
 ]
 
+/** 只交答案题：答案以纯文本提交（文件名 answer.txt 这类）。 */
+const ANSWER_LANGUAGES: Array<{ value: string; label: string; monaco: string }> = [
+  { value: 'txt', label: '文本', monaco: 'plaintext' },
+  ...LANGUAGES,
+]
+
 const FONT_SIZES = [12, 14, 16, 18]
 
 /** 与 LemonNext 相同的扩展名 → 语言映射。 */
@@ -48,6 +54,7 @@ const EXT_TO_LANGUAGE: Record<string, string> = {
   c: 'c', h: 'cpp',
   py: 'python',
   pas: 'pascal', pp: 'pascal',
+  txt: 'txt',
 }
 
 function languageFromFilename(filename: string): string | null {
@@ -115,7 +122,9 @@ function TraditionalPanel({
   onSubmitted: (taskId: number, submittedAt: string) => void
 }) {
   const toast = useToast()
-  const [language, setLanguage] = useState('cpp')
+  const isAnswersOnly = task.taskType === 'answers_only'
+  const languageOptions = isAnswersOnly ? ANSWER_LANGUAGES : LANGUAGES
+  const [language, setLanguage] = useState(isAnswersOnly ? 'txt' : 'cpp')
   const [fontSize, setFontSize] = useState(14)
   const [code, setCode] = useState('')
   const [answerMode, setAnswerMode] = useState<'editor' | 'file'>('editor')
@@ -197,30 +206,34 @@ function TraditionalPanel({
     }
   }
 
-  const handleSubmitClick = () => {
+  // 提交入口（按钮与 Ctrl+Enter 共用）：重复提交需确认，评测以最后一次为准。
+  const attemptSubmit = useCallback(() => {
     if (submitBlocked) return
     if (!currentSource.trim()) {
       toast.warning(answerMode === 'file' ? '请选择文件' : '请输入代码')
       return
     }
-    // 重复提交需明确确认：评测以最后一次为准。
     if (submitCountRef.current >= 1) setConfirmOpen(true)
     else void doSubmit()
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submitBlocked, currentSource, answerMode])
 
-  // Ctrl/Cmd + Enter 全局快捷提交。
+  // Ctrl/Cmd + Enter 快捷提交：监听器只绑一次，经 ref 调用最新逻辑，
+  // 避免每次敲键都重绑 window 级监听。
+  const attemptRef = useRef(attemptSubmit)
+  useEffect(() => {
+    attemptRef.current = attemptSubmit
+  }, [attemptSubmit])
   useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
         event.preventDefault()
-        if (!submitBlocked && submitCountRef.current < 1) void doSubmit()
-        else if (!submitBlocked) setConfirmOpen(true)
+        attemptRef.current()
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submitBlocked, currentSource, language, answerMode])
+  }, [])
 
   const timeLimitLabel = task.timeLimitMs
     ? task.timeLimitMaxMs && task.timeLimitMaxMs !== task.timeLimitMs
@@ -329,7 +342,7 @@ function TraditionalPanel({
                 aria-label="选择语言"
                 className="h-8"
               >
-                {LANGUAGES.map((item) => (
+                {languageOptions.map((item) => (
                   <option key={item.value} value={item.value}>
                     {item.label}
                   </option>
@@ -359,7 +372,7 @@ function TraditionalPanel({
             <MonacoEditor
               value={code}
               onChange={handleCodeChange}
-              language={LANGUAGES.find((item) => item.value === language)?.monaco || 'cpp'}
+              language={languageOptions.find((item) => item.value === language)?.monaco || 'cpp'}
               fontSize={fontSize}
               height="440px"
               ariaLabel={`${task.title} 代码编辑器`}
@@ -368,10 +381,13 @@ function TraditionalPanel({
         </section>
       ) : (
         <section className="app-surface rounded-2xl p-5" aria-label="上传文件">
-          <h3 className="text-sm font-bold text-[#14283d]">上传源码文件</h3>
+          <h3 className="text-sm font-bold text-[#14283d]">
+            {isAnswersOnly ? '上传答案文件' : '上传源码文件'}
+          </h3>
           <p className="mt-1 text-xs leading-5 text-slate-500">
-            选择本地的源码文件上传即提交，评测以最后一次提交为准；单个文件不超过 {formatBytes(MAX_SOURCE_BYTES)}。
-            文件名需与题目源文件名一致（如 {task.sourceFileName}.cpp）。
+            {isAnswersOnly
+              ? `选择本地的答案文件上传即提交，评测以最后一次提交为准；单个文件不超过 ${formatBytes(MAX_SOURCE_BYTES)}。`
+              : `选择本地的源码文件上传即提交，评测以最后一次提交为准；单个文件不超过 ${formatBytes(MAX_SOURCE_BYTES)}。文件名需与题目源文件名一致（如 ${task.sourceFileName}.cpp）。`}
           </p>
           <input
             ref={fileInputRef}
@@ -441,7 +457,7 @@ function TraditionalPanel({
           同一题可多次提交，评测以最后一次为准。
         </p>
         <Button
-          onClick={handleSubmitClick}
+          onClick={attemptSubmit}
           disabled={submitBlocked}
           loading={submitting}
           data-testid="lemon-submit"

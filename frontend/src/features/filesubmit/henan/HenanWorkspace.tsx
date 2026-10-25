@@ -118,6 +118,8 @@ export function HenanWorkspace() {
   }, [])
 
   // ---- 心跳：比赛状态/公告/连接门控的唯一来源 ----
+  // 开考前加密到 5 秒一拍，让「开赛自动刷新」更及时；其余阶段 15 秒。
+  const heartbeatIntervalMs = beat?.phase === 'before' ? 5000 : 15000
   const reloadOnce = useRef(false)
   useEffect(() => {
     let cancelled = false
@@ -142,12 +144,12 @@ export function HenanWorkspace() {
       }
     }
     void poll()
-    const timer = window.setInterval(poll, 15000)
+    const timer = window.setInterval(poll, heartbeatIntervalMs)
     return () => {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [])
+  }, [heartbeatIntervalMs])
 
   useEffect(() => {
     void refreshProblems()
