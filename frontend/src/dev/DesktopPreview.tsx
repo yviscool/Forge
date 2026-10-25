@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { ToastProvider } from '../components/ui/toast'
 import { UbuntuDesktop } from '../components/UbuntuDesktop'
 import type { Contest, Problem } from '../api/client'
-import { useStore } from '../store/useStore'
+import { contestProblemDraftKey, useStore } from '../store/useStore'
 
 // 开发预览挂载点（仅 import.meta.env.DEV 下可达）：直接渲染考场桌面做目检，
 // 不进入生产构建（main.tsx 按 DEV + 查询串门控）。
@@ -62,6 +62,13 @@ export function DesktopPreview() {
     desktopMode: true,
   })
   const [active, setActive] = useState(problem)
+  const initialCode = '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    freopen("poker.in", "r", stdin);\n    freopen("poker.out", "w", stdout);\n    int n;\n    cin >> n;\n    vector<int> cnt(14);\n    for (int i = 0; i < n; i++) {\n        int x;\n        cin >> x;\n        cnt[x]++;\n    }\n    for (int i = 1; i <= 13; i++) cout << cnt[i] << "\\n";\n    int unused_total;\n}'
+  useStore.setState((state) => ({
+    drafts: {
+      ...state.drafts,
+      [contestProblemDraftKey('u1', 'preview-1', problem.id)]: initialCode,
+    },
+  }))
   const [code, setCode] = useState(
     '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    freopen("poker.in", "r", stdin);\n    freopen("poker.out", "w", stdout);\n    int n;\n    cin >> n;\n    vector<int> cnt(14);\n    for (int i = 0; i < n; i++) {\n        int x;\n        cin >> x;\n        cnt[x]++;\n    }\n    for (int i = 1; i <= 13; i++) cout << cnt[i] << "\\n";\n    int unused_total;\n}\n'
   )
@@ -74,7 +81,10 @@ export function DesktopPreview() {
         activeProblem={active}
         setActiveProblem={setActive}
         code={code}
-        setCode={setCode}
+        setCode={(value) => {
+          setCode(value)
+          useStore.getState().setDraft(contestProblemDraftKey('u1', 'preview-1', active.id), value)
+        }}
         onExitDesktop={() => {}}
         onSubmit={() => {}}
         submitting={false}
@@ -82,7 +92,12 @@ export function DesktopPreview() {
         uploadMismatch={null}
         onPickUploadFile={() => {}}
         onClearUploadFile={() => {}}
-        onSave={() => {}}
+        onSave={() => {
+          // 与 StudentWorkspace 同语义：显式保存 = 草稿立即落盘（无提示框）。
+          useStore
+            .getState()
+            .setDraft(contestProblemDraftKey('u1', 'preview-1', active.id), code)
+        }}
       />
       </ToastProvider>
     </QueryClientProvider>

@@ -1050,7 +1050,11 @@ export function GeanyWindow({
       style={{ fontFamily: YARU_SANS }}
     >
       <YaruTitleBar
-        title={`${fileName} - /home/${homeName}${dirName ? `/${dirName}` : ''} - Geany`}
+        title={
+          hasDoc
+            ? `${fileName} - /home/${homeName}${dirName ? `/${dirName}` : ''} - Geany`
+            : 'Geany'
+        }
         onMouseDown={onMouseDown}
         onMinimize={onMinimize}
         onMaximize={onMaximize}
@@ -1355,7 +1359,7 @@ export function GeanyWindow({
           'TAB 宽度: 4',
           '编码: UTF-8',
           '换行: LF',
-          '文件类型: C++',
+          `文件类型: ${fileTypeName(fileName)}`,
         ].map((part, index) => (
           <span key={index} className="border-l border-[#D9D9D6] px-2 first:border-l-0">
             {part}
@@ -1806,6 +1810,29 @@ function paginateStatement(markdown: string, linesPerPage = 26): string[] {
     pages.push(lines.slice(i, i + linesPerPage).join('\n'))
   }
   return pages.length ? pages : ['（本题暂无题面内容）']
+}
+
+// Geany 状态栏的文件类型（真实 filetype 映射的常用子集）。
+function fileTypeName(fileName: string): string {
+  const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
+  switch (ext) {
+    case 'cpp':
+    case 'cc':
+    case 'cxx':
+      return 'C++'
+    case 'c':
+      return 'C'
+    case 'h':
+      return 'C/C++ 头文件'
+    case 'py':
+      return 'Python'
+    case 'in':
+    case 'out':
+    case 'ans':
+      return '无'
+    default:
+      return '无'
+  }
 }
 
 const EVINCE_ZOOM_STEPS = [0.6, 0.8, 1, 1.25, 1.5, 2]

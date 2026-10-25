@@ -32,12 +32,10 @@ import { ContestTimer } from './ContestTimer'
 import { Button } from './ui/button'
 import { useToast } from './ui/toast'
 import { byteLength } from '../features/student/submissionFiles'
+import { contestProblemDraftKey } from '../store/useStore'
 import {
   LayoutGrid,
-  Terminal as TerminalIcon,
-  FileText,
   Lock,
-  HardDrive,
   Wifi,
   Volume2,
   Power,
@@ -134,7 +132,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   onPickUploadFile,
   onClearUploadFile,
 }) => {
-  const { session } = useStore()
+  const { session, drafts } = useStore()
   const queryClient = useQueryClient()
   const toast = useToast()
   // Only the signed grant reflected by the server is authoritative. A stale
@@ -169,6 +167,17 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     const t = setInterval(updateTime, 1000)
     return () => clearInterval(t)
   }, [serverTimeOffset])
+
+  // 与 StudentWorkspace 的 submissionCode 同语义：合法 JSON 则美化，否则原样。
+  const submissionCodeSafe = (value: string): string => {
+    try {
+      const parsed = JSON.parse(value) as unknown
+      if (parsed && typeof parsed === 'object') return JSON.stringify(parsed, null, 2)
+    } catch {
+      // 普通源码不是 JSON，原样返回。
+    }
+    return value
+  }
 
   type DirEntry = {
     name: string
@@ -503,10 +512,18 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     const dirName = currentPath[2]
     const problem = currentPath.length === 3 ? problems.find((p) => taskDirOf(p) === dirName) : undefined
     if (problem) {
+      const draftKey = contestProblemDraftKey(session?.userId, contest?.id ?? '', problem.id)
+      const draftContent = drafts[draftKey]
       base.push({
         name: `${taskDirOf(problem)}.cpp`,
         kind: 'file',
-        content: problem.id === activeProblem?.id ? code : undefined,
+        // 与真实磁盘一致：文件内容 = 该题草稿（保存即落盘，文件管理器同步可见）
+        content:
+          typeof draftContent === 'string'
+            ? problem.taskType === 'answers_only'
+              ? draftContent
+              : submissionCodeSafe(draftContent)
+            : '',
         problemId: problem.id,
       })
       if (problem.ioMode === 'file') {
@@ -788,11 +805,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           if (!entry) {
             setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: No such file` }])
           } else {
-            const content =
-              entry.content ??
-              (entry.problemId && entry.problemId !== activeProblem?.id
-                ? '(先在 Geany 中打开该题文档后，内容才会同步到终端)'
-                : '// Empty file (0 bytes)')
+            const content = entry.content ?? ''
             setTerminalLogs((prev) => [...prev, { type: 'output', text: content }])
           }
         }
@@ -865,11 +878,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             活动
           </button>
           <span className="text-slate-400 font-medium text-[11px] hidden sm:inline">
-            {windows.editor.zIndex >= windows.files.zIndex && !windows.editor.isMinimized
-              ? 'Geany'
-              : windows.terminal.zIndex >= windows.files.zIndex && !windows.terminal.isMinimized
-              ? '终端'
-              : '文件'}
+            {(() => {
+              // GNOME 顶栏中间显示当前聚焦窗口的应用名；无窗口时回落到"搜索"。
+              const open = (Object.keys(windows) as WindowKey[])
+                .filter((k) => windows[k].isOpen && !windows[k].isMinimized)
+                .sort((a, b) => windows[b].zIndex - windows[a].zIndex)
+              const top = open[0]
+              if (!top) return '搜索'
+              return top === 'editor' ? 'Geany' : top === 'terminal' ? '终端' : top === 'pdf' ? '文档查看器' : '文件'
+            })()}
           </span>
         </div>
 
@@ -1008,7 +1025,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 src={YARU_ICONS.userHome}
                 alt=""
                 draggable={false}
-                className="w-12 h-12 object-contain drop-shadow-lg group-hover:scale-105 transition-transform"
+                className="w-16 h-16 object-contain drop-shadow-lg group-hover:scale-105 transition-transform"
               />
               <span className="text-[11px] font-medium text-slate-100 group-hover:underline drop-shadow-sm line-clamp-1">
                 {homeName}
@@ -1020,8 +1037,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               onDoubleClick={() => (!isUnlocked ? focusWindow('unlock') : focusWindow('files'))}
               className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/10 cursor-pointer group text-center relative"
             >
-              <div className="w-12 h-12 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300 shadow-lg group-hover:scale-105 transition-transform">
-                <HardDrive className="w-6 h-6" />
+              <div className="relative group-hover:scale-105 transition-transform">
+                <img
+                  src={YARU_ICONS.package}
+                  alt=""
+                  draggable={false}
+                  className="w-16 h-16 object-contain drop-shadow-lg"
+                />
                 {!isUnlocked && (
                   <span className="absolute -top-1 -right-1 w-5 h-5 rounded-full bg-rose-600 text-white flex items-center justify-center text-[10px] shadow">
                     <Lock className="w-3 h-3" />
@@ -1038,9 +1060,12 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               onDoubleClick={() => focusWindow('pdf')}
               className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/10 cursor-pointer group text-center"
             >
-              <div className="w-12 h-12 rounded-lg bg-red-500/20 border border-red-400/40 flex items-center justify-center text-red-300 shadow-lg group-hover:scale-105 transition-transform">
-                <FileText className="w-6 h-6" />
-              </div>
+              <img
+                src={YARU_ICONS.pdf}
+                alt=""
+                draggable={false}
+                className="w-16 h-16 object-contain drop-shadow-lg group-hover:scale-105 transition-transform"
+              />
               <span className="text-[11px] font-medium text-slate-100 group-hover:underline drop-shadow-sm line-clamp-1">
                 day1.pdf
               </span>
@@ -1051,9 +1076,12 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               onDoubleClick={() => focusWindow('terminal')}
               className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/10 cursor-pointer group text-center"
             >
-              <div className="w-12 h-12 rounded-lg bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 shadow-lg group-hover:scale-105 transition-transform">
-                <TerminalIcon className="w-6 h-6" />
-              </div>
+              <img
+                src={YARU_ICONS.terminalApp}
+                alt=""
+                draggable={false}
+                className="w-16 h-16 object-contain drop-shadow-lg group-hover:scale-105 transition-transform"
+              />
               <span className="text-[11px] font-medium text-slate-100 group-hover:underline drop-shadow-sm line-clamp-1">
                 Terminal
               </span>
