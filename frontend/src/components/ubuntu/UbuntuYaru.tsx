@@ -845,7 +845,7 @@ export function GeanyWindow({
   compilerLog,
   onCompile,
   onRun,
-  onDoctor,
+  onOpenFiles,
   onSave,
   onNewDoc,
   onSaveAs,
@@ -874,7 +874,7 @@ export function GeanyWindow({
   compilerLog: CommandLog[]
   onCompile: () => void
   onRun: () => void
-  onDoctor: () => void
+  onOpenFiles: () => void
   onSave: () => void
   /** 新建未命名文档（落在本场桌面的文件夹里）。 */
   onNewDoc: () => void
@@ -985,9 +985,9 @@ export function GeanyWindow({
     { label: '全选', shortcut: 'Ctrl+A', onClick: () => runEditor('selectAll') },
     { separator: true },
     { label: '插入日期', disabled: readOnly, onClick: insertDate },
-    { label: '打开所在文件夹', onClick: onDoctor },
+    { label: '打开所在文件夹', onClick: onOpenFiles },
     { separator: true },
-    { label: '首选项…', onClick: onDoctor },
+    { label: '首选项…', disabled: true },
   ]
 
   // 菜单栏下拉（Geany 真实菜单结构；未接后端的项保持视觉一致）。
@@ -1040,10 +1040,7 @@ export function GeanyWindow({
       { separator: true },
       { label: '运行', shortcut: 'F5', onClick: onRun },
     ],
-    工具: [
-      { label: '考场体检', onClick: onDoctor },
-      { label: '插入日期', disabled: readOnly, onClick: insertDate },
-    ],
+    工具: [{ label: '插入日期', disabled: readOnly, onClick: insertDate }],
     帮助: [{ label: '关于 Geany', onClick: () => setAboutOpen(true) }],
   }
 
@@ -1125,13 +1122,6 @@ export function GeanyWindow({
             className="h-6 rounded border border-[#CFCFCF] bg-white px-2 text-[10px] font-bold text-[#3D3D3D] hover:bg-[#F0F0EE]"
           >
             选择文件
-          </button>
-          <button
-            type="button"
-            onClick={onDoctor}
-            className="h-6 rounded border border-amber-300 bg-amber-50 px-2 text-[10px] font-bold text-amber-800 hover:bg-amber-100"
-          >
-            考场体检
           </button>
           <button
             type="button"
@@ -1792,6 +1782,23 @@ export function TerminalWindow({
 // Evince 文档查看器高仿（GNOME Papers/Evince，Yaru 浅色）：
 // 头栏 = 侧栏开关 + 缩放组 + 居中标题；侧栏 = 页面缩略图；正文 = 灰底上的
 // 白色 A4 分页。题面内容按行数分页，页脚带页码。
+// Evince 文档查看器高仿：窗口里渲染的是**服务端生成的真 PDF**
+// （/contests/{cid}/pdf，与教师下载的认证版 A4 同源），由 Chromium 内置
+// PDF 引擎光栅化——字体、排版、分页与考点里 Poppler 打开的 day1.pdf 完全
+// 一致。跳页/缩放通过 PDF open parameters（#page / #zoom）驱动；
+// 无后端（?desktop-preview 离线态）时退回 Markdown 分页模拟。
+function evinceOutline(content: string): { title: string; page: number }[] {
+  const perPage = 26
+  const outline: { title: string; page: number }[] = []
+  content.split('\n').forEach((line, index) => {
+    const match = line.match(/^#{1,3}\s+(.*)/)
+    if (match) {
+      outline.push({ title: match[1].trim(), page: Math.floor(index / perPage) + 1 })
+    }
+  })
+  return outline
+}
+
 function paginateStatement(markdown: string, linesPerPage = 26): string[] {
   const lines = markdown.replace(/\r/g, '').split('\n')
   const pages: string[] = []
@@ -1806,6 +1813,7 @@ const EVINCE_ZOOM_STEPS = [0.6, 0.8, 1, 1.25, 1.5, 2]
 export function EvinceWindow({
   fileName,
   title,
+  pdfUrl,
   content,
   onMouseDown,
   onMinimize,
@@ -1814,20 +1822,28 @@ export function EvinceWindow({
 }: {
   fileName: string
   title: string
+  /** 服务端生成的题面 PDF 地址；缺省时退回 Markdown 分页模拟。 */
+  pdfUrl?: string
   content: string
   onMouseDown?: (e: React.MouseEvent) => void
   onMinimize?: () => void
   onMaximize?: () => void
   onClose?: () => void
 }) {
-  const pages = paginateStatement(content)
   const [zoomIndex, setZoomIndex] = useState(2)
   const [sidebarOpen, setSidebarOpen] = useState(true)
-  const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
+  const [page, setPage] = useState(1)
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
+  const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
+  const pdfMode = Boolean(pdfUrl)
+  const outline = evinceOutline(content)
+  const pages = paginateStatement(content)
 
   const gotoPage = (index: number) => {
-    pageRefs.current[index]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    const target = Math.max(1, index)
+    setPage(target)
+    if (pdfMode) return
+    pageRefs.current[target - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
   return (
@@ -1881,64 +1897,95 @@ export function EvinceWindow({
         }
         actions={
           <span className="mr-1 text-[11px] font-semibold text-[#575757]" style={{ fontFamily: YARU_MONO }}>
-            1 / {pages.length}
+            {pdfMode ? `第 ${page} 页` : `1 / ${pages.length}`}
           </span>
         }
       />
       <div className="flex min-h-0 flex-1">
-        {/* 缩略图侧栏 */}
+        {/* 侧栏：PDF 模式 = 题面目录；离线模拟 = 页面缩略图 */}
         {sidebarOpen && (
           <div
             className="w-36 shrink-0 overflow-y-auto border-r py-3"
             style={{ background: YARU.sidebarBg, borderColor: YARU.sidebarBorder }}
           >
-            <p className="mb-2 truncate px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
-              {title}
-            </p>
-            {pages.map((_, index) => (
-              <button
-                key={index}
-                type="button"
-                onClick={() => gotoPage(index)}
-                className="mx-auto mb-2 flex flex-col items-center gap-1"
-              >
-                <div className="h-[96px] w-[68px] rounded-sm border border-[#C9C9C9] bg-white p-1.5 shadow-sm">
-                  {Array.from({ length: 7 }).map((_, bar) => (
-                    <div
-                      key={bar}
-                      className="mb-1 h-[3px] rounded-sm bg-slate-300"
-                      style={{ width: `${88 - bar * 9}%` }}
-                    />
-                  ))}
-                </div>
-                <span className="text-[10px] font-semibold text-[#575757]">{index + 1}</span>
-              </button>
-            ))}
+            {pdfMode ? (
+              <>
+                <p className="mb-2 truncate px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  {title}
+                </p>
+                {outline.map((entry, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => gotoPage(entry.page)}
+                    className="mx-1.5 flex w-[calc(100%-12px)] items-center gap-1 rounded-md px-2 py-1 text-left text-[12px] text-[#3D3D3D] hover:bg-black/10"
+                  >
+                    <span className="truncate">{entry.title}</span>
+                  </button>
+                ))}
+              </>
+            ) : (
+              <>
+                <p className="mb-2 truncate px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
+                  {title}
+                </p>
+                {pages.map((_, index) => (
+                  <button
+                    key={index}
+                    type="button"
+                    onClick={() => gotoPage(index + 1)}
+                    className="mx-auto mb-2 flex flex-col items-center gap-1"
+                  >
+                    <div className="h-[96px] w-[68px] rounded-sm border border-[#C9C9C9] bg-white p-1.5 shadow-sm">
+                      {Array.from({ length: 7 }).map((_, bar) => (
+                        <div
+                          key={bar}
+                          className="mb-1 h-[3px] rounded-sm bg-slate-300"
+                          style={{ width: `${88 - bar * 9}%` }}
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-semibold text-[#575757]">{index + 1}</span>
+                  </button>
+                ))}
+              </>
+            )}
           </div>
         )}
-        {/* 页面区：灰底 + 白色 A4 */}
-        <div className="min-h-0 flex-1 overflow-y-auto bg-[#8C8C8C] p-6">
-          <div className="mx-auto flex flex-col items-center gap-6" style={{ zoom }}>
-            {pages.map((page, index) => (
-              <div
-                key={index}
-                ref={(el) => {
-                  pageRefs.current[index] = el
-                }}
-                className="relative w-full max-w-[720px] bg-white px-10 py-12 shadow-[0_2px_12px_rgba(0,0,0,0.35)]"
-                style={{ minHeight: '920px' }}
-              >
-                <MarkdownView source={page} />
-                <span
-                  className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[11px] font-semibold text-slate-500"
-                  style={{ fontFamily: YARU_MONO }}
-                >
-                  — {index + 1} —
-                </span>
-              </div>
-            ))}
+        {/* 内容区：真 PDF iframe / Markdown 分页 */}
+        {pdfMode ? (
+          <div className="min-h-0 flex-1 bg-[#8C8C8C]">
+            <iframe
+              key={`${pdfUrl}#${page}#${Math.round(zoom * 100)}`}
+              src={`${pdfUrl}#page=${page}&zoom=${Math.round(zoom * 100)}&toolbar=0&navpanes=0&view=Fit`}
+              title={fileName}
+              className="h-full w-full border-0"
+            />
           </div>
-        </div>
+        ) : (
+          <div className="min-h-0 flex-1 overflow-y-auto bg-[#8C8C8C] p-6">
+            <div className="mx-auto flex flex-col items-center gap-6" style={{ zoom }}>
+              {pages.map((pageText, index) => (
+                <div
+                  key={index}
+                  ref={(el) => {
+                    if (!pdfMode) pageRefs.current[index] = el
+                  }}
+                  className="relative w-full max-w-[720px] bg-white px-10 py-12 shadow-[0_2px_12px_rgba(0,0,0,0.35)]"
+                  style={{ minHeight: '920px' }}
+                >
+                  <MarkdownView source={pageText} />
+                  <span
+                    className="absolute bottom-4 left-1/2 -translate-x-1/2 text-[11px] font-semibold text-slate-500"
+                    style={{ fontFamily: YARU_MONO }}
+                  >
+                    — {index + 1} —
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -36,10 +36,7 @@ import {
   LayoutGrid,
   Terminal as TerminalIcon,
   FileText,
-  ShieldCheck,
-  ShieldAlert,
   Lock,
-  Sparkles,
   HardDrive,
   Wifi,
   Volume2,
@@ -101,7 +98,7 @@ interface UbuntuDesktopProps {
   onClearUploadFile: () => void
 }
 
-type WindowKey = 'files' | 'editor' | 'terminal' | 'pdf' | 'doctor' | 'unlock'
+type WindowKey = 'files' | 'editor' | 'terminal' | 'pdf' | 'unlock'
 
 interface WindowState {
   isOpen: boolean
@@ -195,7 +192,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     editor: { isOpen: false, isMinimized: false, isMaximized: false, x: 210, y: 84, w: 920, h: 620, zIndex: 12 },
     terminal: { isOpen: false, isMinimized: false, isMaximized: false, x: 170, y: 220, w: 660, h: 420, zIndex: 14 },
     pdf: { isOpen: false, isMinimized: false, isMaximized: false, x: 120, y: 60, w: 680, h: 580, zIndex: 11 },
-    doctor: { isOpen: false, isMinimized: false, isMaximized: false, x: 320, y: 120, w: 560, h: 480, zIndex: 15 },
     unlock: { isOpen: !isUnlocked, isMinimized: false, isMaximized: false, x: 380, y: 160, w: 440, h: 300, zIndex: 30 },
   })
 
@@ -710,7 +706,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           { type: 'output', text: '  mkdir <name>                Create a new subdirectory' },
           { type: 'output', text: '  g++ -O2 <file> -o <bin>     Static source preflight only (no compiler in browser)' },
           { type: 'output', text: '  ./<bin>                     Execute binary with problem sample input' },
-          { type: 'output', text: '  doctor                      Launch CCF Exam Inspector and run health-check' },
         ])
         break
 
@@ -804,14 +799,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         break
       }
 
-      case 'doctor':
-        focusWindow('doctor')
-        setTerminalLogs((prev) => [
-          ...prev,
-          { type: 'success', text: 'Opening CCF NOI Exam Inspector...' },
-        ])
-        break
-
       default:
         if (trimmed.startsWith('g++')) {
           // This desktop is a browser-side exam simulator. It can run a few
@@ -853,95 +840,11 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     }
   }
 
-  // Static preflight checks for the browser preview. These deliberately avoid
-  // claiming compiler or filesystem guarantees that the browser cannot prove.
-  const runFileCheck = () => {
-    if (!activeProblem) return []
-    const results = []
-    const expectedDir = taskDirOf(activeProblem)
-    const expectedFile = `${expectedDir}.cpp`
-
-    // 1. Directory Structure Check
-    const inCorrectDir = currentPath[currentPath.length - 1] === expectedDir
-    results.push({
-      item: '模拟工作目录与题面英文名',
-      status: inCorrectDir ? 'pass' : 'fail',
-      msg: inCorrectDir
-        ? `界面路径匹配: ~/${homeName}/${expectedDir}/${expectedFile}（与收题包同名，仅为模拟路径）`
-        : `当前模拟路径为 ~/${currentPath.join('/')}，本题目录对应 ~/${homeName}/${expectedDir}/。`,
-    })
-
-    // 2. 0-byte source check
-    if (!code || code.trim().length === 0) {
-      results.push({
-        item: '源文件非空检查 (防0字节提交悲剧)',
-        status: 'fail',
-        msg: '危险：当前代码为 0 字节！在真实考场中提交 0 字节文件将直接被判 0 分！',
-      })
-    } else {
-      results.push({
-        item: '源文件非空检查',
-        status: 'pass',
-        msg: `代码大小: ${new Blob([code]).size} 字节 (${code.split('\n').length} 行)`,
-      })
-    }
-
-    // 3. File IO declaration check
-    if (activeProblem.ioMode === 'file') {
-      const inFile = activeProblem.inFile || `${expectedDir}.in`
-      const outFile = activeProblem.outFile || `${expectedDir}.out`
-      const hasFreopenIn = code.includes(inFile)
-      const hasFreopenOut = code.includes(outFile)
-
-      if (!hasFreopenIn || !hasFreopenOut) {
-        results.push({
-          item: '考场文件重定向 (freopen 专项体检)',
-          status: 'fail',
-          msg: `题目开启了文件 IO！需包含 freopen("${inFile}", "r", stdin); 与 freopen("${outFile}", "w", stdout);`,
-        })
-      } else {
-        results.push({
-          item: '考场文件重定向 (freopen)',
-          status: 'pass',
-          msg: `已正确包含 ${inFile} 与 ${outFile} 输入输出重定向语句`,
-        })
-      }
-    } else {
-      results.push({
-        item: 'IO 模式规范',
-        status: 'pass',
-        msg: '当前试题采用标准输入输出 (stdio)，无需 freopen。',
-      })
-    }
-
-    // 4. Static shape checks. Keep this wording explicit: it is not a
-    // compiler and cannot prove that the program builds or runs.
-    const hasMain = /\bmain\s*\(/.test(code)
-    const openBraces = (code.match(/{/g) || []).length
-    const closeBraces = (code.match(/}/g) || []).length
-    results.push({
-      item: '源码静态结构检查（非编译器）',
-      status: hasMain && openBraces === closeBraces ? 'pass' : 'fail',
-      msg: !hasMain
-        ? '未检测到 main() 函数文本。'
-        : openBraces !== closeBraces
-          ? `花括号数量不平衡：${openBraces} 个左括号，${closeBraces} 个右括号。`
-          : '检测到 main() 且花括号数量平衡；这不等于编译通过，最终以服务端评测为准。',
-    })
-
-    return results
-  }
-
-  const checkResults = runFileCheck()
-  const passCount = checkResults.filter((r) => r.status === 'pass').length
-
-  // Alt+Tab 切换器的候选项：只列打开且未最小化的窗口。
   const switcherEntries = [
     { key: 'files' as WindowKey, label: '文件', icon: <img src={YARU_ICONS.nautilus} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
     { key: 'editor' as WindowKey, label: 'Geany', icon: <img src={YARU_ICONS.geany} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
     { key: 'terminal' as WindowKey, label: '终端', icon: <img src={YARU_ICONS.terminalApp} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
     { key: 'pdf' as WindowKey, label: 'Evince', icon: <img src={YARU_ICONS.evince} alt="" className="h-12 w-12 object-contain" draggable={false} /> },
-    { key: 'doctor' as WindowKey, label: '考场体检', icon: <Sparkles className="h-12 w-12 text-amber-400" /> },
   ].filter((entry) => windows[entry.key].isOpen && !windows[entry.key].isMinimized)
 
   return (
@@ -1061,20 +964,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             <img src={YARU_ICONS.evince} alt="" className="w-6 h-6 object-contain" draggable={false} />
             {windows.pdf.isOpen && (
               <span className="w-1.5 h-1.5 rounded-full bg-red-400 absolute left-0.5" />
-            )}
-          </button>
-
-          {/* Exam Doctor */}
-          <button
-            onClick={() => toggleWindow('doctor')}
-            className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-150 ${
-              windows.doctor.isOpen && !windows.doctor.isMinimized ? 'bg-amber-500/20 text-amber-400' : 'text-slate-300 hover:bg-white/10'
-            }`}
-            title="CCF 考场防踩坑体检医生"
-          >
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            {windows.doctor.isOpen && (
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 absolute left-0.5" />
             )}
           </button>
 
@@ -1365,7 +1254,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   })
                   return null
                 }}
-                onDoctor={() => focusWindow('doctor')}
+                onOpenFiles={() => focusWindow('files')}
                 onPickUploadFile={onPickUploadFile}
                 uploadFile={uploadFile}
                 uploadMismatch={uploadMismatch}
@@ -1412,7 +1301,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           )}
 
           {/* ============================================================ */}
-          {/* WINDOW 4: Evince 文档查看器（Yaru 复刻）                       */}
+          {/* WINDOW 4: Evince 文档查看器（Yaru 复刻，真 PDF）               */}
           {/* ============================================================ */}
           {windows.pdf.isOpen && !windows.pdf.isMinimized && activeProblem && (
             <div
@@ -1429,79 +1318,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               <EvinceWindow
                 fileName={`${currentTaskDir}.pdf`}
                 title={`${activeProblem.code}. ${activeProblem.title}`}
+                pdfUrl={contest?.id ? `/api/v1/contests/${contest.id}/pdf` : undefined}
                 content={activeProblem.statement}
                 onMouseDown={(e) => handleTitleMouseDown('pdf', e)}
                 onMinimize={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMinimized: true } }))}
                 onMaximize={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMaximized: !p.pdf.isMaximized } }))}
                 onClose={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isOpen: false } }))}
               />
-            </div>
-          )}
-
-          {/* WINDOW 5: CCF Exam Doctor (Inspector)                        */}
-          {/* ============================================================ */}
-          {windows.doctor.isOpen && !windows.doctor.isMinimized && (
-            <div
-              onClick={() => focusWindow('doctor')}
-              style={{
-                left: windows.doctor.isMaximized ? 0 : windows.doctor.x,
-                top: windows.doctor.isMaximized ? 0 : windows.doctor.y,
-                width: windows.doctor.isMaximized ? '100%' : windows.doctor.w,
-                height: windows.doctor.isMaximized ? '100%' : windows.doctor.h,
-                zIndex: windows.doctor.zIndex,
-              }}
-              className="absolute bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
-            >
-              {/* Header */}
-              <YaruHeaderBar
-                title="CCF 考场静态检查器（非编译器）"
-                onMouseDown={(e) => handleTitleMouseDown('doctor', e)}
-                onMinimize={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isMinimized: true } }))}
-                onMaximize={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isMaximized: !p.doctor.isMaximized } }))}
-                onClose={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isOpen: false } }))}
-                actions={<Sparkles className="h-4 w-4 text-amber-500" />}
-              />
-
-              {/* Diagnostic Score Card */}
-              <div className="p-4 bg-amber-50/70 border-b border-amber-100 flex items-center justify-between">
-                <div>
-                  <div className="text-sm font-bold text-amber-950 flex items-center gap-2">
-                    {passCount === checkResults.length ? (
-                      <ShieldCheck className="w-5 h-5 text-emerald-600" />
-                    ) : (
-                      <ShieldAlert className="w-5 h-5 text-rose-600" />
-                    )}
-                    <span>静态检查: {passCount} / {checkResults.length} 项通过</span>
-                  </div>
-                  <p className="text-[11px] text-amber-800 mt-0.5">
-                    仅检查界面内可验证的源码文本与题目配置；浏览器不执行编译、运行或本地文件扫描，不能替代服务端评测。
-                  </p>
-                </div>
-              </div>
-
-              {/* Check Items List */}
-              <div className="flex-1 p-4 overflow-y-auto space-y-2.5 bg-slate-50">
-                {checkResults.map((r, i) => (
-                  <div
-                    key={i}
-                    className={`p-3 rounded-lg border text-xs flex items-start gap-2.5 bg-white ${
-                      r.status === 'pass'
-                        ? 'border-emerald-200 text-slate-700'
-                        : 'border-rose-300 bg-rose-50/40 text-rose-900 font-medium'
-                    }`}
-                  >
-                    {r.status === 'pass' ? (
-                      <ShieldCheck className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
-                    ) : (
-                      <ShieldAlert className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                    )}
-                    <div className="space-y-0.5 flex-1">
-                      <div className="font-bold">{r.item}</div>
-                      <div className="text-[11px] opacity-90">{r.msg}</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
             </div>
           )}
 

@@ -72,8 +72,11 @@ func FindBrowser() string {
 				filepath.Join(lad, "Google", "Chrome", "Application", "chrome.exe"),
 				filepath.Join(lad, "Microsoft", "Edge", "Application", "msedge.exe"),
 			)
-			if m, _ := filepath.Glob(filepath.Join(lad, "ms-playwright", "chromium-*", "chrome-win", "chrome.exe")); len(m) > 0 {
-				candidates = append(candidates, m...)
+			// Playwright 目录布局随版本不同：旧版 chrome-win，新版 chrome-win64。
+			for _, layout := range []string{"chrome-win", "chrome-win64"} {
+				if m, _ := filepath.Glob(filepath.Join(lad, "ms-playwright", "chromium-*", layout, "chrome.exe")); len(m) > 0 {
+					candidates = append(candidates, m...)
+				}
 			}
 		}
 	} else {
