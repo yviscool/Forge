@@ -11,6 +11,14 @@ interface MonacoEditorProps {
   className?: string
   height?: string
   ariaLabel?: string
+  /** 编辑器实例句柄：Geany 复刻的右键菜单（撤销/剪切/粘贴等）通过它触发命令。 */
+  onEditorReady?: (editor: monaco.editor.IStandaloneCodeEditor) => void
+  /** 光标位置变化：Geany 状态栏的 行/列 实时显示。 */
+  onCursorChange?: (line: number, column: number) => void
+  fontFamily?: string
+  fontSize?: number
+  /** 去掉默认的圆角描边（嵌入 Geany 窗口时使用）。 */
+  chromeless?: boolean
 }
 
 export function MonacoEditor({
@@ -21,10 +29,17 @@ export function MonacoEditor({
   className = '',
   height = '420px',
   ariaLabel = '代码编辑器',
+  onEditorReady,
+  onCursorChange,
+  fontFamily = 'Consolas, "Fira Code", monospace',
+  fontSize = 13,
+  chromeless = false,
 }: MonacoEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const editorRef = useRef<monaco.editor.IStandaloneCodeEditor | null>(null)
   const onChangeRef = useRef(onChange)
+  const readyRef = useRef(onEditorReady)
+  const cursorRef = useRef(onCursorChange)
   const suppressChangeRef = useRef(false)
 
   // Create the imperative editor once; subsequent effects keep its value,
@@ -32,6 +47,11 @@ export function MonacoEditor({
   useEffect(() => {
     onChangeRef.current = onChange
   }, [onChange])
+
+  useEffect(() => {
+    readyRef.current = onEditorReady
+    cursorRef.current = onCursorChange
+  }, [onEditorReady, onCursorChange])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -42,23 +62,30 @@ export function MonacoEditor({
       theme: 'vs',
       readOnly,
       automaticLayout: true,
-      fontSize: 13,
+      fontSize,
+      fontFamily,
       lineNumbers: 'on',
       minimap: { enabled: false },
       scrollBeyondLastLine: false,
       tabSize: 4,
-      fontFamily: 'Consolas, "Fira Code", monospace',
       ariaLabel,
     })
     editorRef.current = editor
+    readyRef.current?.(editor)
     void ensureMonacoLanguage(language)
 
     const sub = editor.onDidChangeModelContent(() => {
       if (!suppressChangeRef.current) onChangeRef.current?.(editor.getValue())
     })
 
+    // 测试用的 monaco mock 未必实现光标事件，做可选调用。
+    const cursorSub = editor.onDidChangeCursorPosition?.((event) => {
+      cursorRef.current?.(event.position.lineNumber, event.position.column)
+    })
+
     return () => {
       sub.dispose()
+      cursorSub?.dispose()
       editor.dispose()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,11 +119,17 @@ export function MonacoEditor({
     editorRef.current?.updateOptions({ readOnly })
   }, [readOnly])
 
+  useEffect(() => {
+    editorRef.current?.updateOptions({ fontSize, fontFamily })
+  }, [fontSize, fontFamily])
+
   return (
     <div
       ref={containerRef}
       style={{ height }}
-      className={`w-full rounded-lg border border-slate-200 overflow-hidden ${className}`}
+      className={`w-full overflow-hidden ${
+        chromeless ? '' : 'rounded-lg border border-slate-200'
+      } ${className}`}
     />
   )
 }

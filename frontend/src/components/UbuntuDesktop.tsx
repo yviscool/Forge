@@ -2,29 +2,32 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Contest, Problem, api } from '../api/client'
 import { useStore } from '../store/useStore'
-import { formatBytes } from '../features/student/submissionFiles'
 import { MarkdownView } from './MarkdownView'
+import {
+  EvinceWindow,
+  GeanyWindow,
+  NautilusWindow,
+  NoiWallpaper,
+  TerminalWindow,
+  YARU_SANS,
+  registerMonacoSlot,
+  type GeanyEditorHandle,
+} from './ubuntu/UbuntuYaru'
+import { YARU_ICONS } from './ubuntu/yaruIcons'
 import { ContestTimer } from './ContestTimer'
 import { Button } from './ui/button'
 import { useToast } from './ui/toast'
 import {
-  Folder,
-  FileCode,
   Terminal as TerminalIcon,
   FileText,
   ShieldCheck,
   ShieldAlert,
   Lock,
-  Trash2,
-  Upload,
   X,
   Minus,
   Square,
-  Play,
-  Send,
   Sparkles,
   HardDrive,
-  Home,
   Wifi,
   Volume2,
   Power,
@@ -33,6 +36,32 @@ import {
 const MonacoEditor = React.lazy(() =>
   import('./MonacoEditor').then((module) => ({ default: module.MonacoEditor }))
 )
+
+// Geany 窗口内的编辑器实例：UbuntuYaru 通过该槽位触发撤销/剪切/粘贴等真实命令。
+registerMonacoSlot(function GeanyMonacoSlot({ code, onCode, readOnly, onReady, onCursor }) {
+  return (
+    <React.Suspense fallback={<div className="h-full bg-white" />}>
+      <MonacoEditor
+        value={code}
+        onChange={onCode}
+        language="cpp"
+        readOnly={readOnly}
+        height="100%"
+        ariaLabel="Geany 源代码编辑器"
+        fontFamily="'Ubuntu Mono', 'Cascadia Mono', Consolas, monospace"
+        fontSize={14}
+        chromeless
+        onEditorReady={(editor) =>
+          onReady({
+            trigger: (srcCmd, cmd) => editor.trigger(srcCmd, cmd, null),
+            getPosition: () => editor.getPosition() ?? { lineNumber: 1, column: 1 },
+          } as GeanyEditorHandle)
+        }
+        onCursorChange={onCursor}
+      />
+    </React.Suspense>
+  )
+})
 
 interface UbuntuDesktopProps {
   contest: Contest
@@ -65,7 +94,7 @@ interface WindowState {
   zIndex: number
 }
 
-interface CommandLog {
+export interface CommandLog {
   type: 'input' | 'output' | 'error' | 'success'
   text: string
 }
@@ -227,6 +256,46 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     }
   }
 
+  // Nautilus 选中项与 Geany 编译器输出。
+  const [selectedNautilus, setSelectedNautilus] = useState<string | null>(null)
+  const [geanyCompilerLog, setGeanyCompilerLog] = useState<CommandLog[]>([])
+
+  // 静态预检（浏览器内无真实编译器）：终端 g++ 与 Geany 编译按钮共用同一份输出。
+  const buildStaticCheckLog = (source: string, target: string): CommandLog[] => {
+    if (!source || source.trim().length === 0) {
+      return [
+        {
+          type: 'error',
+          text: `${target}: fatal error: 0 bytes input file\ncompilation terminated.`,
+        },
+      ]
+    }
+    const hasMain = /\bmain\s*\(/.test(source)
+    const openBraces = (source.match(/{/g) || []).length
+    const closeBraces = (source.match(/}/g) || []).length
+    if (!hasMain) {
+      return [
+        {
+          type: 'error',
+          text: `/usr/lib/gcc/x86_64-linux-gnu/9/../../../x86_64-linux-gnu/Scrt1.o: In function '_start':\n(.text+0x20): undefined reference to 'main'\ncollect2: error: ld returned 1 exit status`,
+        },
+      ]
+    }
+    if (openBraces !== closeBraces) {
+      return [
+        {
+          type: 'error',
+          text: `${target}: error: expected '}' at end of input (unmatched curly braces: ${openBraces} open, ${closeBraces} close)\ncompilation terminated.`,
+        },
+      ]
+    }
+    return [
+      { type: 'output', text: '静态检查：检测到 main()，花括号数量平衡。' },
+      { type: 'output', text: '注意：浏览器预览没有执行真实编译器，这不代表源码可以编译通过。' },
+      { type: 'output', text: '请使用“正式提交”，由服务端评测机或教师复核给出最终结论。' },
+    ]
+  }
+
   // File Manager navigation state
   const currentTaskDir = taskDirOf(activeProblem)
   const [currentPath, setCurrentPath] = useState<string[]>(['home', homeName, currentTaskDir])
@@ -240,28 +309,19 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
   // Interactive Terminal state
   const [terminalLogs, setTerminalLogs] = useState<CommandLog[]>([
-    { type: 'output', text: 'Welcome to Ubuntu 18.04.6 LTS (Bionic Beaver) - CCF NOI Linux 2.0 Emulator' },
-    { type: 'output', text: `Logged in as noilinux@bionic on pts/0 (student workspace for ${homeName})` },
+    { type: 'output', text: 'Welcome to Ubuntu 20.04.1 LTS (GNU/Linux 5.4.0-42-generic x86_64)' },
+    { type: 'output', text: '  * NOI Linux 2.0  --  China National Olympiad in Informatics' },
+    { type: 'output', text: '' },
+    { type: 'output', text: `Last login: exam session for ${homeName} on pts/0` },
     { type: 'output', text: 'Type "help" to see available exam room commands (g++, ls, cat, cd, etc.).' },
   ])
-  const [terminalInput, setTerminalInput] = useState('')
-  const [commandHistory, setCommandHistory] = useState<string[]>([])
-  const [historyIndex, setHistoryIndex] = useState<number>(-1)
-  const terminalEndRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    terminalEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [terminalLogs])
 
   // Terminal Command Execution Logic
   const handleTerminalCommand = (cmd: string) => {
     const trimmed = cmd.trim()
     if (!trimmed) return
 
-    setCommandHistory((prev) => [...prev, trimmed])
-    setHistoryIndex(-1)
     setTerminalLogs((prev) => [...prev, { type: 'input', text: trimmed }])
-    setTerminalInput('')
 
     const parts = trimmed.split(/\s+/)
     const mainCmd = parts[0]
@@ -531,30 +591,33 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const passCount = checkResults.filter((r) => r.status === 'pass').length
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-[#2c001e] text-slate-100 font-sans select-none overflow-hidden">
+    <div
+      className="fixed inset-0 z-50 flex flex-col bg-black text-slate-100 select-none overflow-hidden"
+      style={{ fontFamily: YARU_SANS }}
+    >
       {/* ============================================================ */}
-      {/* 1. Ubuntu 18.04 GNOME Top Bar                                */}
+      {/* 1. GNOME Shell 顶栏（Ubuntu 20.04 / NOI Linux 2.0）          */}
       {/* ============================================================ */}
-      <div className="h-7 bg-black/90 backdrop-blur-md px-3 flex items-center justify-between text-xs text-slate-200 border-b border-black/50 z-40">
+      <div className="relative h-7 bg-black px-3 flex items-center justify-between text-xs text-slate-200 z-40">
         {/* Left: Activities & Focused App Title */}
         <div className="flex items-center gap-3">
           <button
             onClick={() => focusWindow('files')}
-            className="font-bold text-white hover:text-orange-400 transition-colors px-1.5 py-0.5 rounded hover:bg-white/10"
+            className="font-bold text-white transition-colors px-1.5 py-0.5 rounded hover:bg-white/10"
           >
-            Activities
+            活动
           </button>
           <span className="text-slate-400 font-medium text-[11px] hidden sm:inline">
             {windows.editor.zIndex >= windows.files.zIndex && !windows.editor.isMinimized
-              ? 'Gedit (Monaco Editor)'
+              ? 'Geany'
               : windows.terminal.zIndex >= windows.files.zIndex && !windows.terminal.isMinimized
-              ? 'Terminal (bash)'
-              : 'Files (Nautilus)'}
+              ? '终端'
+              : '文件'}
           </span>
         </div>
 
-        {/* Center: Dynamic GNOME Clock */}
-        <div className="font-semibold text-slate-200 font-mono tracking-wide text-xs">
+        {/* Center: GNOME Clock */}
+        <div className="absolute left-1/2 -translate-x-1/2 font-semibold text-[12px] text-white">
           {currentTimeStr}
         </div>
 
@@ -587,7 +650,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       {/* ============================================================ */}
       {/* 2. Main Desktop Body: Ubuntu Dock (Left) + Wallpaper Area    */}
       {/* ============================================================ */}
-      <div className="flex-1 flex relative overflow-hidden bg-radial from-[#4e1a3d] via-[#2c001e] to-[#1a0014]">
+      <div className="flex-1 flex relative overflow-hidden bg-black">
+        <NoiWallpaper />
         {/* Ubuntu Dock (Left) */}
         <div className="w-14 bg-black/60 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-3 gap-3 z-30 shrink-0">
           {/* Nautilus Files */}
@@ -598,7 +662,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             }`}
             title="Files (Nautilus 文件管理器)"
           >
-            <Folder className="w-5 h-5 fill-current" />
+            <img src={YARU_ICONS.nautilus} alt="" className="w-6 h-6 object-contain" draggable={false} />
             {windows.files.isOpen && (
               <span className="w-1.5 h-1.5 rounded-full bg-orange-400 absolute left-0.5" />
             )}
@@ -610,9 +674,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
               windows.editor.isOpen && !windows.editor.isMinimized ? 'bg-blue-500/20 text-blue-400' : 'text-slate-300 hover:bg-white/10'
             }`}
-            title="Gedit (代码编辑器)"
+            title="Geany 代码编辑器"
           >
-            <FileCode className="w-5 h-5" />
+            <img src={YARU_ICONS.geany} alt="" className="w-6 h-6 object-contain" draggable={false} />
             {windows.editor.isOpen && (
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 absolute left-0.5" />
             )}
@@ -624,9 +688,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
               windows.terminal.isOpen && !windows.terminal.isMinimized ? 'bg-emerald-500/20 text-emerald-400' : 'text-slate-300 hover:bg-white/10'
             }`}
-            title="Terminal (NOI Linux 终端 bash)"
+            title="Terminal (GNOME 终端)"
           >
-            <TerminalIcon className="w-5 h-5" />
+            <img src={YARU_ICONS.terminalApp} alt="" className="w-6 h-6 object-contain" draggable={false} />
             {windows.terminal.isOpen && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 absolute left-0.5" />
             )}
@@ -638,9 +702,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             className={`w-10 h-10 rounded-xl flex items-center justify-center relative transition-transform hover:scale-105 ${
               windows.pdf.isOpen && !windows.pdf.isMinimized ? 'bg-red-500/20 text-red-400' : 'text-slate-300 hover:bg-white/10'
             }`}
-            title="Evince (试卷题面 PDF 阅读器)"
+            title="Evince (试卷题面查看器)"
           >
-            <FileText className="w-5 h-5" />
+            <img src={YARU_ICONS.evince} alt="" className="w-6 h-6 object-contain" draggable={false} />
             {windows.pdf.isOpen && (
               <span className="w-1.5 h-1.5 rounded-full bg-red-400 absolute left-0.5" />
             )}
@@ -670,7 +734,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-400 hover:bg-white/10 transition-transform"
             title="Trash (废纸篓)"
           >
-            <Trash2 className="w-5 h-5" />
+            <img src={YARU_ICONS.userTrash} alt="" className="w-6 h-6 object-contain" draggable={false} />
           </button>
         </div>
 
@@ -683,9 +747,12 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               onDoubleClick={() => focusWindow('files')}
               className="flex flex-col items-center gap-1.5 p-2 rounded-xl hover:bg-white/10 cursor-pointer group text-center"
             >
-              <div className="w-12 h-12 rounded-lg bg-blue-500/20 border border-blue-400/40 flex items-center justify-center text-blue-300 shadow-lg group-hover:scale-105 transition-transform">
-                <Home className="w-6 h-6" />
-              </div>
+              <img
+                src={YARU_ICONS.userHome}
+                alt=""
+                draggable={false}
+                className="w-12 h-12 object-contain drop-shadow-lg group-hover:scale-105 transition-transform"
+              />
               <span className="text-[11px] font-medium text-slate-100 group-hover:underline drop-shadow-sm line-clamp-1">
                 {homeName}
               </span>
@@ -737,7 +804,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           </div>
 
           {/* ============================================================ */}
-          {/* WINDOW 1: Files (Nautilus File Manager)                       */}
+          {/* WINDOW 1: Nautilus 文件管理器（Yaru 复刻）                       */}
           {/* ============================================================ */}
           {windows.files.isOpen && !windows.files.isMinimized && (
             <div
@@ -749,110 +816,59 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 height: windows.files.isMaximized ? '100%' : windows.files.h,
                 zIndex: windows.files.zIndex,
               }}
-              className="absolute bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
+              className="absolute flex flex-col overflow-hidden"
             >
-              {/* Header */}
-              <div
-                onMouseDown={(e) => handleTitleMouseDown('files', e)}
-                className="h-10 bg-slate-100 px-4 flex items-center justify-between border-b border-slate-200 cursor-move select-none"
-              >
-                <div className="flex items-center gap-2">
-                  <Folder className="w-4 h-4 text-orange-600" />
-                  <span className="text-xs font-bold text-slate-700">
-                    Files - /home/{homeName}/{currentPath.slice(2).join('/')}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, files: { ...p.files, isMinimized: true } }))}
-                    className="p-1 rounded hover:bg-slate-200 text-slate-500"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setWindows((p) => ({
-                        ...p,
-                        files: { ...p.files, isMaximized: !p.files.isMaximized },
-                      }))
-                    }
-                    className="p-1 rounded hover:bg-slate-200 text-slate-500"
-                  >
-                    <Square className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, files: { ...p.files, isOpen: false } }))}
-                    className="p-1 rounded hover:bg-red-500 hover:text-white text-slate-500 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Breadcrumb Path Bar */}
-              <div className="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-1 font-mono text-slate-600">
-                  <Home className="w-3.5 h-3.5 text-blue-600" />
-                  <span>/</span>
-                  <span className="font-semibold text-slate-800">{homeName}</span>
-                  <span>/</span>
-                  <span className="font-bold text-blue-600">{currentTaskDir}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => focusWindow('doctor')}
-                    className="h-6 px-2 text-[10px] gap-1 text-amber-700 border-amber-300 bg-amber-50"
-                  >
-                    <Sparkles className="w-3 h-3" /> 考场体检
-                  </Button>
-                </div>
-              </div>
-
-              {/* File Grid */}
-              <div className="flex-1 p-4 grid grid-cols-4 gap-4 overflow-y-auto bg-white">
-                {/* Task Subfolders */}
-                {problems.map((p) => {
-                  const pdir = taskDirOf(p)
-                  const isCur = pdir === currentTaskDir
-                  return (
-                    <div
-                      key={p.id}
-                      onDoubleClick={() => {
-                        setActiveProblem(p)
-                        setCurrentPath(['home', homeName, pdir])
-                      }}
-                      className={`p-3 rounded-xl border flex flex-col items-center justify-center text-center cursor-pointer transition-all ${
-                        isCur
-                          ? 'bg-blue-50/70 border-blue-400 ring-2 ring-blue-500/20'
-                          : 'border-slate-200 hover:bg-slate-50'
-                      }`}
-                    >
-                      <Folder className="w-8 h-8 text-blue-500 fill-blue-500/20" />
-                      <span className="text-xs font-bold text-slate-800 mt-1">{pdir}</span>
-                      <span className="text-[10px] text-slate-400">{p.code}. {p.title}</span>
-                    </div>
+              <NautilusWindow
+                homeName={homeName}
+                dirName={currentPath.length > 2 ? currentPath[2] : ''}
+                items={[
+                  ...problems.map((p) => ({
+                    id: `folder-${p.id}`,
+                    name: taskDirOf(p),
+                    kind: 'folder' as const,
+                  })),
+                  {
+                    id: 'source',
+                    name: `${currentTaskDir}.cpp`,
+                    kind: 'source' as const,
+                    sizeBytes: new Blob([code || '']).size,
+                  },
+                ]}
+                selectedId={selectedNautilus}
+                onSelect={setSelectedNautilus}
+                onOpen={(item) => {
+                  if (item.kind === 'folder') {
+                    const problem = problems.find((p) => taskDirOf(p) === item.name)
+                    if (problem) setActiveProblem(problem)
+                    setCurrentPath(['home', homeName, item.name])
+                  } else {
+                    focusWindow('editor')
+                  }
+                }}
+                onNewFolder={() => toast.notify('info', '模拟桌面', '考试桌面不允许新建文件夹。')}
+                onOpenTerminal={() => toggleWindow('terminal')}
+                onProperties={(item) =>
+                  toast.notify(
+                    'info',
+                    item ? `属性 — ${item.name}` : '属性 — 主文件夹',
+                    item
+                      ? item.kind === 'source'
+                        ? `C++ 源文件 · ${item.sizeBytes ?? 0} 字节 · 编码 UTF-8`
+                        : '文件夹 · 位于考生主目录下'
+                      : `/home/${homeName}`
                   )
-                })}
-
-                {/* Current Source File */}
-                <div
-                  onDoubleClick={() => focusWindow('editor')}
-                  className="p-3 rounded-xl border border-emerald-300 bg-emerald-50/60 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-emerald-100/60 transition-all"
-                >
-                  <FileCode className="w-8 h-8 text-emerald-600" />
-                  <span className="text-xs font-bold text-slate-900 mt-1 font-mono">{currentTaskDir}.cpp</span>
-                  <span className="text-[10px] text-emerald-700 font-mono">
-                    {new Blob([code || '']).size} 字节 · 双击编辑
-                  </span>
-                </div>
-              </div>
+                }
+                onRename={() => toast.notify('info', '模拟桌面', '考试桌面文件不允许重命名。')}
+                onMouseDown={(e) => handleTitleMouseDown('files', e)}
+                onMinimize={() => setWindows((p) => ({ ...p, files: { ...p.files, isMinimized: true } }))}
+                onMaximize={() => setWindows((p) => ({ ...p, files: { ...p.files, isMaximized: !p.files.isMaximized } }))}
+                onClose={() => setWindows((p) => ({ ...p, files: { ...p.files, isOpen: false } }))}
+              />
             </div>
           )}
 
           {/* ============================================================ */}
-          {/* WINDOW 2: Gedit Code Editor (Monaco Editor)                   */}
+          {/* WINDOW 2: Geany 代码编辑器（Yaru 复刻）                         */}
           {/* ============================================================ */}
           {windows.editor.isOpen && !windows.editor.isMinimized && (
             <div
@@ -864,162 +880,37 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 height: windows.editor.isMaximized ? '100%' : windows.editor.h,
                 zIndex: windows.editor.zIndex,
               }}
-              className="absolute bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
+              className="absolute flex flex-col overflow-hidden"
             >
-              {/* Header */}
-              <div
+              <GeanyWindow
+                dirName={currentTaskDir}
+                fileName={`${currentTaskDir}.cpp`}
+                homeName={homeName}
+                code={code}
+                onCode={setCode}
+                readOnly={false}
+                compilerLog={geanyCompilerLog}
+                onCompile={() => {
+                  setGeanyCompilerLog(buildStaticCheckLog(code, `${currentTaskDir}.cpp`))
+                  focusWindow('editor')
+                }}
+                onDoctor={() => focusWindow('doctor')}
+                onPickUploadFile={onPickUploadFile}
+                uploadFile={uploadFile}
+                uploadMismatch={uploadMismatch}
+                onClearUploadFile={onClearUploadFile}
+                onSubmit={onSubmit}
+                submitting={submitting}
                 onMouseDown={(e) => handleTitleMouseDown('editor', e)}
-                className="h-10 bg-slate-900 px-4 flex items-center justify-between text-white cursor-move select-none"
-              >
-                <div className="flex items-center gap-2">
-                  <FileCode className="w-4 h-4 text-emerald-400" />
-                  <span className="text-xs font-bold tracking-wide">
-                    Gedit - {currentTaskDir}.cpp (~/{homeName}/{currentTaskDir}/)
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, editor: { ...p.editor, isMinimized: true } }))}
-                    className="p-1 rounded hover:bg-slate-800 text-slate-400"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setWindows((p) => ({
-                        ...p,
-                        editor: { ...p.editor, isMaximized: !p.editor.isMaximized },
-                      }))
-                    }
-                    className="p-1 rounded hover:bg-slate-800 text-slate-400"
-                  >
-                    <Square className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, editor: { ...p.editor, isOpen: false } }))}
-                    className="p-1 rounded hover:bg-red-500 hover:text-white text-slate-400 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Problem Tab Switcher */}
-              <div className="px-3 py-1.5 bg-slate-100 border-b border-slate-200 flex items-center justify-between gap-2 overflow-x-auto text-xs">
-                <div className="flex items-center gap-1">
-                  {problems.map((p) => {
-                    const isCur = p.id === activeProblem?.id
-                    return (
-                      <button
-                        key={p.id}
-                        onClick={() => setActiveProblem(p)}
-                        className={`px-3 py-1 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors ${
-                          isCur
-                            ? 'bg-white text-blue-600 shadow-2xs font-bold'
-                            : 'text-slate-600 hover:bg-slate-200'
-                        }`}
-                      >
-                        <span className="font-mono">{taskDirOf(p)}.cpp</span>
-                      </button>
-                    )
-                  })}
-                </div>
-
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => {
-                      focusWindow('doctor')
-                    }}
-                    className="h-6 px-2 text-[10px] gap-1 text-slate-700 bg-white"
-                  >
-                    <Play className="w-3 h-3 text-emerald-600" /> 静态检查
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => focusWindow('doctor')}
-                    className="h-6 px-2 text-[10px] gap-1 text-amber-700 border-amber-300 bg-amber-50"
-                  >
-                    <Sparkles className="w-3 h-3" /> 考场体检
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={onPickUploadFile}
-                    className="h-6 px-2 text-[10px] gap-1 text-slate-700 bg-white"
-                    title="选择本地源文件直接提交（真实考场方式）"
-                  >
-                    <Upload className="w-3 h-3" /> 选择文件
-                  </Button>
-                  {uploadFile && (
-                    <span className="inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-1.5 text-[10px] font-bold text-emerald-800">
-                      <span className="font-mono">{uploadFile.name}</span>
-                      <span className="text-emerald-600">· {formatBytes(uploadFile.size)}</span>
-                      <button
-                        type="button"
-                        onClick={onClearUploadFile}
-                        aria-label="取消已选文件"
-                        className="text-emerald-500 transition hover:text-emerald-800"
-                      >
-                        <X className="w-3 h-3" />
-                      </button>
-                    </span>
-                  )}
-                  <Button
-                    size="sm"
-                    onClick={onSubmit}
-                    disabled={submitting}
-                    className="h-6 px-2.5 text-[10px] gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold"
-                  >
-                    <Send className="w-3 h-3" /> {submitting ? '提交中...' : '正式提交'}
-                  </Button>
-                </div>
-                {uploadMismatch && uploadFile && (
-                  <div className="border-t border-amber-300 bg-amber-50 px-3 py-1 text-[10px] font-semibold leading-4 text-amber-800">
-                    文件名与题面英文名不一致：本题目录为{' '}
-                    <span className="font-mono">{uploadMismatch}</span>，当前选择{' '}
-                    <span className="font-mono">{uploadFile.name}</span>
-                    。真实考场按文件名/目录对应题目，请确认没有选错文件。
-                  </div>
-                )}
-              </div>
-
-              {/* Editor Workspace */}
-              <div className="flex-1 bg-white relative">
-                <React.Suspense
-                  fallback={
-                    <div className="grid h-full min-h-48 place-items-center bg-white text-xs font-bold text-slate-400">
-                      正在加载代码编辑器...
-                    </div>
-                  }
-                >
-                  <MonacoEditor
-                    value={code}
-                    language="cpp"
-                    onChange={setCode}
-                    height="100%"
-                  />
-                </React.Suspense>
-              </div>
-
-              {/* Status bar */}
-              <div className="h-6 bg-slate-900 text-slate-400 px-3 flex items-center justify-between text-[11px] font-mono border-t border-slate-800">
-                <div className="flex items-center gap-3">
-                  <span>浏览器预览 · 提交后由服务端评测</span>
-                  <span>UTF-8</span>
-                  <span>Tab Size: 4</span>
-                </div>
-                <div>
-                  <span>大小: {new Blob([code || '']).size} 字节</span>
-                </div>
-              </div>
+                onMinimize={() => setWindows((p) => ({ ...p, editor: { ...p.editor, isMinimized: true } }))}
+                onMaximize={() => setWindows((p) => ({ ...p, editor: { ...p.editor, isMaximized: !p.editor.isMaximized } }))}
+                onClose={() => setWindows((p) => ({ ...p, editor: { ...p.editor, isOpen: false } }))}
+              />
             </div>
           )}
 
           {/* ============================================================ */}
-          {/* WINDOW 3: Bash Terminal Emulator                             */}
+          {/* WINDOW 3: GNOME Terminal（Yaru 复刻）                          */}
           {/* ============================================================ */}
           {windows.terminal.isOpen && !windows.terminal.isMinimized && (
             <div
@@ -1031,111 +922,23 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 height: windows.terminal.isMaximized ? '100%' : windows.terminal.h,
                 zIndex: windows.terminal.zIndex,
               }}
-              className="absolute bg-[#300a24] rounded-xl shadow-2xl border border-white/20 text-white flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
+              className="absolute flex flex-col overflow-hidden"
             >
-              {/* Header */}
-              <div
+              <TerminalWindow
+                homeName={homeName}
+                path={currentPath.slice(2).join('/')}
+                logs={terminalLogs}
+                onCommand={handleTerminalCommand}
                 onMouseDown={(e) => handleTitleMouseDown('terminal', e)}
-                className="h-9 bg-[#200518] px-3 flex items-center justify-between cursor-move select-none border-b border-black/40"
-              >
-                <div className="flex items-center gap-2">
-                  <TerminalIcon className="w-3.5 h-3.5 text-emerald-400" />
-                  <span className="text-xs font-bold text-slate-200">
-                    noilinux@bionic: ~/home/{homeName}/{currentTaskDir}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isMinimized: true } }))}
-                    className="p-1 rounded hover:bg-white/10 text-slate-400"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setWindows((p) => ({
-                        ...p,
-                        terminal: { ...p.terminal, isMaximized: !p.terminal.isMaximized },
-                      }))
-                    }
-                    className="p-1 rounded hover:bg-white/10 text-slate-400"
-                  >
-                    <Square className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isOpen: false } }))}
-                    className="p-1 rounded hover:bg-red-500 text-slate-400 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Terminal Logs & Interactive Prompt */}
-              <div className="flex-1 p-3 font-mono text-xs overflow-y-auto space-y-1 select-text">
-                {terminalLogs.map((log, idx) => (
-                  <div key={idx} className="leading-relaxed">
-                    {log.type === 'input' ? (
-                      <div className="flex items-start gap-1 text-slate-300">
-                        <span className="text-emerald-400 font-bold">noilinux@bionic:~$</span>
-                        <span className="font-semibold text-white">{log.text}</span>
-                      </div>
-                    ) : log.type === 'error' ? (
-                      <div className="text-rose-400 whitespace-pre-wrap">{log.text}</div>
-                    ) : log.type === 'success' ? (
-                      <div className="text-emerald-300 whitespace-pre-wrap">{log.text}</div>
-                    ) : (
-                      <div className="text-slate-300 whitespace-pre-wrap">{log.text}</div>
-                    )}
-                  </div>
-                ))}
-
-                {/* Active Input Line */}
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    handleTerminalCommand(terminalInput)
-                  }}
-                  className="flex items-center gap-1 text-slate-300 pt-1"
-                >
-                  <span className="text-emerald-400 font-bold shrink-0">
-                    noilinux@bionic:~/{currentTaskDir}$
-                  </span>
-                  <input
-                    type="text"
-                    value={terminalInput}
-                    onChange={(e) => setTerminalInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'ArrowUp') {
-                        if (commandHistory.length > 0) {
-                          const nextIdx = historyIndex === -1 ? commandHistory.length - 1 : Math.max(0, historyIndex - 1)
-                          setHistoryIndex(nextIdx)
-                          setTerminalInput(commandHistory[nextIdx])
-                        }
-                      } else if (e.key === 'ArrowDown') {
-                        if (historyIndex >= 0) {
-                          const nextIdx = historyIndex + 1
-                          if (nextIdx < commandHistory.length) {
-                            setHistoryIndex(nextIdx)
-                            setTerminalInput(commandHistory[nextIdx])
-                          } else {
-                            setHistoryIndex(-1)
-                            setTerminalInput('')
-                          }
-                        }
-                      }
-                    }}
-                    autoFocus
-                    className="flex-1 bg-transparent outline-none border-none text-white font-mono text-xs"
-                  />
-                </form>
-                <div ref={terminalEndRef} />
-              </div>
+                onMinimize={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isMinimized: true } }))}
+                onMaximize={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isMaximized: !p.terminal.isMaximized } }))}
+                onClose={() => setWindows((p) => ({ ...p, terminal: { ...p.terminal, isOpen: false } }))}
+              />
             </div>
           )}
 
           {/* ============================================================ */}
-          {/* WINDOW 4: Evince PDF / Statement Viewer                      */}
+          {/* WINDOW 4: Evince 文档查看器（Yaru 复刻）                       */}
           {/* ============================================================ */}
           {windows.pdf.isOpen && !windows.pdf.isMinimized && activeProblem && (
             <div
@@ -1147,88 +950,23 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 height: windows.pdf.isMaximized ? '100%' : windows.pdf.h,
                 zIndex: windows.pdf.zIndex,
               }}
-              className="absolute bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
+              className="absolute flex flex-col overflow-hidden"
             >
-              <div
+              <EvinceWindow
+                fileName={`${currentTaskDir}.pdf`}
+                title={`${activeProblem.code}. ${activeProblem.title}`}
                 onMouseDown={(e) => handleTitleMouseDown('pdf', e)}
-                className="h-10 bg-slate-100 px-4 flex items-center justify-between border-b border-slate-200 cursor-move select-none"
+                onMinimize={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMinimized: true } }))}
+                onMaximize={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMaximized: !p.pdf.isMaximized } }))}
+                onClose={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isOpen: false } }))}
               >
-                <div className="flex items-center gap-2">
-                  <FileText className="w-4 h-4 text-red-600" />
-                  <span className="text-xs font-bold text-slate-800">
-                    Evince - {currentTaskDir}.pdf · {activeProblem.code}. {activeProblem.title}
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isMinimized: true } }))}
-                    className="p-1 rounded hover:bg-slate-200 text-slate-500"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setWindows((p) => ({
-                        ...p,
-                        pdf: { ...p.pdf, isMaximized: !p.pdf.isMaximized },
-                      }))
-                    }
-                    className="p-1 rounded hover:bg-slate-200 text-slate-500"
-                  >
-                    <Square className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, pdf: { ...p.pdf, isOpen: false } }))}
-                    className="p-1 rounded hover:bg-red-500 hover:text-white text-slate-500 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Problem Tab Bar in PDF Viewer */}
-              <div className="px-3 py-1.5 bg-slate-50 border-b border-slate-200 flex items-center gap-1 overflow-x-auto text-xs">
-                {problems.map((p) => (
-                  <button
-                    key={p.id}
-                    onClick={() => setActiveProblem(p)}
-                    className={`px-3 py-1 rounded-md text-xs transition-colors ${
-                      p.id === activeProblem.id
-                        ? 'bg-blue-600 text-white font-bold shadow-2xs'
-                        : 'text-slate-600 hover:bg-slate-200'
-                    }`}
-                  >
-                    {p.code}. {p.title}
-                  </button>
-                ))}
-              </div>
-
-              {/* Statement Content */}
-              <div className="flex-1 p-6 overflow-y-auto space-y-4">
-                <div className="border-b pb-3">
-                  <h2 className="text-xl font-black text-slate-900">
-                    {activeProblem.code}. {activeProblem.title}
-                  </h2>
-                  <p className="text-xs text-slate-400 mt-1">
-                    时间限制: {activeProblem.timeLimitMs}ms · 空间限制: {activeProblem.memoryLimitMib}MiB · IO: {activeProblem.ioMode === 'file' ? `文件 IO (${activeProblem.inFile || 'in'}/${activeProblem.outFile || 'out'})` : '标准输入输出'}
-                  </p>
-                </div>
-
-                <div className="prose prose-sm max-w-none text-slate-800">
+                <div className="px-6 py-5">
                   <MarkdownView source={activeProblem.statement} />
                 </div>
-
-                {activeProblem.examples && (
-                  <div className="p-3 bg-slate-900 text-slate-100 rounded-lg text-xs font-mono space-y-1">
-                    <span className="text-slate-400 font-bold block">官方样例数据:</span>
-                    <pre className="whitespace-pre-wrap">{activeProblem.examples}</pre>
-                  </div>
-                )}
-              </div>
+              </EvinceWindow>
             </div>
           )}
 
-          {/* ============================================================ */}
           {/* WINDOW 5: CCF Exam Doctor (Inspector)                        */}
           {/* ============================================================ */}
           {windows.doctor.isOpen && !windows.doctor.isMinimized && (
