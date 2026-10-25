@@ -831,6 +831,8 @@ export function GeanyWindow({
   onRun,
   onDoctor,
   onSave,
+  onNewDoc,
+  onSaveAs,
   tabs,
   activeTabId,
   onSelectTab,
@@ -858,8 +860,12 @@ export function GeanyWindow({
   onRun: () => void
   onDoctor: () => void
   onSave: () => void
+  /** 新建未命名文档（落在本场桌面的文件夹里）。 */
+  onNewDoc: () => void
+  /** 另存为：把当前文档内容另存为新的自建文件。 */
+  onSaveAs?: (newName: string) => void
   /** 打开的文档标签：一题或一个自建文件。 */
-  tabs: { id: string; name: string }[]
+  tabs: { id: string; name: string; kind: 'problem' | 'vfs' }[]
   activeTabId: string | null
   onSelectTab: (id: string) => void
   onCloseDoc?: (id: string) => void
@@ -879,6 +885,13 @@ export function GeanyWindow({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [menubarMenu, setMenubarMenu] = useState<{ x: number; y: number; label: string } | null>(null)
   const [messageTab, setMessageTab] = useState<'status' | 'compiler' | 'msgs' | 'notes'>('status')
+  const [saveAsDialog, setSaveAsDialog] = useState<string | null>(null)
+  const [messageHidden, setMessageHidden] = useState(false)
+  const [sidebarHidden, setSidebarHidden] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [aboutOpen, setAboutOpen] = useState(false)
+  const activeDocKind = tabs.find((t) => t.id === activeTabId)?.kind
+  const activeDocName = tabs.find((t) => t.id === activeTabId)?.name ?? ''
   const [sidebarTab, setSidebarTab] = useState<'symbols' | 'docs'>('symbols')
   const editorRef = useRef<GeanyEditorHandle | null>(null)
   const [caret, setCaret] = useState({ line: 1, column: 1 })
@@ -899,11 +912,23 @@ export function GeanyWindow({
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault()
         if (hasDoc) onSave()
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') {
+        event.preventDefault()
+        onNewDoc()
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'w') {
+        event.preventDefault()
+        if (activeTabId) onCloseDoc?.(activeTabId)
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'j') {
+        event.preventDefault()
+        setMessageHidden((hidden) => !hidden)
+      } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'b') {
+        event.preventDefault()
+        setSidebarHidden((hidden) => !hidden)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onCompile, onRun, onSave, hasDoc])
+  }, [onCompile, onRun, onSave, onNewDoc, onCloseDoc, activeTabId, hasDoc])
 
   const doCompile = () => {
     setMessageTab('compiler')
@@ -940,10 +965,15 @@ export function GeanyWindow({
   // 菜单栏下拉（Geany 真实菜单结构；未接后端的项保持视觉一致）。
   const menubarMenus: Record<string, MenuItem[]> = {
     文件: [
-      { label: '新建', shortcut: 'Ctrl+N' },
+      { label: '新建', shortcut: 'Ctrl+N', onClick: onNewDoc },
       { label: '打开…', shortcut: 'Ctrl+O', onClick: onPickUploadFile },
       { label: '保存', shortcut: 'Ctrl+S', onClick: onSave, disabled: !hasDoc },
-      { label: '另存为…', shortcut: 'Shift+Ctrl+S' },
+      {
+        label: '另存为…',
+        shortcut: 'Shift+Ctrl+S',
+        disabled: !hasDoc || activeDocKind !== 'vfs',
+        onClick: () => setSaveAsDialog(activeDocName),
+      },
       { separator: true },
       {
         label: '关闭',
@@ -960,9 +990,18 @@ export function GeanyWindow({
       { label: '替换…', shortcut: 'Ctrl+H', onClick: () => runEditor('editor.action.startFindReplaceAction') },
     ],
     查看: [
-      { label: '切换消息窗口', shortcut: 'Ctrl+J' },
-      { label: '切换侧边栏', shortcut: 'Ctrl+B' },
-      { label: '全屏', shortcut: 'F11' },
+      {
+        label: messageHidden ? '显示消息窗口' : '切换消息窗口',
+        shortcut: 'Ctrl+J',
+        onClick: () => setMessageHidden((hidden) => !hidden),
+      },
+      {
+        label: sidebarHidden ? '显示侧边栏' : '切换侧边栏',
+        shortcut: 'Ctrl+B',
+        onClick: () => setSidebarHidden((hidden) => !hidden),
+      },
+      { separator: true },
+      { label: '全屏', shortcut: 'F11', onClick: onMaximize },
     ],
     文档: [{ label: hasDoc ? `${fileName} (UTF-8)` : '未打开文档', disabled: true }],
     项目: [{ label: '未打开项目', disabled: true }],
@@ -976,7 +1015,7 @@ export function GeanyWindow({
       { label: '考场体检', onClick: onDoctor },
       { label: '插入日期', disabled: readOnly, onClick: insertDate },
     ],
-    帮助: [{ label: '关于 Geany' }],
+    帮助: [{ label: '关于 Geany', onClick: () => setAboutOpen(true) }],
   }
 
   return (
@@ -1010,14 +1049,14 @@ export function GeanyWindow({
       {/* 工具栏 */}
       <div className="flex h-9 shrink-0 items-center gap-0.5 border-b border-[#D9D9D6] px-1.5" style={{ background: YARU.chromeBg }}>
         {[
-          { icon: <FileText className="h-4 w-4" />, label: '新建' },
+          { icon: <FileText className="h-4 w-4" />, label: '新建 (Ctrl+N)', onClick: onNewDoc },
           { icon: <FolderOpen className="h-4 w-4" />, label: '打开', onClick: onPickUploadFile },
-          { icon: <Download className="h-4 w-4 rotate-180" />, label: '保存', onClick: onSave, disabled: !hasDoc },
+          { icon: <Download className="h-4 w-4 rotate-180" />, label: '保存 (Ctrl+S)', onClick: onSave, disabled: !hasDoc },
           { separator: true },
           { icon: <Play className="h-4 w-4 text-emerald-700" />, label: '编译 (F8)', onClick: doCompile, disabled: !hasDoc },
           { icon: <Play className="h-4 w-4 text-blue-700" />, label: '在终端中运行 (F5)', onClick: onRun },
           { separator: true },
-          { icon: <Search className="h-4 w-4" />, label: '查找' },
+          { icon: <Search className="h-4 w-4" />, label: '查找 (Ctrl+F)', onClick: () => runEditor('actions.find') },
         ].map((btn, index) =>
           btn.separator ? (
             <div key={index} className="mx-1.5 h-5 w-px bg-[#D9D9D6]" />
@@ -1079,7 +1118,12 @@ export function GeanyWindow({
 
       {/* 主体：侧栏 + 编辑器 */}
       <div className="flex min-h-0 flex-1">
-        <div className="flex w-44 shrink-0 flex-col border-r border-[#D9D9D6]" style={{ background: YARU.sidebarBg }}>
+        <div
+          className={`flex w-44 shrink-0 flex-col border-r border-[#D9D9D6] ${
+            sidebarHidden ? 'hidden' : ''
+          }`}
+          style={{ background: YARU.sidebarBg }}
+        >
           <div className="flex h-7 shrink-0 items-stretch border-b border-[#D9D9D6]">
             {([
               ['symbols', '符号'],
@@ -1205,7 +1249,10 @@ export function GeanyWindow({
       </div>
 
       {/* 消息窗口 */}
-      <div className="h-36 shrink-0 border-t border-[#D9D9D6]" style={{ background: YARU.contentBg }}>
+      <div
+        className={`h-36 shrink-0 border-t border-[#D9D9D6] ${messageHidden ? 'hidden' : ''}`}
+        style={{ background: YARU.contentBg }}
+      >
         <div className="flex h-7 items-stretch border-b border-[#D9D9D6]" style={{ background: '#EFEFED' }}>
           {([
             ['status', '状态栏'],
@@ -1265,7 +1312,15 @@ export function GeanyWindow({
             </div>
           )}
           {messageTab === 'msgs' && <p className="text-slate-400">没有消息。</p>}
-          {messageTab === 'notes' && <p className="text-slate-400">此窗口用于记录临时笔记。</p>}
+          {messageTab === 'notes' && (
+            <textarea
+              value={notes}
+              onChange={(event) => setNotes(event.target.value)}
+              placeholder="此窗口用于记录临时笔记（考场公式、思路、卡住的测试点…）"
+              spellCheck={false}
+              className="h-full min-h-0 w-full resize-none border-0 bg-transparent p-0 font-mono text-[12px] leading-5 text-[#3D3D3D] outline-none placeholder:text-slate-300"
+            />
+          )}
         </div>
       </div>
 
@@ -1298,6 +1353,96 @@ export function GeanyWindow({
         </div>
       )}
 
+      {aboutOpen && (
+        <div
+          className="absolute inset-0 z-20 grid place-items-center bg-black/30"
+          onMouseDown={() => setAboutOpen(false)}
+        >
+          <div
+            className="w-80 overflow-hidden rounded-xl border border-black/30 shadow-2xl"
+            style={{ background: YARU.contentBg, fontFamily: YARU_SANS }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="flex h-9 items-center justify-center text-[13px] font-bold text-[#2D2D2D]"
+              style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
+            >
+              关于 Geany
+            </div>
+            <div className="flex flex-col items-center gap-2 px-6 py-5 text-center">
+              <img src={YARU_ICONS.geany} alt="" className="h-14 w-14 object-contain" />
+              <p className="text-[15px] font-extrabold text-[#2D2D2D]">Geany 1.36</p>
+              <p className="text-[11px] leading-5 text-slate-500">
+                NOI Linux 2.0 模拟环境 · 以 Yaru 主题在浏览器中复刻。
+                <br />
+                静态预检不等于真实编译；最终评测以服务端为准。
+              </p>
+            </div>
+            <div className="flex justify-end px-4 pb-3">
+              <button
+                type="button"
+                onClick={() => setAboutOpen(false)}
+                className="h-7 rounded-md border border-[#CFCFCF] bg-white px-3 text-[12px] font-bold text-[#3D3D3D] hover:bg-[#F0F0EE]"
+              >
+                关闭
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {saveAsDialog !== null && (
+        <div
+          className="absolute inset-0 z-20 grid place-items-center bg-black/30"
+          onMouseDown={() => setSaveAsDialog(null)}
+        >
+          <div
+            className="w-80 overflow-hidden rounded-xl border border-black/30 shadow-2xl"
+            style={{ background: YARU.contentBg, fontFamily: YARU_SANS }}
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div
+              className="flex h-9 items-center justify-center text-[13px] font-bold text-[#2D2D2D]"
+              style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
+            >
+              另存为
+            </div>
+            <form
+              className="space-y-3 px-4 py-4"
+              onSubmit={(event) => {
+                event.preventDefault()
+                const name = saveAsDialog.trim()
+                if (name) onSaveAs?.(name)
+                setSaveAsDialog(null)
+              }}
+            >
+              <input
+                autoFocus
+                value={saveAsDialog}
+                onChange={(event) => setSaveAsDialog(event.target.value)}
+                placeholder="文件名（如 sol.cpp）"
+                aria-label="另存为文件名"
+                className="w-full rounded-lg border border-[#CFCFCF] bg-white px-3 py-2 text-[13px] text-[#2D2D2D] outline-none focus:border-[#E95420]"
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSaveAsDialog(null)}
+                  className="h-7 rounded-md border border-[#CFCFCF] bg-white px-3 text-[12px] font-bold text-[#3D3D3D] hover:bg-[#F0F0EE]"
+                >
+                  取消
+                </button>
+                <button
+                  type="submit"
+                  className="h-7 rounded-md px-3 text-[12px] font-bold text-white hover:opacity-90"
+                  style={{ background: YARU.accent }}
+                >
+                  保存
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
       {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
       {menubarMenu && (
         <ContextMenu

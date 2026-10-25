@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   findItem,
+  uniqueUntitledName,
   listDir,
   mkdir,
   mkfile,
@@ -60,6 +61,13 @@ describe('考场桌面 VFS', () => {
     expect(restored.ok).toBe(true)
     expect(findItem(restored.items, 'poker')).not.toBeNull()
     expect(restoreItem(base, { name: 'poker', kind: 'dir' }).ok).toBe(false)
+  })
+
+  it('uniqueUntitledName 依次避开现有名称', () => {
+    expect(uniqueUntitledName(base)).toBe('无标题.cpp')
+    const withUntitled: VfsItem[] = [{ name: '无标题.cpp', kind: 'file' }]
+    expect(uniqueUntitledName(withUntitled)).toBe('无标题2.cpp')
+    expect(uniqueUntitledName(base, '.txt')).toBe('无标题.txt')
   })
 
   it('writeFile 更新内容并尊重只读', () => {

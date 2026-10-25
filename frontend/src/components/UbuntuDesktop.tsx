@@ -19,6 +19,8 @@ import { YARU_ICONS } from './ubuntu/yaruIcons'
 import {
   dirKey,
   findItem,
+  mkfile,
+  uniqueUntitledName,
   listDir,
   mkdir as vfsMkdir,
   renameItem as vfsRename,
@@ -1257,7 +1259,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   if (activeDoc?.kind === 'problem') onSave?.()
                   else toast.success('已保存', '自建文件保存在模拟桌面的文件夹里。')
                 }}
-                tabs={openDocs.map((d) => ({ id: d.id, name: d.name }))}
+                tabs={openDocs.map((d) => ({ id: d.id, name: d.name, kind: d.kind }))}
                 activeTabId={activeDocId}
                 onSelectTab={(id) => {
                   const doc = openDocs.find((d) => d.id === id)
@@ -1273,6 +1275,30 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 }}
                 onCloseDoc={closeDoc}
                 canSubmit={activeDoc?.kind === 'problem'}
+                onNewDoc={() => {
+                  const key = activeDoc?.dirKey ?? ''
+                  const items = userFiles[key] ?? []
+                  const name = uniqueUntitledName(items)
+                  const result = mkfile(items, name, '')
+                  if (result.ok) {
+                    setUserFiles((prev) => ({ ...prev, [key]: result.items }))
+                    openVfsDoc(key, findItem(result.items, name)!)
+                  } else {
+                    toast.error('无法新建文件', result.error ?? '')
+                  }
+                }}
+                onSaveAs={(newName) => {
+                  if (activeDoc?.kind !== 'vfs') return
+                  const key = activeDoc.dirKey ?? ''
+                  const result = mkfile(userFiles[key] ?? [], newName, docCode)
+                  if (result.ok) {
+                    setUserFiles((prev) => ({ ...prev, [key]: result.items }))
+                    openVfsDoc(key, findItem(result.items, newName)!)
+                    toast.success('已另存为', newName)
+                  } else {
+                    toast.error('另存为失败', result.error ?? '')
+                  }
+                }}
                 onDoctor={() => focusWindow('doctor')}
                 onPickUploadFile={onPickUploadFile}
                 uploadFile={uploadFile}

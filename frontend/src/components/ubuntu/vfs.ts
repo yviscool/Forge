@@ -93,6 +93,17 @@ export function writeFile(items: VfsItem[], name: string, content: string): VfsR
   return done(next)
 }
 
+/** 未命名文档命名：无标题.cpp、无标题2.cpp… 直到不与现有条目冲突。 */
+export function uniqueUntitledName(items: VfsItem[], ext = '.cpp'): string {
+  let index = 1
+  let name = `无标题${index > 1 ? index : ''}${ext}`
+  while (items.some((item) => item.name === name)) {
+    index += 1
+    name = `无标题${index}${ext}`
+  }
+  return name
+}
+
 /** 路径 key（相对考生主目录）：'' 表示主目录本身，'poker/sub' 表示嵌套。 */
 export function dirKey(path: string[]): string {
   return path.join('/')
