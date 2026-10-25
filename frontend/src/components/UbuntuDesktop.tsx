@@ -311,20 +311,34 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     // 头栏内的按钮（关闭/最小化/菜单等）不进入拖拽，否则拖拽启动会吞掉 click。
     if (e.target instanceof Element && e.target.closest('button')) return
     focusWindow(key)
-    const w = windows[key]
     const vp = viewport()
-    // GNOME：拖动已贴边/最大化的窗口先还原为贴边前尺寸，抓点保持在标题栏内。
-    if (w.isMaximized || isSnapped({ x: w.x, y: w.y, w: w.w, h: w.h }, vp)) {
+    // 抓点基准一律取 DOM 实际位置：拖拽是 rAF 直写 style，React state 可能
+    // 落后一个手势的距离——用 state 算抓点会让窗口在首次 mousemove 跳变。
+    const el = desktopRef.current?.querySelector(`[data-window="${key}"]`) as HTMLElement | null
+    const domRect = el
+      ? { x: el.offsetLeft, y: el.offsetTop, w: el.offsetWidth, h: el.offsetHeight }
+      : null
+    const w = windows[key]
+    const cur = domRect ?? { x: w.x, y: w.y, w: w.w, h: w.h }
+    const snapped =
+      w.isMaximized || isSnapped({ x: cur.x, y: cur.y, w: cur.w, h: cur.h }, vp)
+    if (snapped) {
+      // GNOME：拖离贴边/最大化先还原，且保持抓点在标题栏内的相对比例
+      // （按住头栏左端拖离，指针仍停在还原窗口头栏左端附近，不瞬移到中心）。
       const restore = w.restoreRect ?? { x: 120, y: 90, w: 880, h: 560 }
-      const nx = Math.max(0, Math.min(e.clientX - Math.round(restore.w / 2), vp.w - restore.w))
-      const ny = Math.max(30, e.clientY - 16)
+      const maxRectNow = snapRect('max', vp)
+      const fx = Math.min(1, Math.max(0, (e.clientX - maxRectNow.x) / Math.max(1, maxRectNow.w)))
+      const ox = Math.min(restore.w - 24, Math.max(24, Math.round(fx * restore.w)))
+      const oy = Math.min(restore.h - 12, Math.max(10, e.clientY - cur.y))
+      const nx = Math.max(0, Math.min(e.clientX - ox, vp.w - restore.w))
+      const ny = Math.max(30, e.clientY - oy)
       setWindows((prev) => ({
         ...prev,
         [key]: { ...prev[key], isMaximized: false, x: nx, y: ny, w: restore.w, h: restore.h, restoreRect: undefined },
       }))
-      dragOffsetRef.current = { ox: e.clientX - nx, oy: e.clientY - ny }
+      dragOffsetRef.current = { ox, oy }
     } else {
-      dragOffsetRef.current = { ox: e.clientX - w.x, oy: e.clientY - w.y }
+      dragOffsetRef.current = { ox: e.clientX - cur.x, oy: e.clientY - cur.y }
     }
     setDraggingKey(key)
   }
@@ -335,6 +349,10 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     // 拖拽/缩放节流：mousemove 只记录意图，每帧（rAF）commit 一次，
     // 避免高频 setWindows 造成整树重渲染卡顿。
     const pendingRef = { rect: null as WindowRect | null, key: null as WindowKey | null }
+    // lastApplied：手势期间最后写入 DOM 的矩形。mouseup 无条件据此回写
+    // React——pending 在 rAF 里已被消费，若只看 pending 会漏掉最后一帧，
+    // state 落后一个手势的距离，下次拖拽抓点就错（指针与标题栏漂移）。
+    const lastAppliedRef = { rect: null as WindowRect | null, key: null as WindowKey | null }
     let rafId = 0
     const flush = () => {
       rafId = 0
@@ -351,6 +369,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         el.style.width = `${rect.w}px`
         el.style.height = `${rect.h}px`
       }
+      lastAppliedRef.rect = rect
+      lastAppliedRef.key = key
     }
     const schedule = (key: WindowKey, rect: WindowRect) => {
       pendingRef.key = key
@@ -378,9 +398,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       }
     }
     const handleMouseUp = () => {
-      if (rafId) cancelAnimationFrame(rafId)
-      rafId = 0
-      const { rect, key } = pendingRef
+      if (rafId) {
+        // 最后一帧尚未写入 DOM：先同步执行，保证 lastApplied 与视觉一致。
+        cancelAnimationFrame(rafId)
+        rafId = 0
+        flush()
+      }
+      const { rect, key } = lastAppliedRef
+      lastAppliedRef.rect = null
+      lastAppliedRef.key = null
       pendingRef.rect = null
       pendingRef.key = null
       // 直写期间位置未回传 React：松手时一次性同步（值与 DOM 一致，
@@ -409,8 +435,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           },
         }))
       }
-      pendingRef.rect = null
-      pendingRef.key = null
       setDraggingKey(null)
       setSnapPreview(null)
       setResizing(null)
