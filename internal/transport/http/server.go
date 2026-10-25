@@ -3,6 +3,7 @@
 package httpapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/subtle"
@@ -1065,6 +1066,8 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		w.Header().Set("Content-Type", "application/pdf")
 		w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%s-problems.pdf", cid))
+		// X-Pdf-Pages：文档查看器（Evince 复刻）显示 N / M 与翻页钳制用。
+		w.Header().Set("X-Pdf-Pages", strconv.Itoa(countPdfPages(pdfBytes)))
 		_, _ = w.Write(pdfBytes)
 		return
 	}
@@ -1962,4 +1965,9 @@ type userView struct {
 	domain.User
 	HasPassword bool   `json:"hasPassword"`
 	Password    string `json:"password,omitempty"`
+}
+
+// countPdfPages 统计 PDF 的 /Type /Page 对象数（减去 /Pages 目录页对象）。
+func countPdfPages(data []byte) int {
+	return bytes.Count(data, []byte("/Type /Page")) - bytes.Count(data, []byte("/Type /Pages"))
 }

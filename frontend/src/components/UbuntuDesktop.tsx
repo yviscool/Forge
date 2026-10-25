@@ -34,6 +34,14 @@ import { useToast } from './ui/toast'
 import { byteLength } from '../features/student/submissionFiles'
 import { contestProblemDraftKey } from '../store/useStore'
 import {
+  applyResize,
+  detectSnapZone,
+  isSnapped,
+  snapRect,
+  type ResizeDir,
+  type WindowRect,
+} from './ubuntu/windowManager'
+import {
   LayoutGrid,
   Lock,
   Wifi,
@@ -107,6 +115,8 @@ interface WindowState {
   w: number
   h: number
   zIndex: number
+  /** 贴边（最大化/半屏）前的自由矩形，拖离时还原（GNOME 行为）。 */
+  restoreRect?: { x: number; y: number; w: number; h: number }
 }
 
 export interface CommandLog {
@@ -114,6 +124,46 @@ export interface CommandLog {
   text: string
   /** 编译诊断对应的源码行号：Geany 编译器窗格点击跳行用。 */
   line?: number
+}
+
+// 8 向边缘调整手柄（GNOME 窗口边缘，非最大化时可见）。
+const RESIZE_DIRS: { dir: ResizeDir; className: string; cursor: string }[] = [
+  { dir: 'n', className: 'left-2 right-2 top-0 h-1.5', cursor: 'ns-resize' },
+  { dir: 's', className: 'left-2 right-2 bottom-0 h-1.5', cursor: 'ns-resize' },
+  { dir: 'e', className: 'top-2 bottom-2 right-0 w-1.5', cursor: 'ew-resize' },
+  { dir: 'w', className: 'top-2 bottom-2 left-0 w-1.5', cursor: 'ew-resize' },
+  { dir: 'ne', className: 'top-0 right-0 w-3 h-3', cursor: 'nesw-resize' },
+  { dir: 'nw', className: 'top-0 left-0 w-3 h-3', cursor: 'nwse-resize' },
+  { dir: 'se', className: 'bottom-0 right-0 w-3 h-3', cursor: 'nwse-resize' },
+  { dir: 'sw', className: 'bottom-0 left-0 w-3 h-3', cursor: 'nesw-resize' },
+]
+
+function WindowHandles({ winKey, onBegin }: { winKey: WindowKey; onBegin: (key: WindowKey, dir: ResizeDir, e: React.MouseEvent) => void }) {
+  return (
+    <>
+      {RESIZE_DIRS.map(({ dir, className, cursor }) => (
+        <div
+          key={dir}
+          onMouseDown={(e) => onBegin(winKey, dir, e)}
+          onDoubleClick={(e) => e.stopPropagation()}
+          className={`absolute z-20 ${className}`}
+          style={{ cursor }}
+        />
+      ))}
+    </>
+  )
+}
+
+// GNOME 贴边预览：拖到顶/左右边缘时的半透明落位框。
+function SnapOverlay({ zone }: { zone: 'max' | 'left' | 'right' }) {
+  const vp = { w: window.innerWidth, h: window.innerHeight }
+  const rect = snapRect(zone, vp)
+  return (
+    <div
+      className="pointer-events-none absolute z-[70] rounded-xl border-2 border-white/50 bg-white/15 backdrop-blur-[1px] transition-all duration-100"
+      style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}
+    />
+  )
 }
 
 export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
@@ -234,30 +284,97 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   // Dragging support
   const [draggingKey, setDraggingKey] = useState<WindowKey | null>(null)
   const dragOffsetRef = useRef<{ ox: number; oy: number }>({ ox: 0, oy: 0 })
+  // 贴边：拖动中显示 GNOME 式半透明预览，松手落位；拖离已贴边窗口时先还原。
+  const [snapPreview, setSnapPreview] = useState<'max' | 'left' | 'right' | null>(null)
+  const lastFreeRectRef = useRef<Record<string, WindowRect>>({})
+  // 边缘调整大小：8 向手柄。
+  const [resizing, setResizing] = useState<{ key: WindowKey; dir: ResizeDir; start: WindowRect } | null>(null)
+  const resizeStartPointerRef = useRef({ x: 0, y: 0 })
+
+  const viewport = () => ({ w: window.innerWidth, h: window.innerHeight })
+
+  const windowRect = (key: WindowKey): WindowRect => {
+    const w = windows[key]
+    if (w.isMaximized) return snapRect('max', viewport())
+    return { x: w.x, y: w.y, w: w.w, h: w.h }
+  }
+
+  const beginResize = (key: WindowKey, dir: ResizeDir, e: React.MouseEvent) => {
+    e.stopPropagation()
+    e.preventDefault()
+    focusWindow(key)
+    resizeStartPointerRef.current = { x: e.clientX, y: e.clientY }
+    setResizing({ key, dir, start: windowRect(key) })
+  }
 
   const handleTitleMouseDown = (key: WindowKey, e: React.MouseEvent) => {
-    if (windows[key].isMaximized) return
     focusWindow(key)
-    setDraggingKey(key)
-    dragOffsetRef.current = {
-      ox: e.clientX - windows[key].x,
-      oy: e.clientY - windows[key].y,
+    const w = windows[key]
+    const vp = viewport()
+    // GNOME：拖动已贴边/最大化的窗口先还原为贴边前尺寸，抓点保持在标题栏内。
+    if (w.isMaximized || isSnapped({ x: w.x, y: w.y, w: w.w, h: w.h }, vp)) {
+      const restore = w.restoreRect ?? { x: 120, y: 90, w: 880, h: 560 }
+      const nx = Math.max(0, Math.min(e.clientX - Math.round(restore.w / 2), vp.w - restore.w))
+      const ny = Math.max(30, e.clientY - 16)
+      setWindows((prev) => ({
+        ...prev,
+        [key]: { ...prev[key], isMaximized: false, x: nx, y: ny, w: restore.w, h: restore.h, restoreRect: undefined },
+      }))
+      dragOffsetRef.current = { ox: e.clientX - nx, oy: e.clientY - ny }
+    } else {
+      dragOffsetRef.current = { ox: e.clientX - w.x, oy: e.clientY - w.y }
     }
+    setDraggingKey(key)
   }
 
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
-      if (!draggingKey) return
-      const nx = Math.max(0, e.clientX - dragOffsetRef.current.ox)
-      const ny = Math.max(30, e.clientY - dragOffsetRef.current.oy)
-      setWindows((prev) => ({
-        ...prev,
-        [draggingKey]: { ...prev[draggingKey], x: nx, y: ny },
-      }))
+      if (draggingKey) {
+        const vp = viewport()
+        const nx = Math.max(0, e.clientX - dragOffsetRef.current.ox)
+        const ny = Math.max(30, e.clientY - dragOffsetRef.current.oy)
+        setWindows((prev) => ({
+          ...prev,
+          [draggingKey]: { ...prev[draggingKey], x: nx, y: ny },
+        }))
+        lastFreeRectRef.current[draggingKey] = { x: nx, y: ny, w: windows[draggingKey].w, h: windows[draggingKey].h }
+        setSnapPreview(detectSnapZone({ x: e.clientX, y: e.clientY }, vp))
+        return
+      }
+      if (resizing) {
+        const dx = e.clientX - resizeStartPointerRef.current.x
+        const dy = e.clientY - resizeStartPointerRef.current.y
+        const next = applyResize(resizing.start, resizing.dir, dx, dy, viewport())
+        setWindows((prev) => ({
+          ...prev,
+          [resizing.key]: { ...prev[resizing.key], x: next.x, y: next.y, w: next.w, h: next.h },
+        }))
+      }
     }
-    const handleMouseUp = () => setDraggingKey(null)
+    const handleMouseUp = () => {
+      if (draggingKey && snapPreview) {
+        // 贴边落位：记住自由矩形以便拖离还原。
+        const rect = snapRect(snapPreview, viewport())
+        const free = lastFreeRectRef.current[draggingKey]
+        setWindows((prev) => ({
+          ...prev,
+          [draggingKey]: {
+            ...prev[draggingKey],
+            isMaximized: snapPreview === 'max',
+            x: rect.x,
+            y: rect.y,
+            w: rect.w,
+            h: rect.h,
+            restoreRect: free ?? prev[draggingKey].restoreRect,
+          },
+        }))
+      }
+      setDraggingKey(null)
+      setSnapPreview(null)
+      setResizing(null)
+    }
 
-    if (draggingKey) {
+    if (draggingKey || resizing) {
       window.addEventListener('mousemove', handleMouseMove)
       window.addEventListener('mouseup', handleMouseUp)
     }
@@ -265,7 +382,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [draggingKey])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingKey, resizing, snapPreview])
 
   // Zip Password Unlock State
   const [zipInputPassword, setZipInputPassword] = useState('')
@@ -306,7 +424,16 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       return {}
     }
   }
-  const [userFiles, setUserFiles] = useState<Record<string, VfsItem[]>>(loadVfs)
+  const [userFiles, setUserFiles] = useState<Record<string, VfsItem[]>>(() => {
+    const loaded = loadVfs()
+    // 首次使用播种 xdg 目录骨架（Desktop/Documents/…），与真实考点开箱一致。
+    if (!loaded[''] || loaded[''].length === 0) {
+      loaded[''] = ['Desktop', 'Documents', 'Downloads', 'Music', 'Pictures', 'Videos'].map(
+        (name) => ({ name, kind: 'dir' as const })
+      )
+    }
+    return loaded
+  })
   const [trash, setTrash] = useState<{ item: VfsItem; fromKey: string }[]>(() => {
     if (!vfsKey) return []
     try {
@@ -926,6 +1053,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       {/* ============================================================ */}
       <div className="flex-1 flex relative overflow-hidden bg-black">
         <NoiWallpaper />
+        {snapPreview && <SnapOverlay zone={snapPreview} />}
         {/* Ubuntu Dock (Left) */}
         <div className="w-14 bg-black/60 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-3 gap-3 z-30 shrink-0">
           {/* Nautilus Files */}
@@ -1103,6 +1231,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               }}
               className="absolute flex flex-col overflow-hidden"
             >
+              {!windows.files.isMaximized && (
+                <WindowHandles winKey="files" onBegin={beginResize} />
+              )}
               <NautilusWindow
                 homeName={homeName}
                 pathSegments={currentPath.slice(2)}
@@ -1133,6 +1264,19 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   setTrashView(false)
                   if (level === 0) setCurrentPath(['home', homeName])
                   else setCurrentPath(['home', homeName, ...currentPath.slice(2).slice(0, level)])
+                }}
+                onNavigatePath={(segments) => {
+                  setTrashView(false)
+                  setCurrentPath(['home', homeName, ...segments])
+                }}
+                breadcrumbChildren={(segments) => {
+                  // 该层的子目录 = VFS 目录 + 题面目录（仅主目录层）。
+                  const key = dirKey(segments)
+                  const vfsDirs = listDir(userFiles[key])
+                    .filter((item) => item.kind === 'dir')
+                    .map((item) => item.name)
+                  const problemDirs = segments.length === 0 ? problems.map((p) => taskDirOf(p)) : []
+                  return [...problemDirs, ...vfsDirs]
                 }}
                 onOpen={(item) => {
                   if (trashView) return
@@ -1206,6 +1350,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               }}
               className="absolute flex flex-col overflow-hidden"
             >
+              {!windows.editor.isMaximized && (
+                <WindowHandles winKey="editor" onBegin={beginResize} />
+              )}
               <GeanyWindow
                 dirName={docPath}
                 fileName={activeDoc?.name ?? `${currentTaskDir}.cpp`}
@@ -1312,6 +1459,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               }}
               className="absolute flex flex-col overflow-hidden"
             >
+              {!windows.terminal.isMaximized && (
+                <WindowHandles winKey="terminal" onBegin={beginResize} />
+              )}
               <TerminalWindow
                 homeName={homeName}
                 path={currentPath.slice(2).join('/')}
@@ -1343,6 +1493,9 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               }}
               className="absolute flex flex-col overflow-hidden"
             >
+              {!windows.pdf.isMaximized && (
+                <WindowHandles winKey="pdf" onBegin={beginResize} />
+              )}
               <EvinceWindow
                 fileName={`${currentTaskDir}.pdf`}
                 title={`${activeProblem.code}. ${activeProblem.title}`}
@@ -1371,6 +1524,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               }}
               className="absolute bg-white rounded-2xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
             >
+              <WindowHandles winKey="unlock" onBegin={beginResize} />
               <YaruHeaderBar
                 title="考场试题包密码解锁"
                 onMouseDown={(e) => handleTitleMouseDown('unlock', e)}

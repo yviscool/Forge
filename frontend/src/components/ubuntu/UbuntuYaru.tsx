@@ -328,6 +328,8 @@ export function NautilusWindow({
   onSelect,
   onOpen,
   onNavigateDepth,
+  onNavigatePath,
+  breadcrumbChildren,
   onNewFolder,
   onOpenTerminal,
   onRenamePath,
@@ -351,6 +353,10 @@ export function NautilusWindow({
   onSelect: (id: string | null) => void
   onOpen: (item: NautilusItem) => void
   onNavigateDepth: (depth: number) => void
+  /** 侧栏位置导航：segments 相对主目录（[] = 主目录）。 */
+  onNavigatePath: (segments: string[]) => void
+  /** 面包屑段下拉：列出某层的子目录。 */
+  breadcrumbChildren?: (segments: string[]) => string[]
   /** 返回 null = 成功；字符串 = 内联显示在对话框里的错误（重名等）。 */
   onNewFolder: (name: string) => string | null
   onOpenTerminal: () => void
@@ -364,8 +370,12 @@ export function NautilusWindow({
   onClose?: () => void
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number; item: NautilusItem | null } | null>(null)
-  const [activePlace, setActivePlace] = useState('home')
   const [view, setView] = useState<'grid' | 'list'>('grid')
+  // 排序：真实 Nautilus 头栏菜单里的排序方式与方向。
+  const [sortBy, setSortBy] = useState<'name' | 'size' | 'type'>('name')
+  const [sortAsc, setSortAsc] = useState(true)
+  const [crumbMenu, setCrumbMenu] = useState<{ x: number; y: number; depth: number } | null>(null)
+  const [appMenu, setAppMenu] = useState<{ x: number; y: number } | null>(null)
   // GNOME 属性对话框：null 关闭，'root' 表示主目录自身。
   const [properties, setProperties] = useState<NautilusItem | 'root' | null>(null)
   const [dialog, setDialog] = useState<{
@@ -384,6 +394,19 @@ export function NautilusWindow({
 
   const isProtected = (item: NautilusItem | null) =>
     !!item && protectedNames.includes(item.name)
+
+  // 排序：目录优先于文件（Nautilus 默认），再按所选键。
+  const sortedItems = [...items].sort((a, b) => {
+    const dirFirst = (x: NautilusItem) => (x.kind === 'folder' ? 0 : 1)
+    if (dirFirst(a) !== dirFirst(b)) return dirFirst(a) - dirFirst(b)
+    const cmp =
+      sortBy === 'name'
+        ? a.name.localeCompare(b.name, 'zh-CN')
+        : sortBy === 'size'
+          ? (a.sizeBytes ?? 0) - (b.sizeBytes ?? 0)
+          : a.kind.localeCompare(b.kind) || a.name.localeCompare(b.name, 'zh-CN')
+    return sortAsc ? cmp : -cmp
+  })
 
   const menuItems = (item: NautilusItem | null): MenuItem[] => {
     if (trashMode) {
@@ -471,28 +494,44 @@ export function NautilusWindow({
                 event.stopPropagation()
                 onNavigateDepth(index + 1)
               }}
-              className="rounded-md px-2.5 py-0.5 text-[12px] font-semibold text-[#3D3D3D] hover:bg-black/10"
+              className="flex items-center gap-0.5 rounded-md px-2.5 py-0.5 text-[12px] font-semibold text-[#3D3D3D] hover:bg-black/10"
               style={index === pathSegments.length - 1 ? { background: 'rgba(0,0,0,0.09)' } : undefined}
             >
               {segment}
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={`${segment} 的子目录`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  const rect = (event.target as HTMLElement).getBoundingClientRect()
+                  setCrumbMenu({ x: rect.left, y: rect.bottom + 4, depth: index + 1 })
+                }}
+                className="ml-0.5 text-[9px] opacity-60 hover:opacity-100"
+              >
+                ▾
+              </span>
             </button>
           </React.Fragment>
         ))}
     </div>
   )
 
-  const places: { id: string; label: string; icon: React.ReactNode }[] = [
-    { id: 'recent', label: '最近', icon: <Clock3 className="h-4 w-4" /> },
-    { id: 'home', label: '主文件夹', icon: <img src={YARU_ICONS.userHome} alt="" className="h-4 w-4" /> },
-    { id: 'desktop', label: '桌面', icon: <img src={YARU_ICONS.userDesktop} alt="" className="h-4 w-4" /> },
-    { id: 'documents', label: '文档', icon: <img src={YARU_ICONS.folder} alt="" className="h-4 w-4" /> },
-    { id: 'downloads', label: '下载', icon: <Download className="h-4 w-4" /> },
-    { id: 'music', label: '音乐', icon: <Music className="h-4 w-4" /> },
-    { id: 'pictures', label: '图片', icon: <ImageIcon className="h-4 w-4" /> },
-    { id: 'videos', label: '视频', icon: <Video className="h-4 w-4" /> },
-    { id: 'trash', label: '回收站', icon: <Trash2 className="h-4 w-4" /> },
+  // 与真实 xdg 目录一致的考生主目录位置；segments 即 VFS 路径。
+  const places: { id: string; label: string; icon: React.ReactNode; segments: string[] | null }[] = [
+    { id: 'recent', label: '最近', icon: <Clock3 className="h-4 w-4" />, segments: [] },
+    { id: 'home', label: '主文件夹', icon: <img src={YARU_ICONS.userHome} alt="" className="h-4 w-4" />, segments: [] },
+    { id: 'desktop', label: '桌面', icon: <img src={YARU_ICONS.userDesktop} alt="" className="h-4 w-4" />, segments: ['Desktop'] },
+    { id: 'documents', label: '文档', icon: <img src={YARU_ICONS.folder} alt="" className="h-4 w-4" />, segments: ['Documents'] },
+    { id: 'downloads', label: '下载', icon: <Download className="h-4 w-4" />, segments: ['Downloads'] },
+    { id: 'music', label: '音乐', icon: <Music className="h-4 w-4" />, segments: ['Music'] },
+    { id: 'pictures', label: '图片', icon: <ImageIcon className="h-4 w-4" />, segments: ['Pictures'] },
+    { id: 'videos', label: '视频', icon: <Video className="h-4 w-4" />, segments: ['Videos'] },
+    { id: 'trash', label: '回收站', icon: <Trash2 className="h-4 w-4" />, segments: null },
   ]
-  const activePlaceId = trashMode ? 'trash' : activePlace
+  const activePlaceId = trashMode
+    ? 'trash'
+    : places.find((pl) => pl.segments?.length === pathSegments.length && pl.segments?.every((s, i) => s === pathSegments[i]))?.id ?? 'home'
 
   return (
     <div
@@ -525,6 +564,10 @@ export function NautilusWindow({
             </button>
             <button
               type="button"
+              onClick={(event) => {
+                const rect = event.currentTarget.getBoundingClientRect()
+                setAppMenu({ x: Math.min(rect.left - 120, window.innerWidth - 240), y: rect.bottom + 4 })
+              }}
               className="grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10"
               aria-label="菜单"
             >
@@ -546,9 +589,9 @@ export function NautilusWindow({
                 key={place.id}
                 type="button"
                 onClick={() => {
-                  setActivePlace(place.id)
                   onSelect(null)
-                  if (place.id === 'trash') onNavigateDepth(-1)
+                  if (place.segments === null) onNavigateDepth(-1)
+                  else onNavigatePath(place.segments)
                 }}
                 className="mx-1.5 flex h-[30px] w-[calc(100%-12px)] items-center gap-2 rounded-md px-2.5 text-left text-[13px]"
                 style={
@@ -580,11 +623,11 @@ export function NautilusWindow({
           <div
             className={
               view === 'grid'
-                ? `grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 p-4${activePlace !== 'home' && !trashMode ? ' hidden' : ''}`
-                : `flex flex-col p-2${activePlace !== 'home' && !trashMode ? ' hidden' : ''}`
+                ? `grid grid-cols-[repeat(auto-fill,minmax(104px,1fr))] gap-2 p-4${pathSegments.length !== 0 && !trashMode && sortedItems.length === 0 ? ' hidden' : ''}`
+                : `flex flex-col p-2${pathSegments.length !== 0 && !trashMode && sortedItems.length === 0 ? ' hidden' : ''}`
             }
           >
-            {items.map((item) => {
+            {sortedItems.map((item) => {
               const selected = item.id === selectedId
               return (
                 <button
@@ -623,14 +666,14 @@ export function NautilusWindow({
               )
             })}
           </div>
-          {view === 'list' && (activePlace === 'home' || trashMode) && (
+          {view === 'list' && (sortedItems.length > 0 || trashMode) && (
             <div className="mx-1 border-b" style={{ borderColor: '#EDEDED' }}>
               <div className="flex items-center gap-2 px-2 py-1 text-[11px] font-bold text-[#8F8F8F]">
                 <span className="w-5" />
                 <span className="flex-1">名称</span>
                 <span className="w-20 text-right">大小</span>
               </div>
-              {items.map((item) => {
+              {sortedItems.map((item) => {
                 const selected = item.id === selectedId
                 return (
                   <button
@@ -666,7 +709,7 @@ export function NautilusWindow({
               })}
             </div>
           )}
-          {(items.length === 0 || (activePlace !== 'home' && !trashMode)) && (
+          {sortedItems.length === 0 && (
             <p className="grid place-items-center py-16 text-[13px] text-slate-400">
               {trashMode
                 ? '回收站是空的'
@@ -809,6 +852,36 @@ export function NautilusWindow({
 
       {menu && (
         <ContextMenu x={menu.x} y={menu.y} items={menuItems(menu.item)} onClose={() => setMenu(null)} />
+      )}
+      {appMenu && (
+        <ContextMenu
+          x={appMenu.x}
+          y={appMenu.y}
+          items={[
+            { label: '网格视图', onClick: () => setView('grid') },
+            { label: '列表视图', onClick: () => setView('list') },
+            { separator: true },
+            { label: '按名称排序', onClick: () => setSortBy('name') },
+            { label: '按大小排序', onClick: () => setSortBy('size') },
+            { label: '按类型排序', onClick: () => setSortBy('type') },
+            { separator: true },
+            { label: sortAsc ? '升序' : '降序', onClick: () => setSortAsc((asc) => !asc) },
+          ]}
+          onClose={() => setAppMenu(null)}
+        />
+      )}
+      {crumbMenu && (
+        <ContextMenu
+          x={crumbMenu.x}
+          y={crumbMenu.y}
+          items={(breadcrumbChildren?.(pathSegments.slice(0, crumbMenu.depth)) ?? []).map(
+            (child): MenuItem => ({
+              label: child,
+              onClick: () => onNavigatePath([...pathSegments.slice(0, crumbMenu.depth), child]),
+            })
+          )}
+          onClose={() => setCrumbMenu(null)}
+        />
       )}
     </div>
   )
@@ -1130,7 +1203,7 @@ export function GeanyWindow({
           <button
             type="button"
             onClick={onSubmit}
-            disabled={submitting || !canSubmit}
+            disabled={submitting || !canSubmit || !hasDoc}
             title={canSubmit ? undefined : '自建文件不参与收题：请打开题面文件夹里的源文件提交'}
             className="h-6 rounded bg-[#2C64C5] px-2.5 text-[10px] font-bold text-white hover:bg-[#1F4FA5] disabled:opacity-50"
           >
@@ -1860,11 +1933,36 @@ export function EvinceWindow({
   const [zoomIndex, setZoomIndex] = useState(2)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState<number | null>(null)
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // 真 PDF 模式：从响应头读总页数（Evince 状态栏的 N / M）。
+  useEffect(() => {
+    if (!pdfUrl) return
+    let cancelled = false
+    void fetch(pdfUrl, { credentials: 'same-origin' })
+      .then((response) => {
+        const pages = Number(response.headers.get('X-Pdf-Pages') ?? '')
+        if (!cancelled && Number.isFinite(pages) && pages > 0) setTotalPages(pages)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [pdfUrl])
+
+
   const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
   const pdfMode = Boolean(pdfUrl)
   const outline = evinceOutline(content)
   const pages = paginateStatement(content)
+
+  const maxPage = totalPages ?? (pdfMode ? null : pages.length)
+  const gotoPageClamped = (target: number) => {
+    const bounded = Math.max(1, Math.min(maxPage ?? Infinity, target))
+    setPage(bounded)
+    if (!pdfMode) pageRefs.current[bounded - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   const gotoPage = (index: number) => {
     const target = Math.max(1, index)
@@ -1875,7 +1973,18 @@ export function EvinceWindow({
 
   return (
     <div
-      className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-black/40 shadow-[0_14px_48px_rgba(0,0,0,0.5)]"
+      tabIndex={0}
+      aria-label={`${fileName} 查看器`}
+      onKeyDown={(event) => {
+        const keys = ['PageDown', 'PageUp', 'ArrowRight', 'ArrowLeft', 'Home', 'End']
+        if (!keys.includes(event.key)) return
+        event.preventDefault()
+        if (event.key === 'PageDown' || event.key === 'ArrowRight') gotoPageClamped(page + 1)
+        else if (event.key === 'PageUp' || event.key === 'ArrowLeft') gotoPageClamped(page - 1)
+        else if (event.key === 'Home') gotoPageClamped(1)
+        else if (event.key === 'End') gotoPageClamped(maxPage ?? page)
+      }}
+      className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-black/40 shadow-[0_14px_48px_rgba(0,0,0,0.5)] outline-none"
       style={{ fontFamily: YARU_SANS }}
     >
       <YaruHeaderBar
@@ -1924,7 +2033,11 @@ export function EvinceWindow({
         }
         actions={
           <span className="mr-1 text-[11px] font-semibold text-[#575757]" style={{ fontFamily: YARU_MONO }}>
-            {pdfMode ? `第 ${page} 页` : `1 / ${pages.length}`}
+            {pdfMode
+              ? totalPages
+                ? `${page} / ${totalPages}`
+                : `第 ${page} 页`
+              : `1 / ${pages.length}`}
           </span>
         }
       />
@@ -1944,7 +2057,7 @@ export function EvinceWindow({
                   <button
                     key={index}
                     type="button"
-                    onClick={() => gotoPage(entry.page)}
+                    onClick={() => gotoPageClamped(entry.page)}
                     className="mx-1.5 flex w-[calc(100%-12px)] items-center gap-1 rounded-md px-2 py-1 text-left text-[12px] text-[#3D3D3D] hover:bg-black/10"
                   >
                     <span className="truncate">{entry.title}</span>
