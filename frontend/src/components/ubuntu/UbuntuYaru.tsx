@@ -4,6 +4,7 @@
 // 字体栈回退：目标机装有 Ubuntu 字体时逐像素一致，否则退化到相近字形。
 import React, { useEffect, useRef, useState } from 'react'
 import {
+  ChevronLeft,
   ChevronRight,
   Clock3,
   LayoutGrid,
@@ -1864,6 +1865,11 @@ export function TerminalWindow({
 // PDF 引擎光栅化——字体、排版、分页与考点里 Poppler 打开的 day1.pdf 完全
 // 一致。跳页/缩放通过 PDF open parameters（#page / #zoom）驱动；
 // 无后端（?desktop-preview 离线态）时退回 Markdown 分页模拟。
+// Evince 文档查看器 —— 对齐最新版（GNOME Papers 46/47）：
+// 头栏 = 历史←→ + 双行标题（文件名 / 第 N 页，共 M 页）+ 侧栏钮 + 汉堡菜单；
+// 缩放收进菜单（放大/缩小/适合页面/适合宽度/档位）；侧栏顶部下拉切换
+// 缩略图 / 索引；内容区暗灰衬托白页。真 PDF 由 Chromium 光栅化（open
+// parameters 控页控缩放），离线预览退回 Markdown 分页。
 function evinceOutline(content: string): { title: string; page: number }[] {
   const perPage = 26
   const outline: { title: string; page: number }[] = []
@@ -1885,7 +1891,6 @@ function paginateStatement(markdown: string, linesPerPage = 26): string[] {
   return pages.length ? pages : ['（本题暂无题面内容）']
 }
 
-// Geany 状态栏的文件类型（真实 filetype 映射的常用子集）。
 function fileTypeName(fileName: string): string {
   const ext = fileName.slice(fileName.lastIndexOf('.') + 1).toLowerCase()
   switch (ext) {
@@ -1899,10 +1904,6 @@ function fileTypeName(fileName: string): string {
       return 'C/C++ 头文件'
     case 'py':
       return 'Python'
-    case 'in':
-    case 'out':
-    case 'ans':
-      return '无'
     default:
       return '无'
   }
@@ -1932,11 +1933,13 @@ export function EvinceWindow({
 }) {
   const [zoomIndex, setZoomIndex] = useState(2)
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [sidebarView, setSidebarView] = useState<'thumbnails' | 'index'>('thumbnails')
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState<number | null>(null)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const pageRefs = useRef<(HTMLDivElement | null)[]>([])
 
-  // 真 PDF 模式：从响应头读总页数（Evince 状态栏的 N / M）。
+  // 真 PDF 模式：从响应头读总页数（标题副标题与翻页钳制用）。
   useEffect(() => {
     if (!pdfUrl) return
     let cancelled = false
@@ -1951,25 +1954,35 @@ export function EvinceWindow({
     }
   }, [pdfUrl])
 
-
-  const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
   const pdfMode = Boolean(pdfUrl)
-  const outline = evinceOutline(content)
   const pages = paginateStatement(content)
-
+  const outline = evinceOutline(content)
   const maxPage = totalPages ?? (pdfMode ? null : pages.length)
+  const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
+  const pageCount = totalPages ?? pages.length
+
   const gotoPageClamped = (target: number) => {
     const bounded = Math.max(1, Math.min(maxPage ?? Infinity, target))
     setPage(bounded)
     if (!pdfMode) pageRefs.current[bounded - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }
 
-  const gotoPage = (index: number) => {
-    const target = Math.max(1, index)
-    setPage(target)
-    if (pdfMode) return
-    pageRefs.current[target - 1]?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  const zoomTo = (index: number) => {
+    setZoomIndex(Math.max(0, Math.min(EVINCE_ZOOM_STEPS.length - 1, index)))
   }
+
+  const menuItems: MenuItem[] = [
+    { label: '上一页', shortcut: 'PgUp', disabled: page <= 1, onClick: () => gotoPageClamped(page - 1) },
+    { label: '下一页', shortcut: 'PgDn', disabled: maxPage != null && page >= maxPage, onClick: () => gotoPageClamped(page + 1) },
+    { separator: true },
+    { label: '放大', shortcut: 'Ctrl++', disabled: zoomIndex >= EVINCE_ZOOM_STEPS.length - 1, onClick: () => zoomTo(zoomIndex + 1) },
+    { label: '缩小', shortcut: 'Ctrl+-', disabled: zoomIndex <= 0, onClick: () => zoomTo(zoomIndex - 1) },
+    { label: `${Math.round(zoom * 100)}%`, disabled: true },
+    { label: '适合页面', onClick: () => zoomTo(2) },
+    { separator: true },
+    { label: '首页', shortcut: 'Home', onClick: () => gotoPageClamped(1) },
+    { label: '末页', shortcut: 'End', onClick: () => gotoPageClamped(maxPage ?? page) },
+  ]
 
   return (
     <div
@@ -1987,114 +2000,166 @@ export function EvinceWindow({
       className="flex h-full w-full flex-col overflow-hidden rounded-xl border border-black/40 shadow-[0_14px_48px_rgba(0,0,0,0.5)] outline-none"
       style={{ fontFamily: YARU_SANS }}
     >
-      <YaruHeaderBar
-        title={fileName}
+      {/* Papers 头栏：历史 ← → | 双行标题 | 侧栏 + 汉堡 */}
+      <div
         onMouseDown={onMouseDown}
-        onMinimize={onMinimize}
-        onMaximize={onMaximize}
-        onClose={onClose}
-        left={
-          <div className="flex items-center gap-1">
+        onDoubleClick={onMaximize}
+        className="relative flex h-12 shrink-0 items-center gap-1 px-2"
+        style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
+      >
+        <button
+          type="button"
+          disabled
+          aria-label="后退"
+          className="grid h-8 w-8 place-items-center rounded-full text-slate-400 disabled:opacity-40"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          disabled
+          aria-label="前进"
+          className="grid h-8 w-8 place-items-center rounded-full text-slate-400 disabled:opacity-40"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+
+        {/* 双行标题：文件名 / 第 N 页，共 M 页 */}
+        <div className="pointer-events-none absolute left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center">
+          <span className="max-w-[45vw] truncate text-[13px] font-bold" style={{ color: YARU.headerbarFg }}>
+            {fileName}
+          </span>
+          <span className="text-[10px] font-semibold text-slate-500">
+            第 {page} 页{maxPage != null ? `，共 ${maxPage} 页` : ''}
+          </span>
+        </div>
+
+        <div className="ml-auto flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((open) => !open)}
+            className={`grid h-8 w-8 place-items-center rounded-full text-[#3D3D3D] hover:bg-black/10 ${
+              sidebarOpen ? 'bg-black/10' : ''
+            }`}
+            aria-label="侧栏"
+            title="切换侧栏"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              setMenu({ x: Math.min(rect.right - 210, window.innerWidth - 230), y: rect.bottom + 4 })
+            }}
+            className="grid h-8 w-8 place-items-center rounded-full text-[#3D3D3D] hover:bg-black/10"
+            aria-label="主菜单"
+          >
+            <MenuIcon className="h-4 w-4" />
+          </button>
+          <div className="ml-1.5 flex items-center gap-2">
+            {onMinimize && (
+              <button
+                type="button"
+                onClick={onMinimize}
+                aria-label="min"
+                className="grid h-[18px] w-[18px] place-items-center rounded-full bg-[#BFBFBF]/80 text-[#3D3D3D] hover:bg-[#9A9A9A]"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                  <rect x="1.5" y="4.5" width="7" height="1.6" fill="currentColor" />
+                </svg>
+              </button>
+            )}
+            {onMaximize && (
+              <button
+                type="button"
+                onClick={onMaximize}
+                aria-label="max"
+                className="grid h-[18px] w-[18px] place-items-center rounded-full bg-[#BFBFBF]/80 text-[#3D3D3D] hover:bg-[#9A9A9A]"
+              >
+                <svg width="10" height="10" viewBox="0 0 10 10">
+                  <rect x="1.8" y="1.8" width="6.4" height="6.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+                </svg>
+              </button>
+            )}
             <button
               type="button"
-              onClick={() => setSidebarOpen((open) => !open)}
-              className={`grid h-7 w-7 place-items-center rounded-md text-[#3D3D3D] hover:bg-black/10 ${
-                sidebarOpen ? 'bg-black/10' : ''
-              }`}
-              aria-label="侧栏"
-              title="切换侧栏"
+              onClick={onClose}
+              aria-label="close"
+              className="grid h-[18px] w-[18px] place-items-center rounded-full bg-[#BFBFBF]/80 text-[#3D3D3D] hover:bg-[#E95420] hover:text-white"
             >
-              <PanelLeft className="h-4 w-4" />
+              <svg width="10" height="10" viewBox="0 0 10 10">
+                <path d="M2 2 L8 8 M8 2 L2 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              </svg>
             </button>
-            <div className="ml-1 flex items-center gap-0.5 rounded-md border border-[#CFCFCF] bg-white px-1">
-              <button
-                type="button"
-                onClick={() => setZoomIndex((index) => Math.max(0, index - 1))}
-                disabled={zoomIndex === 0}
-                className="grid h-6 w-6 place-items-center text-[14px] font-bold text-[#3D3D3D] disabled:opacity-30"
-                aria-label="缩小"
-              >
-                −
-              </button>
-              <span className="min-w-[42px] text-center text-[11px] font-semibold text-[#3D3D3D]">
-                {Math.round(zoom * 100)}%
-              </span>
-              <button
-                type="button"
-                onClick={() => setZoomIndex((index) => Math.min(EVINCE_ZOOM_STEPS.length - 1, index + 1))}
-                disabled={zoomIndex === EVINCE_ZOOM_STEPS.length - 1}
-                className="grid h-6 w-6 place-items-center text-[14px] font-bold text-[#3D3D3D] disabled:opacity-30"
-                aria-label="放大"
-              >
-                +
-              </button>
-            </div>
           </div>
-        }
-        actions={
-          <span className="mr-1 text-[11px] font-semibold text-[#575757]" style={{ fontFamily: YARU_MONO }}>
-            {pdfMode
-              ? totalPages
-                ? `${page} / ${totalPages}`
-                : `第 ${page} 页`
-              : `1 / ${pages.length}`}
-          </span>
-        }
-      />
+        </div>
+      </div>
+
       <div className="flex min-h-0 flex-1">
-        {/* 侧栏：PDF 模式 = 题面目录；离线模拟 = 页面缩略图 */}
+        {/* 侧栏：顶部下拉（缩略图/索引）+ 内容 */}
         {sidebarOpen && (
           <div
-            className="w-36 shrink-0 overflow-y-auto border-r py-3"
+            className="flex w-40 shrink-0 flex-col border-r"
             style={{ background: YARU.sidebarBg, borderColor: YARU.sidebarBorder }}
           >
-            {pdfMode ? (
-              <>
-                <p className="mb-2 truncate px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                  {title}
-                </p>
-                {outline.map((entry, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => gotoPageClamped(entry.page)}
-                    className="mx-1.5 flex w-[calc(100%-12px)] items-center gap-1 rounded-md px-2 py-1 text-left text-[12px] text-[#3D3D3D] hover:bg-black/10"
-                  >
-                    <span className="truncate">{entry.title}</span>
-                  </button>
-                ))}
-              </>
-            ) : (
-              <>
-                <p className="mb-2 truncate px-3 text-[10px] font-bold uppercase tracking-[0.14em] text-slate-400">
-                  {title}
-                </p>
-                {pages.map((_, index) => (
-                  <button
-                    key={index}
-                    type="button"
-                    onClick={() => gotoPage(index + 1)}
-                    className="mx-auto mb-2 flex flex-col items-center gap-1"
-                  >
-                    <div className="h-[96px] w-[68px] rounded-sm border border-[#C9C9C9] bg-white p-1.5 shadow-sm">
-                      {Array.from({ length: 7 }).map((_, bar) => (
-                        <div
-                          key={bar}
-                          className="mb-1 h-[3px] rounded-sm bg-slate-300"
-                          style={{ width: `${88 - bar * 9}%` }}
-                        />
-                      ))}
-                    </div>
-                    <span className="text-[10px] font-semibold text-[#575757]">{index + 1}</span>
-                  </button>
-                ))}
-              </>
-            )}
+            <div className="p-1.5">
+              <select
+                value={sidebarView}
+                onChange={(event) => setSidebarView(event.target.value as 'thumbnails' | 'index')}
+                aria-label="侧栏视图"
+                className="h-7 w-full rounded-md border border-[#CFCFCF] bg-white px-1.5 text-[11px] font-semibold text-[#3D3D3D]"
+              >
+                <option value="thumbnails">缩略图</option>
+                <option value="index">索引</option>
+              </select>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto py-1">
+              {sidebarView === 'thumbnails'
+                ? Array.from({ length: pageCount }).map((_, index) => (
+                    <button
+                      key={index}
+                      type="button"
+                      onClick={() => gotoPageClamped(index + 1)}
+                      className="mx-auto mb-2 flex flex-col items-center gap-1"
+                    >
+                      <div
+                        className={`h-[96px] w-[68px] rounded-sm border bg-white p-1.5 shadow-sm ${
+                          index + 1 === page ? 'border-[#E95420] ring-1 ring-[#E95420]' : 'border-[#C9C9C9]'
+                        }`}
+                      >
+                        {Array.from({ length: 7 }).map((_, bar) => (
+                          <div
+                            key={bar}
+                            className="mb-1 h-[3px] rounded-sm bg-slate-300"
+                            style={{ width: `${88 - bar * 9}%` }}
+                          />
+                        ))}
+                      </div>
+                      <span className="text-[10px] font-semibold text-[#575757]">{index + 1}</span>
+                    </button>
+                  ))
+                : outline.length > 0
+                  ? outline.map((entry, index) => (
+                      <button
+                        key={index}
+                        type="button"
+                        onClick={() => gotoPageClamped(entry.page)}
+                        className="mx-1.5 flex w-[calc(100%-12px)] items-center gap-1 rounded-md px-2 py-1 text-left text-[12px] text-[#3D3D3D] hover:bg-black/10"
+                      >
+                        <span className="truncate">{entry.title}</span>
+                      </button>
+                    ))
+                  : (
+                      <p className="px-3 py-2 text-[11px] text-slate-400">此文档没有索引</p>
+                    )}
+            </div>
           </div>
         )}
-        {/* 内容区：真 PDF iframe / Markdown 分页 */}
+
+        {/* 内容区：暗灰衬托白页（Papers 观感） */}
         {pdfMode ? (
-          <div className="min-h-0 flex-1 bg-[#8C8C8C]">
+          <div className="min-h-0 flex-1" style={{ background: '#383838' }}>
             <iframe
               key={`${pdfUrl}#${page}#${Math.round(zoom * 100)}`}
               src={`${pdfUrl}#page=${page}&zoom=${Math.round(zoom * 100)}&toolbar=0&navpanes=0&view=Fit`}
@@ -2103,7 +2168,7 @@ export function EvinceWindow({
             />
           </div>
         ) : (
-          <div className="min-h-0 flex-1 overflow-y-auto bg-[#8C8C8C] p-6">
+          <div className="min-h-0 flex-1 overflow-y-auto p-6" style={{ background: '#383838' }}>
             <div className="mx-auto flex flex-col items-center gap-6" style={{ zoom }}>
               {pages.map((pageText, index) => (
                 <div
@@ -2111,7 +2176,9 @@ export function EvinceWindow({
                   ref={(el) => {
                     if (!pdfMode) pageRefs.current[index] = el
                   }}
-                  className="relative w-full max-w-[720px] bg-white px-10 py-12 shadow-[0_2px_12px_rgba(0,0,0,0.35)]"
+                  className={`relative w-full max-w-[720px] bg-white px-10 py-12 shadow-[0_2px_12px_rgba(0,0,0,0.45)] ${
+                    index + 1 === page ? 'outline outline-2 outline-[#E95420]' : ''
+                  }`}
                   style={{ minHeight: '920px' }}
                 >
                   <MarkdownView source={pageText} />
@@ -2127,6 +2194,8 @@ export function EvinceWindow({
           </div>
         )}
       </div>
+
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={() => setMenu(null)} />}
     </div>
   )
 }
