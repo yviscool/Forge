@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
+  Landmark,
   PlayCircle,
   Search,
   ShieldCheck,
@@ -56,10 +57,12 @@ function ContestCard({
   contest,
   onEnter,
   onEnterFileSubmit,
+  onEnterHenan,
 }: {
   contest: Contest
   onEnter: () => void
   onEnterFileSubmit: () => void
+  onEnterHenan: () => void
 }) {
   const meta = STATUS_META[contest.status]
   const StatusIcon = meta.icon
@@ -133,6 +136,18 @@ function ContestCard({
           >
             文件提交模式
             <Upload className="h-3.5 w-3.5" />
+          </Button>
+          {/* 文件提交模式（河南版）：兼容河南本地收卷系统规则
+              （仅 C++、严格文件名、最终确认冻结）。 */}
+          <Button
+            data-testid="enter-henan"
+            onClick={onEnterHenan}
+            variant="ghost"
+            size="sm"
+            className="w-full justify-between"
+          >
+            文件提交模式 · 河南版
+            <Landmark className="h-3.5 w-3.5" />
           </Button>
         </div>
       </CardContent>
@@ -258,6 +273,7 @@ export function StudentLobby() {
               contest={contest}
               onEnter={() => navigate(`/contest/${contest.id}`)}
               onEnterFileSubmit={() => navigate(`/contest/${contest.id}/files`)}
+              onEnterHenan={() => navigate(`/contest/${contest.id}/henan`)}
             />
           ))}
         </div>

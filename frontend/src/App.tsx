@@ -22,6 +22,12 @@ const FileSubmitWorkspace = lazy(() =>
     default: module.FileSubmitWorkspace,
   }))
 )
+// 文件提交模式（河南版）：兼容河南本地收卷系统规则（严格文件名/最终确认冻结）。
+const HenanWorkspace = lazy(() =>
+  import('./features/filesubmit/henan/HenanWorkspace').then((module) => ({
+    default: module.HenanWorkspace,
+  }))
+)
 const TeacherConsole = lazy(() =>
   import('./views/TeacherConsole').then((module) => ({ default: module.TeacherConsole }))
 )
@@ -57,6 +63,14 @@ export function App() {
                   element={
                     <RequireSession>
                       <FileSubmitWorkspace />
+                    </RequireSession>
+                  }
+                />
+                <Route
+                  path="/contest/:cid/henan"
+                  element={
+                    <RequireSession>
+                      <HenanWorkspace />
                     </RequireSession>
                   }
                 />
