@@ -1601,7 +1601,7 @@ export function TerminalWindow({
     const parts = input.split(/\s+/)
     const last = parts[parts.length - 1] ?? ''
     const candidates = parts.length === 1
-      ? ['clear', 'help', 'pwd', 'ls', 'cd', 'cat', 'mkdir', 'g++', 'doctor']
+      ? ['clear', 'help', 'pwd', 'ls', 'cd', 'cat', 'mkdir', 'g++']
       : completions
     const matches = candidates.filter((item) => item.startsWith(last) && last !== '')
     if (matches.length === 1) {
