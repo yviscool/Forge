@@ -330,7 +330,7 @@ export function NautilusWindow({
   onNavigateDepth,
   onNewFolder,
   onOpenTerminal,
-  onRename,
+  onRenamePath,
   onTrash,
   onRestore,
   onEmptyTrash,
@@ -351,9 +351,10 @@ export function NautilusWindow({
   onSelect: (id: string | null) => void
   onOpen: (item: NautilusItem) => void
   onNavigateDepth: (depth: number) => void
-  onNewFolder: (name: string) => void
+  /** 返回 null = 成功；字符串 = 内联显示在对话框里的错误（重名等）。 */
+  onNewFolder: (name: string) => string | null
   onOpenTerminal: () => void
-  onRename: (oldName: string, newName: string) => void
+  onRenamePath: (oldName: string, newName: string) => string | null
   onTrash: (name: string) => void
   onRestore: (name: string) => void
   onEmptyTrash: () => void
@@ -367,7 +368,12 @@ export function NautilusWindow({
   const [view, setView] = useState<'grid' | 'list'>('grid')
   // GNOME 属性对话框：null 关闭，'root' 表示主目录自身。
   const [properties, setProperties] = useState<NautilusItem | 'root' | null>(null)
-  const [dialog, setDialog] = useState<{ kind: 'mkdir' | 'rename'; value: string; target?: string } | null>(null)
+  const [dialog, setDialog] = useState<{
+    kind: 'mkdir' | 'rename'
+    value: string
+    target?: string
+    error?: string
+  } | null>(null)
 
   const openMenu = (event: React.MouseEvent, item: NautilusItem | null) => {
     event.preventDefault()
@@ -664,9 +670,7 @@ export function NautilusWindow({
             <p className="grid place-items-center py-16 text-[13px] text-slate-400">
               {trashMode
                 ? '回收站是空的'
-                : activePlace !== 'home'
-                  ? '此文件夹为空（模拟桌面仅挂载考生主目录）'
-                  : '此文件夹为空'}
+                : '此文件夹为空'}
             </p>
           )}
         </div>
@@ -693,19 +697,31 @@ export function NautilusWindow({
               className="space-y-3 px-4 py-4"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (dialog.kind === 'mkdir') onNewFolder(dialog.value.trim())
-                else if (dialog.target) onRename(dialog.target, dialog.value.trim())
+                const value = dialog.value.trim()
+                const error =
+                  dialog.kind === 'mkdir'
+                    ? onNewFolder(value)
+                    : dialog.target
+                      ? onRenamePath(dialog.target, value)
+                      : '名称不能为空'
+                if (error) {
+                  setDialog({ ...dialog, error })
+                  return
+                }
                 setDialog(null)
               }}
             >
               <input
                 autoFocus
                 value={dialog.value}
-                onChange={(event) => setDialog({ ...dialog, value: event.target.value })}
+                onChange={(event) => setDialog({ ...dialog, value: event.target.value, error: undefined })}
                 placeholder="文件夹名称"
                 aria-label={dialog.kind === 'mkdir' ? '文件夹名称' : '新名称'}
                 className="w-full rounded-lg border border-[#CFCFCF] bg-white px-3 py-2 text-[13px] text-[#2D2D2D] outline-none focus:border-[#E95420]"
               />
+              {dialog.error && (
+                <p className="text-[11px] font-semibold text-rose-600">{dialog.error}</p>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
@@ -862,10 +878,10 @@ export function GeanyWindow({
   onSave: () => void
   /** 新建未命名文档（落在本场桌面的文件夹里）。 */
   onNewDoc: () => void
-  /** 另存为：把当前文档内容另存为新的自建文件。 */
-  onSaveAs?: (newName: string) => void
-  /** 打开的文档标签：一题或一个自建文件。 */
-  tabs: { id: string; name: string; kind: 'problem' | 'vfs' }[]
+  /** 另存为：返回 null = 成功；字符串 = 对话框内联错误（重名等）。 */
+  onSaveAs?: (newName: string) => string | null
+  /** 打开的文档标签：题目源文件 / 已保存自建文件 / 未保存的 无标题 N。 */
+  tabs: { id: string; name: string; kind: 'problem' | 'vfs' | 'untitled' }[]
   activeTabId: string | null
   onSelectTab: (id: string) => void
   onCloseDoc?: (id: string) => void
@@ -885,7 +901,7 @@ export function GeanyWindow({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [menubarMenu, setMenubarMenu] = useState<{ x: number; y: number; label: string } | null>(null)
   const [messageTab, setMessageTab] = useState<'status' | 'compiler' | 'msgs' | 'notes'>('status')
-  const [saveAsDialog, setSaveAsDialog] = useState<string | null>(null)
+  const [saveAsDialog, setSaveAsDialog] = useState<{ value: string; error?: string } | null>(null)
   const [messageHidden, setMessageHidden] = useState(false)
   const [sidebarHidden, setSidebarHidden] = useState(false)
   const [notes, setNotes] = useState('')
@@ -911,7 +927,7 @@ export function GeanyWindow({
         onRun()
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
         event.preventDefault()
-        if (hasDoc) onSave()
+        doSave()
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'n') {
         event.preventDefault()
         onNewDoc()
@@ -928,11 +944,23 @@ export function GeanyWindow({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
+    // 处理器均随渲染重建；以语义依赖（回调与文档状态）为准，避免每键重挂。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onCompile, onRun, onSave, onNewDoc, onCloseDoc, activeTabId, hasDoc])
 
   const doCompile = () => {
     setMessageTab('compiler')
     onCompile()
+  }
+
+  // 真实 Geany 保存语义：静默，无提示框；未命名文档首次保存弹出命名对话框。
+  const doSave = () => {
+    if (!hasDoc) return
+    if (activeDocKind === 'untitled') {
+      setSaveAsDialog({ value: '无标题.cpp' })
+      return
+    }
+    onSave()
   }
 
   const jumpToLine = (line: number) => {
@@ -967,12 +995,13 @@ export function GeanyWindow({
     文件: [
       { label: '新建', shortcut: 'Ctrl+N', onClick: onNewDoc },
       { label: '打开…', shortcut: 'Ctrl+O', onClick: onPickUploadFile },
-      { label: '保存', shortcut: 'Ctrl+S', onClick: onSave, disabled: !hasDoc },
+      { label: '保存', shortcut: 'Ctrl+S', onClick: doSave, disabled: !hasDoc },
       {
         label: '另存为…',
         shortcut: 'Shift+Ctrl+S',
-        disabled: !hasDoc || activeDocKind !== 'vfs',
-        onClick: () => setSaveAsDialog(activeDocName),
+        disabled: !hasDoc || activeDocKind === 'problem',
+        onClick: () =>
+          setSaveAsDialog({ value: activeDocKind === 'untitled' ? '无标题.cpp' : activeDocName }),
       },
       { separator: true },
       {
@@ -1051,7 +1080,7 @@ export function GeanyWindow({
         {[
           { icon: <FileText className="h-4 w-4" />, label: '新建 (Ctrl+N)', onClick: onNewDoc },
           { icon: <FolderOpen className="h-4 w-4" />, label: '打开', onClick: onPickUploadFile },
-          { icon: <Download className="h-4 w-4 rotate-180" />, label: '保存 (Ctrl+S)', onClick: onSave, disabled: !hasDoc },
+          { icon: <Download className="h-4 w-4 rotate-180" />, label: '保存 (Ctrl+S)', onClick: doSave, disabled: !hasDoc },
           { separator: true },
           { icon: <Play className="h-4 w-4 text-emerald-700" />, label: '编译 (F8)', onClick: doCompile, disabled: !hasDoc },
           { icon: <Play className="h-4 w-4 text-blue-700" />, label: '在终端中运行 (F5)', onClick: onRun },
@@ -1404,25 +1433,33 @@ export function GeanyWindow({
               className="flex h-9 items-center justify-center text-[13px] font-bold text-[#2D2D2D]"
               style={{ background: YARU.headerbarBg, borderBottom: `1px solid ${YARU.headerbarBorder}` }}
             >
-              另存为
+              {activeDocKind === 'untitled' ? '保存文件' : '另存为'}
             </div>
             <form
               className="space-y-3 px-4 py-4"
               onSubmit={(event) => {
                 event.preventDefault()
-                const name = saveAsDialog.trim()
-                if (name) onSaveAs?.(name)
+                const name = saveAsDialog.value.trim()
+                if (!name) return
+                const error = onSaveAs?.(name) ?? null
+                if (error) {
+                  setSaveAsDialog({ value: saveAsDialog.value, error })
+                  return
+                }
                 setSaveAsDialog(null)
               }}
             >
               <input
                 autoFocus
-                value={saveAsDialog}
-                onChange={(event) => setSaveAsDialog(event.target.value)}
+                value={saveAsDialog.value}
+                onChange={(event) => setSaveAsDialog({ value: event.target.value, error: undefined })}
                 placeholder="文件名（如 sol.cpp）"
                 aria-label="另存为文件名"
                 className="w-full rounded-lg border border-[#CFCFCF] bg-white px-3 py-2 text-[13px] text-[#2D2D2D] outline-none focus:border-[#E95420]"
               />
+              {saveAsDialog.error && (
+                <p className="text-[11px] font-semibold text-rose-600">{saveAsDialog.error}</p>
+              )}
               <div className="flex justify-end gap-2">
                 <button
                   type="button"

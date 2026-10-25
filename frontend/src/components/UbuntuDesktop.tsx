@@ -20,7 +20,6 @@ import {
   dirKey,
   findItem,
   mkfile,
-  uniqueUntitledName,
   listDir,
   mkdir as vfsMkdir,
   renameItem as vfsRename,
@@ -292,20 +291,82 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   // Nautilus 选中项与 Geany 编译器输出。
   const [selectedNautilus, setSelectedNautilus] = useState<string | null>(null)
   // 虚拟文件系统：考生自建的文件夹/文件按目录路径存放；回收站记录来源目录。
-  const [userFiles, setUserFiles] = useState<Record<string, VfsItem[]>>({})
-  const [trash, setTrash] = useState<{ item: VfsItem; fromKey: string }[]>([])
+  // 与真实考点一致：文件「在磁盘上」，刷新/重启不丢，按考生账号隔离。
+  const vfsKey = session ? `forge_desktop_vfs_${session.userId}` : null
+  const loadVfs = (): Record<string, VfsItem[]> => {
+    if (!vfsKey) return {}
+    try {
+      return JSON.parse(localStorage.getItem(vfsKey) ?? '{}') as Record<string, VfsItem[]>
+    } catch {
+      return {}
+    }
+  }
+  const [userFiles, setUserFiles] = useState<Record<string, VfsItem[]>>(loadVfs)
+  const [trash, setTrash] = useState<{ item: VfsItem; fromKey: string }[]>(() => {
+    if (!vfsKey) return []
+    try {
+      return JSON.parse(localStorage.getItem(`${vfsKey}_trash`) ?? '[]')
+    } catch {
+      return []
+    }
+  })
   const [trashView, setTrashView] = useState(false)
-  // Geany 文档模型：标签 = 打开的文档（题目源文件或 VFS 文件）。
+  // Geany 文档模型：标签 = 打开的文档。untitled = 真实 Geany 的「无标题 N」：
+  // 不在磁盘上，首次保存弹出命名对话框；关机未保存即丢失（这就是要练的肌肉记忆）。
   type GeanyDoc = {
     id: string
-    kind: 'problem' | 'vfs'
+    kind: 'problem' | 'vfs' | 'untitled'
     name: string
     problemId?: string
     dirKey?: string
     readonly?: boolean
+    content?: string
   }
-  const [openDocs, setOpenDocs] = useState<GeanyDoc[]>([])
-  const [activeDocId, setActiveDocId] = useState<string | null>(null)
+  const docsKey = session ? `forge_geany_docs_${session.userId}` : null
+  const loadDocs = (): GeanyDoc[] => {
+    if (!docsKey) return []
+    try {
+      const docs = JSON.parse(localStorage.getItem(docsKey) ?? '[]') as GeanyDoc[]
+      // 未保存的无标题文档不跨会话存活（真实行为）；
+      // VFS 文档若已被删除也不再恢复。
+      return docs.filter(
+        (d) =>
+          d.kind === 'problem' ||
+          (d.kind === 'vfs' && findItem(userFiles[d.dirKey ?? ''], d.name) != null)
+      )
+    } catch {
+      return []
+    }
+  }
+  const [openDocs, setOpenDocs] = useState<GeanyDoc[]>(loadDocs)
+  const untitledCounter = useRef(0)
+  const [activeDocId, setActiveDocId] = useState<string | null>(() => {
+    if (!docsKey) return null
+    try {
+      return JSON.parse(localStorage.getItem(`${docsKey}_active`) ?? 'null') as string | null
+    } catch {
+      return null
+    }
+  })
+  const [untitledContents, setUntitledContents] = useState<Record<string, string>>({})
+
+  // 持久化：任何变更立即落 localStorage（考试机刷新 = 重新登录，不丢文件）。
+  useEffect(() => {
+    if (!vfsKey) return
+    localStorage.setItem(vfsKey, JSON.stringify(userFiles))
+  }, [userFiles, vfsKey])
+  useEffect(() => {
+    if (!vfsKey) return
+    localStorage.setItem(`${vfsKey}_trash`, JSON.stringify(trash))
+  }, [trash, vfsKey])
+  useEffect(() => {
+    if (!docsKey) return
+    localStorage.setItem(
+      docsKey,
+      JSON.stringify(openDocs.filter((d) => d.kind !== 'untitled'))
+    )
+    localStorage.setItem(`${docsKey}_active`, JSON.stringify(activeDocId))
+  }, [openDocs, activeDocId, docsKey])
   // Alt+Tab 窗口切换器（GNOME 行为：按住 Alt 连按 Tab 轮选，松开 Alt 落点）。
   const [switcher, setSwitcher] = useState<{ index: number } | null>(null)
   // 桌面空白处右键菜单。
@@ -496,7 +557,11 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       ? findItem(userFiles[activeDoc.dirKey ?? ''], activeDoc.name)
       : null
   const docCode =
-    activeDoc?.kind === 'problem' ? code : (activeVfsItem?.content ?? '')
+    activeDoc?.kind === 'problem'
+      ? code
+      : activeDoc?.kind === 'untitled'
+        ? (untitledContents[activeDoc.id] ?? '')
+        : (activeVfsItem?.content ?? '')
   const docReadOnly = activeDoc?.kind === 'vfs' ? !!activeVfsItem?.readonly : false
   const docPath = activeDoc ? (activeDoc.dirKey ?? '') : currentPath.slice(2).join('/')
   const activeDocProblem =
@@ -508,6 +573,10 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     if (!activeDoc) return
     if (activeDoc.kind === 'problem') {
       setCode(value)
+      return
+    }
+    if (activeDoc.kind === 'untitled') {
+      setUntitledContents((prev) => ({ ...prev, [activeDoc.id]: value }))
       return
     }
     const key = activeDoc.dirKey ?? ''
@@ -1011,9 +1080,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
 
           {/* 应用网格（Show Applications，视觉还原） */}
           <button
-            onClick={() =>
-              toast.notify('info', 'GNOME Shell', '模拟桌面不提供应用网格；所有考场应用已固定在左侧坞站。')
-            }
             className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:bg-white/10 transition-transform"
             title="显示应用"
           >
@@ -1172,28 +1238,19 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 }}
                 onNewFolder={(name) => {
                   const result = vfsMkdir(userFiles[homeKey] ?? [], name)
-                  if (result.ok) {
-                    setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
-                    toast.success('已创建文件夹', name)
-                  } else {
-                    toast.error('无法创建文件夹', result.error ?? '')
-                  }
+                  if (result.ok) setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
+                  return result.ok ? null : (result.error ?? '无法创建')
                 }}
-                onRename={(oldName, newName) => {
+                onRenamePath={(oldName, newName) => {
                   const result = vfsRename(userFiles[homeKey] ?? [], oldName, newName)
-                  if (result.ok) {
-                    setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
-                    toast.success('已重命名', `${oldName} → ${newName}`)
-                  } else {
-                    toast.error('无法重命名', result.error ?? '')
-                  }
+                  if (result.ok) setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
+                  return result.ok ? null : (result.error ?? '无法重命名')
                 }}
                 onTrash={(name) => {
                   const result = vfsTrash(userFiles[homeKey] ?? [], name)
                   if (result.removed) {
                     setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
                     setTrash((prev) => [...prev, { item: result.removed!, fromKey: homeKey }])
-                    toast.success('已移到回收站', name)
                   }
                 }}
                 onRestore={(name) => {
@@ -1203,14 +1260,10 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   if (result.ok) {
                     setUserFiles((prev) => ({ ...prev, [entry.fromKey]: result.items }))
                     setTrash((prev) => prev.filter((t) => t.item.name !== name))
-                    toast.success('已恢复', name)
-                  } else {
-                    toast.error('无法恢复', result.error ?? '')
                   }
                 }}
                 onEmptyTrash={() => {
                   setTrash([])
-                  toast.success('回收站已清空')
                 }}
                 onOpenTerminal={() => toggleWindow('terminal')}
                 onMouseDown={(e) => handleTitleMouseDown('files', e)}
@@ -1257,7 +1310,6 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 onRun={() => toggleWindow('terminal')}
                 onSave={() => {
                   if (activeDoc?.kind === 'problem') onSave?.()
-                  else toast.success('已保存', '自建文件保存在模拟桌面的文件夹里。')
                 }}
                 tabs={openDocs.map((d) => ({ id: d.id, name: d.name, kind: d.kind }))}
                 activeTabId={activeDocId}
@@ -1276,28 +1328,42 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 onCloseDoc={closeDoc}
                 canSubmit={activeDoc?.kind === 'problem'}
                 onNewDoc={() => {
-                  const key = activeDoc?.dirKey ?? ''
-                  const items = userFiles[key] ?? []
-                  const name = uniqueUntitledName(items)
-                  const result = mkfile(items, name, '')
-                  if (result.ok) {
-                    setUserFiles((prev) => ({ ...prev, [key]: result.items }))
-                    openVfsDoc(key, findItem(result.items, name)!)
-                  } else {
-                    toast.error('无法新建文件', result.error ?? '')
-                  }
+                  untitledCounter.current += 1
+                  const n = untitledCounter.current
+                  const id = `untitled:${n}`
+                  setOpenDocs((prev) => [
+                    ...prev,
+                    {
+                      id,
+                      kind: 'untitled' as const,
+                      name: n > 1 ? `无标题 ${n}` : '无标题',
+                    },
+                  ])
+                  setUntitledContents((prev) => ({ ...prev, [id]: '' }))
+                  setActiveDocId(id)
+                  focusWindow('editor')
                 }}
                 onSaveAs={(newName) => {
-                  if (activeDoc?.kind !== 'vfs') return
-                  const key = activeDoc.dirKey ?? ''
+                  if (!activeDoc || activeDoc.kind === 'problem') return '未命名文档已失效'
+                  const key = activeDoc.kind === 'vfs' ? (activeDoc.dirKey ?? '') : ''
                   const result = mkfile(userFiles[key] ?? [], newName, docCode)
-                  if (result.ok) {
-                    setUserFiles((prev) => ({ ...prev, [key]: result.items }))
-                    openVfsDoc(key, findItem(result.items, newName)!)
-                    toast.success('已另存为', newName)
-                  } else {
-                    toast.error('另存为失败', result.error ?? '')
-                  }
+                  if (!result.ok) return (result.error ?? '保存失败')
+                  setUserFiles((prev) => ({ ...prev, [key]: result.items }))
+                  // 真实 Geany：保存后文档就地变成已命名文件，无任何提示框。
+                  setOpenDocs((prev) =>
+                    prev.map((d) =>
+                      d.id === activeDoc.id
+                        ? { ...d, id: `vfs:${key}/${newName}`, kind: 'vfs' as const, name: newName, dirKey: key }
+                        : d
+                    )
+                  )
+                  setActiveDocId(`vfs:${key}/${newName}`)
+                  setUntitledContents((prev) => {
+                    const next = { ...prev }
+                    delete next[activeDoc.id]
+                    return next
+                  })
+                  return null
                 }}
                 onDoctor={() => focusWindow('doctor')}
                 onPickUploadFile={onPickUploadFile}
