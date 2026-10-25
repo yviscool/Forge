@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Sparkles,
   Trophy,
+  Upload,
 } from 'lucide-react'
 import { api, type Contest, type ContestStatus } from '../api/client'
 import { Button } from '../components/ui/button'
@@ -51,7 +52,15 @@ function formatDate(value?: string): string {
   }).format(date)
 }
 
-function ContestCard({ contest, onEnter }: { contest: Contest; onEnter: () => void }) {
+function ContestCard({
+  contest,
+  onEnter,
+  onEnterFileSubmit,
+}: {
+  contest: Contest
+  onEnter: () => void
+  onEnterFileSubmit: () => void
+}) {
   const meta = STATUS_META[contest.status]
   const StatusIcon = meta.icon
   const problemCount = contest.problemIds?.length ?? 0
@@ -103,15 +112,29 @@ function ContestCard({ contest, onEnter }: { contest: Contest; onEnter: () => vo
           )}
         </div>
 
-        <Button
-          data-testid="enter-contest"
-          onClick={onEnter}
-          variant={contest.status === 'running' ? 'primary' : 'outline'}
-          className="w-full justify-between"
-        >
-          {contest.status === 'running' ? '进入考场' : '查看比赛'}
-          <ArrowRight className="h-4 w-4" />
-        </Button>
+        <div className="grid grid-cols-1 gap-2">
+          <Button
+            data-testid="enter-contest"
+            onClick={onEnter}
+            variant={contest.status === 'running' ? 'primary' : 'outline'}
+            className="w-full justify-between"
+          >
+            {contest.status === 'running' ? '进入考场' : '查看比赛'}
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+          {/* 文件提交模式（Lemon）：轻量网页提交流（在线编辑 / 上传文件 / 整包上传）。
+              后端接入前由 mock 数据驱动演示。 */}
+          <Button
+            data-testid="enter-filesubmit"
+            onClick={onEnterFileSubmit}
+            variant="ghost"
+            size="sm"
+            className="w-full justify-between"
+          >
+            文件提交模式
+            <Upload className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       </CardContent>
     </Card>
   )
@@ -234,6 +257,7 @@ export function StudentLobby() {
               key={contest.id}
               contest={contest}
               onEnter={() => navigate(`/contest/${contest.id}`)}
+              onEnterFileSubmit={() => navigate(`/contest/${contest.id}/files`)}
             />
           ))}
         </div>

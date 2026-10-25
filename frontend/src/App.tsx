@@ -16,6 +16,12 @@ const StudentLobby = lazy(() =>
 const StudentWorkspace = lazy(() =>
   import('./views/StudentWorkspace').then((module) => ({ default: module.StudentWorkspace }))
 )
+// 文件提交模式（Lemon）：轻量网页提交流，mock 数据驱动，后端接入后无缝切换。
+const FileSubmitWorkspace = lazy(() =>
+  import('./features/filesubmit/FileSubmitWorkspace').then((module) => ({
+    default: module.FileSubmitWorkspace,
+  }))
+)
 const TeacherConsole = lazy(() =>
   import('./views/TeacherConsole').then((module) => ({ default: module.TeacherConsole }))
 )
@@ -43,6 +49,14 @@ export function App() {
                   element={
                     <RequireSession>
                       <StudentWorkspace />
+                    </RequireSession>
+                  }
+                />
+                <Route
+                  path="/contest/:cid/files"
+                  element={
+                    <RequireSession>
+                      <FileSubmitWorkspace />
                     </RequireSession>
                   }
                 />
