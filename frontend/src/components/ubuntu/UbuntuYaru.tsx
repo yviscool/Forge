@@ -325,7 +325,7 @@ export interface NautilusItem {
 }
 
 
-export function NautilusWindow({
+function NautilusWindowImpl({
   homeName,
   pathSegments,
   items,
@@ -915,7 +915,7 @@ export function parseGeanySymbols(code: string): GeanySymbol[] {
   return out
 }
 
-export function GeanyWindow({
+function GeanyWindowImpl({
   dirName,
   fileName,
   homeName,
@@ -1609,7 +1609,7 @@ function MonacoSlot(props: {
 
 // ---------------------------------------------------------------- 终端
 
-export function TerminalWindow({
+function TerminalWindowImpl({
   homeName,
   path,
   logs,
@@ -1917,7 +1917,7 @@ function fileTypeName(fileName: string): string {
 
 const EVINCE_ZOOM_STEPS = [0.6, 0.8, 1, 1.25, 1.5, 2]
 
-export function EvinceWindow({
+function EvinceWindowImpl({
   fileName,
   title,
   pdfUrl,
@@ -2216,3 +2216,11 @@ export function EvinceWindow({
 }
 
 export { FileText, CopyIcon, MenuIcon }
+
+// 重内容窗口组件 memo 化：拖拽/缩放期间父级状态变化时（含贴边预览、
+// 最终位置提交）这些子树的 props 不变即整棵跳过 reconcile——
+// Evince 分页（KaTeX）与终端长日志是两处最重的渲染路径。
+export const NautilusWindow = React.memo(NautilusWindowImpl)
+export const GeanyWindow = React.memo(GeanyWindowImpl)
+export const TerminalWindow = React.memo(TerminalWindowImpl)
+export const EvinceWindow = React.memo(EvinceWindowImpl)

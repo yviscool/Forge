@@ -329,6 +329,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     setDraggingKey(key)
   }
 
+  const desktopRef = useRef<HTMLDivElement | null>(null)
+
   useEffect(() => {
     // 拖拽/缩放节流：mousemove 只记录意图，每帧（rAF）commit 一次，
     // 避免高频 setWindows 造成整树重渲染卡顿。
@@ -340,11 +342,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       pendingRef.rect = null
       pendingRef.key = null
       if (!key || !rect) return
-      setWindows((prev) => {
-        const cur = prev[key]
-        if (cur.x === rect.x && cur.y === rect.y && cur.w === rect.w && cur.h === rect.h) return prev
-        return { ...prev, [key]: { ...cur, x: rect.x, y: rect.y, w: rect.w, h: rect.h } }
-      })
+      // 直写 DOM：拖拽/缩放期间零 React 渲染（Evince 分页、终端长日志
+      // 等重内容组件完全不动）；mouseup 再一次性 setWindows 同步终态。
+      const el = desktopRef.current?.querySelector(`[data-window="${key}"]`) as HTMLElement | null
+      if (el) {
+        el.style.left = `${rect.x}px`
+        el.style.top = `${rect.y}px`
+        el.style.width = `${rect.w}px`
+        el.style.height = `${rect.h}px`
+      }
     }
     const schedule = (key: WindowKey, rect: WindowRect) => {
       pendingRef.key = key
@@ -374,6 +380,18 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     const handleMouseUp = () => {
       if (rafId) cancelAnimationFrame(rafId)
       rafId = 0
+      const { rect, key } = pendingRef
+      pendingRef.rect = null
+      pendingRef.key = null
+      // 直写期间位置未回传 React：松手时一次性同步（值与 DOM 一致，
+      // 若无贴边则这棵树只 reconcile 一次）。
+      if (key && rect) {
+        setWindows((prev) => {
+          const cur = prev[key]
+          if (!cur || (cur.x === rect.x && cur.y === rect.y && cur.w === rect.w && cur.h === rect.h)) return prev
+          return { ...prev, [key]: { ...cur, x: rect.x, y: rect.y, w: rect.w, h: rect.h } }
+        })
+      }
       if (draggingKey && snapPreview) {
         // 贴边落位：记住自由矩形以便拖离还原。
         const rect = snapRect(snapPreview, viewport())
@@ -1077,8 +1095,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       {/* ============================================================ */}
       {/* 2. Main Desktop Body: Ubuntu Dock (Left) + Wallpaper Area    */}
       {/* ============================================================ */}
-      <div className="flex-1 flex relative overflow-hidden bg-black">
+      <div ref={desktopRef} className="flex-1 flex relative overflow-hidden bg-black">
         <NoiWallpaper />
+        {(draggingKey || resizing) && (
+          <div
+            className="absolute inset-0 z-[75]"
+            style={{ cursor: draggingKey ? 'move' : undefined }}
+            aria-hidden="true"
+          />
+        )}
         {snapPreview && <SnapOverlay zone={snapPreview} />}
         {/* Ubuntu Dock (Left) */}
         <div className="w-14 bg-black/60 backdrop-blur-md border-r border-white/10 flex flex-col items-center py-3 gap-3 z-30 shrink-0">
@@ -1248,6 +1273,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {windows.files.isOpen && !windows.files.isMinimized && (
             <div
               onClick={() => focusWindow('files')}
+              data-window="files"
               style={{
                 left: windows.files.isMaximized ? 0 : windows.files.x,
                 top: windows.files.isMaximized ? 0 : windows.files.y,
@@ -1367,6 +1393,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {windows.editor.isOpen && !windows.editor.isMinimized && (
             <div
               onClick={() => focusWindow('editor')}
+              data-window="editor"
               style={{
                 left: windows.editor.isMaximized ? 0 : windows.editor.x,
                 top: windows.editor.isMaximized ? 0 : windows.editor.y,
@@ -1476,6 +1503,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {windows.terminal.isOpen && !windows.terminal.isMinimized && (
             <div
               onClick={() => focusWindow('terminal')}
+              data-window="terminal"
               style={{
                 left: windows.terminal.isMaximized ? 0 : windows.terminal.x,
                 top: windows.terminal.isMaximized ? 0 : windows.terminal.y,
@@ -1510,6 +1538,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {windows.pdf.isOpen && !windows.pdf.isMinimized && activeProblem && (
             <div
               onClick={() => focusWindow('pdf')}
+              data-window="pdf"
               style={{
                 left: windows.pdf.isMaximized ? 0 : windows.pdf.x,
                 top: windows.pdf.isMaximized ? 0 : windows.pdf.y,
@@ -1541,6 +1570,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           {windows.unlock.isOpen && !windows.unlock.isMinimized && (
             <div
               onClick={() => focusWindow('unlock')}
+              data-window="unlock"
               style={{
                 left: windows.unlock.isMaximized ? 0 : windows.unlock.x,
                 top: windows.unlock.isMaximized ? 0 : windows.unlock.y,
