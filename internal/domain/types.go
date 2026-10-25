@@ -48,6 +48,8 @@ const (
 	VerdictCheckerError      = "checker_error"
 	VerdictSystemError       = "system_error"
 	VerdictSkipped           = "skipped"
+	// VerdictPartlyCorrect 部分分（特判协议给出 0 < score < full 时）。
+	VerdictPartlyCorrect = "partially_correct"
 )
 
 type User struct {

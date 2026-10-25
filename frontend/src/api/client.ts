@@ -17,6 +17,8 @@ export type CompareMode =
   | 'line_by_line'
   | 'real_number'
   | 'special_judge'
+  | 'lemon_special_judge'
+  | 'testlib_special_judge'
 
 export type ContestMode = 'online' | 'noi' | 'gesp'
 

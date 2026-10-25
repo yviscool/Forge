@@ -16,6 +16,13 @@ const (
 	CompareIgnoreSpace  ComparisonMode = "ignore_space"
 	CompareRealNumber   ComparisonMode = "real_number"
 	CompareSpecialJudge ComparisonMode = "special_judge"
+	// CompareLemonSpecialJudge Lemon 协议特判：argv = input output answer
+	// fullScore scoreFile messageFile，scoreFile 给出 0..满分 的部分分
+	// （对标 LemonLime LemonSpecialJudgeMode）。
+	CompareLemonSpecialJudge ComparisonMode = "lemon_special_judge"
+	// CompareTestlibSpecialJudge testlib 协议特判：argv = input output answer，
+	// stderr 解析 ok / partially correct (N) / points X。
+	CompareTestlibSpecialJudge ComparisonMode = "testlib_special_judge"
 )
 
 // NormalizeSubmissionVerdict maps API input onto the canonical persistence
@@ -38,7 +45,8 @@ func ValidManualVerdict(verdict string) bool {
 		VerdictCompileError,
 		VerdictCheckerError,
 		VerdictSystemError,
-		VerdictSkipped:
+		VerdictSkipped,
+		VerdictPartlyCorrect:
 		return true
 	default:
 		return false
@@ -49,7 +57,7 @@ func ValidManualVerdict(verdict string) bool {
 func ValidCaseVerdict(verdict CaseVerdict) bool {
 	switch verdict {
 	case CaseAC, CaseWA, CasePE, CaseTLE, CaseMLE, CaseRE, CaseCE,
-		CaseOLE, CaseSkipped, CaseCheckerError, CaseSystemError:
+		CaseOLE, CasePartly, CaseSkipped, CaseCheckerError, CaseSystemError:
 		return true
 	default:
 		return false
@@ -94,6 +102,10 @@ func NormalizeComparisonMode(mode ComparisonMode) ComparisonMode {
 		return CompareRealNumber
 	case string(CompareSpecialJudge), "custom_checker", "checker":
 		return CompareSpecialJudge
+	case string(CompareLemonSpecialJudge), "lemon_checker":
+		return CompareLemonSpecialJudge
+	case string(CompareTestlibSpecialJudge), "testlib_checker":
+		return CompareTestlibSpecialJudge
 	default:
 		return mode
 	}
@@ -111,7 +123,10 @@ const (
 	CaseRE  CaseVerdict = "RE"
 	CaseCE  CaseVerdict = "CE"
 	// CaseOLE 输出超限（stdout 命中上限被截断）。
-	CaseOLE          CaseVerdict = "OLE"
+	CaseOLE CaseVerdict = "OLE"
+	// CasePartly 部分分：特判协议给出 0 < score < full（对标 LemonLime
+	// PartlyCorrect）。得分落在 CaseResult.Score。
+	CasePartly       CaseVerdict = "PartlyCorrect"
 	CaseSkipped      CaseVerdict = "Skipped"
 	CaseCheckerError CaseVerdict = "CheckerError"
 	CaseSystemError  CaseVerdict = "SystemError"
@@ -123,9 +138,11 @@ type CaseResult struct {
 	Verdict   CaseVerdict `json:"verdict"`
 	Score     int         `json:"score"`
 	TimeMs    int         `json:"timeMs"`
-	MemoryKiB int         `json:"memoryKib"`
+	MemoryKiB int         `json:"memoryKiB"`
 	// CpuMs 用户+系统 CPU 时间（CCF 口径；并行程序 wall 会低估，用它判 TLE）。
 	CpuMs int `json:"cpuMs,omitempty"`
+	// Message 判定点附注（特判 message / RE 的 stderr 摘要等）。
+	Message string `json:"message,omitempty"`
 }
 
 // JudgeOutcome 一次评测的完整产出：分点明细 + 编译信息（CE 原文落库用）。
@@ -181,7 +198,7 @@ func CompareOutput(got, want string, mode ComparisonMode, realEps float64) bool 
 			}
 		}
 		return true
-	case CompareSpecialJudge:
+	case CompareSpecialJudge, CompareLemonSpecialJudge, CompareTestlibSpecialJudge:
 		// 特判逻辑由外部 checker 二进制执行，这里只占位：永不误判 AC。
 		return false
 	default:
@@ -195,8 +212,10 @@ func AggregateScore(cases []CaseResult, subtaskOf func(caseIndex int) int, fullO
 }
 
 // AggregateScoreWithDeps 完整子任务 DAG 依赖感知聚合：
-// 1. 某子任务内任一测试点非 AC，则该子任务失败（得 0 分）；
-// 2. 某子任务若依赖其他子任务，则其所有依赖子任务必须全部 AC，否则该子任务得 0 分。
+//  1. 某子任务内任一测试点非 AC，则该子任务未通过（不影响依赖它的子任务判定）；
+//  2. 某子任务若依赖其他子任务，则其所有依赖子任务必须全部 AC，否则该子任务得 0 分；
+//  3. 部分分（对标 LemonLime）：未全 AC 的子任务得分 = 组内各点得分最小值——
+//     特判 PartlyCorrect 带分，其余非 AC 点计 0；纯内置比较下与旧语义一致（0 分）。
 func AggregateScoreWithDeps(cases []CaseResult, subtaskOf func(caseIndex int) int, fullOf func(subtask int) int, depsOf func(subtask int) []int) int {
 	bySub := map[int][]CaseResult{}
 	for _, c := range cases {
@@ -204,24 +223,39 @@ func AggregateScoreWithDeps(cases []CaseResult, subtaskOf func(caseIndex int) in
 		bySub[st] = append(bySub[st], c)
 	}
 
+	// caseScore 单点在该子任务口径下的得分（AC 按子任务满分计，与
+	// LemonLime「分点满分即子任务满分、取 min」一致）。
+	caseScore := func(c CaseResult, st int) int {
+		switch c.Verdict {
+		case CaseAC:
+			return fullOf(st)
+		case CasePartly:
+			return c.Score
+		default:
+			return 0
+		}
+	}
+	subtaskScore := map[int]int{}
 	subtaskAC := map[int]bool{}
 	for st, cs := range bySub {
 		ok := true
+		score := fullOf(st)
 		for _, c := range cs {
 			if c.Verdict != CaseAC {
 				ok = false
-				break
+				if s := caseScore(c, st); s < score {
+					score = s
+				}
 			}
 		}
 		subtaskAC[st] = ok
+		subtaskScore[st] = score
 	}
 
 	if depsOf == nil {
 		total := 0
-		for st, ok := range subtaskAC {
-			if ok {
-				total += fullOf(st)
-			}
+		for _, score := range subtaskScore {
+			total += score
 		}
 		return total
 	}
@@ -247,9 +281,13 @@ func AggregateScoreWithDeps(cases []CaseResult, subtaskOf func(caseIndex int) in
 
 	total := 0
 	for st := range bySub {
-		if checkPassed(st, map[int]bool{}) {
-			total += fullOf(st)
+		score := subtaskScore[st]
+		// 有依赖的子任务对标 LemonLime statusToScore：自身或任一依赖未全 AC
+		// 即 0 分；无依赖子任务保留组内最小分（含特判部分分）。
+		if len(depsOf(st)) > 0 && !checkPassed(st, map[int]bool{}) {
+			score = 0
 		}
+		total += score
 	}
 	return total
 }

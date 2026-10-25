@@ -85,6 +85,21 @@ JavaScript 不接触、不持久化长期会话凭证。服务端数据库只保
 只提供进程/内存/时间限制，不提供文件系统、网络和独立用户级隔离。生产环境若处理
 不可信代码，应接入独立的沙箱评测集群；否则保持自动评测关闭并采用人工评测流程。
 
+工具链 JSON（`FORGE_TOOLCHAINS`）除 `command/args/std/compileTimeoutSec/
+compileMemoryMiB` 外，还支持按语言的限额倍率（对标 LemonLime Compiler）：
+`timeLimitRatio`（运行时限倍率，解释型语言建议 2~3）、`memoryLimitRatio`（内存限制
+倍率）、`disableMemoryLimitCheck`（对自带内存管理的运行时关闭硬内存墙）。示例：
+
+```json
+{
+  "python": { "command": "python", "timeLimitRatio": 3, "memoryLimitRatio": 2 }
+}
+```
+
+特判支持三种协议：`special_judge`（退出码 0=AC/1=WA/2=PE）、`lemon_special_judge`
+（Lemon scoreFile 协议，支持 0..满分 部分分）、`testlib_special_judge`（testlib
+stderr 协议，`ok` / `partially correct (N)` / `points X` 支持部分分）。
+
 ## 测试与验收
 
 ```powershell

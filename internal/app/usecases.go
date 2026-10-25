@@ -449,6 +449,8 @@ func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf fun
 			verdict = domain.VerdictSystemError
 		case domain.CaseSkipped:
 			verdict = domain.VerdictSkipped
+		case domain.CasePartly:
+			verdict = domain.VerdictPartlyCorrect
 		}
 		current.Verdict = verdict
 		current.Score = score

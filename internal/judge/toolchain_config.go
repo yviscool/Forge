@@ -20,7 +20,15 @@ type ToolSpec struct {
 	// CompileTimeoutSec 单次编译上限（秒），0 则用 Toolchain 缺省 30s。
 	CompileTimeoutSec int `json:"compileTimeoutSec"`
 	// CompileMemoryMiB 编译进程内存墙（MB），0 则不限。
-	CompileMemoryMiB int `json:"compileMemoryMib"`
+	CompileMemoryMiB int `json:"compileMemoryMiB"`
+	// TimeLimitRatio 运行时限倍率（对标 LemonLime Compiler
+	// timeLimitRatio；解释型语言如 Python 建议 2~3），0 表示未设置（=1）。
+	TimeLimitRatio float64 `json:"timeLimitRatio"`
+	// MemoryLimitRatio 内存限制倍率（对标 memoryLimitRatio），0 = 1。
+	MemoryLimitRatio float64 `json:"memoryLimitRatio"`
+	// DisableMemoryLimitCheck 指针语义区分未设置与 false
+	// （对标 disableMemoryLimitCheck：某些运行时自带内存管理，硬墙会误杀）。
+	DisableMemoryLimitCheck *bool `json:"disableMemoryLimitCheck,omitempty"`
 }
 
 // ToolchainConfig 全语言工具链配置（JSON 文件，FORGE_TOOLCHAINS 指向）。
@@ -72,6 +80,12 @@ func ParseToolchainConfig(path string) (ToolchainConfig, error) {
 		if spec.CompileMemoryMiB < 0 {
 			return def, fmt.Errorf("toolchain %s compileMemoryMib cannot be negative", name)
 		}
+		if spec.TimeLimitRatio < 0 || spec.TimeLimitRatio > 100 {
+			return def, fmt.Errorf("toolchain %s timeLimitRatio out of range (0,100]", name)
+		}
+		if spec.MemoryLimitRatio < 0 || spec.MemoryLimitRatio > 100 {
+			return def, fmt.Errorf("toolchain %s memoryLimitRatio out of range (0,100]", name)
+		}
 	}
 	merge := func(d, o ToolSpec) ToolSpec {
 		if o.Command != "" {
@@ -88,6 +102,15 @@ func ParseToolchainConfig(path string) (ToolchainConfig, error) {
 		}
 		if o.CompileMemoryMiB > 0 {
 			d.CompileMemoryMiB = o.CompileMemoryMiB
+		}
+		if o.TimeLimitRatio > 0 {
+			d.TimeLimitRatio = o.TimeLimitRatio
+		}
+		if o.MemoryLimitRatio > 0 {
+			d.MemoryLimitRatio = o.MemoryLimitRatio
+		}
+		if o.DisableMemoryLimitCheck != nil {
+			d.DisableMemoryLimitCheck = o.DisableMemoryLimitCheck
 		}
 		return d
 	}

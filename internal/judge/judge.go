@@ -2,12 +2,14 @@
 // 对标 LemonLime TaskJudger（编译）+ JudgingThread（运行）+ 比较模式。
 //
 // 安全边界：每单跑在独立临时目录、最小环境变量、stdout 上限截断；
-// Windows 下 Job Object 强制内存上限 + 关闭即杀树；超时走 TerminateJob。
-// 剩余硬化项（网络隔离、Linux cgroup）见 runner.go 注释，后续补。
+// Windows 下 Job Object 强制内存上限 + 关闭即杀树；Linux 有 bwrap 时
+// 叠加命名空间沙箱（断网/文件系统隔离，对标 LemonLime processrunner），
+// prlimit 兜底 RLIMIT 墙；macOS 降级 sh ulimit + wait4 rusage 测量。
 package judge
 
 import (
 	"context"
+	"math"
 	"os"
 	"strings"
 	"time"
@@ -33,12 +35,14 @@ const DefaultOutputCap = 16 << 20
 // CaseInput 单测试点输入输出。Input/Expected 既可是内联文本，
 // 也可是磁盘路径（存在即读文件——兼容 LemonLime 数据文件式管理）。
 // Limits 非零项覆盖题目级限额（分点限额，LemonLime TestCase 语义）。
+// Score 为该点分值（特判部分分与聚合用；0 表示未配置）。
 type CaseInput struct {
 	Input     string
 	Expected  string
 	Limits    Limits
 	Subtask   int
 	DependsOn []int
+	Score     int
 }
 
 // Request 一次完整评测请求。
@@ -64,12 +68,39 @@ type TaskType = domain.TaskType
 
 // InterpretedTimeFactor 解释型语言时限倍率（对标 LemonLime extraTimeRatio
 // 思想，教室场景取整为 2x：解释器启动 + 字节码开销不应计入算法时限）。
+// 工具链配置了 timeLimitRatio 时以配置为准（见 CompileResult.TimeLimitRatio）。
 var InterpretedTimeFactor = 2.0
 
-// CheckerSpec 特判程序源码（随题目下发，评测机编译执行）。
-type CheckerSpec struct {
-	Language string
-	Code     string
+// ExtraTimeRatio 硬杀墙相对软时限的额外时间比例（对标 LemonLime
+// settings defaultExtraTimeRatio）：硬墙 = 时限 + max(2000ms, 2×时限)×比例。
+// 落在软硬墙之间的程序视为边界抖动，有机会重测（RejudgeTimes）。
+var ExtraTimeRatio = 0.25
+
+// RejudgeTimes 边界 TLE 重测次数（对标 LemonLime settings rejudgeTimes；
+// 程序在软硬墙之间完成时重跑，取重跑结果，消除抖动误杀）。
+var RejudgeTimes = 1
+
+// extraTimeMs 计算硬墙相对软时限的额外毫秒数。
+func extraTimeMs(limitMs int) int {
+	base := math.Max(2000, float64(limitMs)*2)
+	return int(math.Ceil(base * ExtraTimeRatio))
+}
+
+// borderlineTLE 判定是否为边界抖动：程序在硬墙内完成但超出软时限，
+// 且超量落在 LemonLime 口径（时限×(1+比例) 或 时限+1000×比例）内。
+func borderlineTLE(run RunResult, limitMs int) bool {
+	if run.TimedOut {
+		return false
+	}
+	used := run.TimeMs
+	if run.CpuMs > used {
+		used = run.CpuMs
+	}
+	if used <= limitMs {
+		return false
+	}
+	return used <= limitMs+int(1000*ExtraTimeRatio) ||
+		used <= int(float64(limitMs)*(1+ExtraTimeRatio))
 }
 
 // resolveIO 路径存在则读文件，否则按内联文本处理。
@@ -163,9 +194,35 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 	if lim.MemoryMiB <= 0 {
 		lim.MemoryMiB = 512
 	}
-	// 解释型语言时限补偿（编译产物 compile.Interpreted 标识）。
-	if compile.Interpreted && InterpretedTimeFactor > 1 {
+	// 工具链声明的限额倍率优先（对标 LemonLime Compiler ratio）；
+	// 未配置时解释型语言退回全局 InterpretedTimeFactor。
+	if compile.TimeLimitRatio > 0 && compile.TimeLimitRatio != 1 {
+		lim.TimeMs = int(math.Ceil(float64(lim.TimeMs) * compile.TimeLimitRatio))
+	} else if compile.Interpreted && InterpretedTimeFactor > 1 {
 		lim.TimeMs = int(float64(lim.TimeMs) * InterpretedTimeFactor)
+	}
+	if compile.MemoryLimitRatio > 0 && compile.MemoryLimitRatio != 1 {
+		lim.MemoryMiB = int(math.Ceil(float64(lim.MemoryMiB) * compile.MemoryLimitRatio))
+	}
+	if compile.DisableMemoryLimitCheck {
+		lim.MemoryMiB = 0
+	}
+
+	// 静态内存预检（对标 LemonLime watcher calculateStaticMemoryUsage）：
+	// 选手在 BSS 里开超大全局数组时，起跑前即判 MLE，省一次必然失败的运行。
+	if !compile.Interpreted && lim.MemoryMiB > 0 {
+		if static, err := StaticMemoryBytes(compile.Executable); err == nil &&
+			static > uint64(int64(lim.MemoryMiB)<<20) {
+			out := make([]domain.CaseResult, len(req.Cases))
+			for i := range out {
+				out[i] = domain.CaseResult{
+					CaseIndex: i, Verdict: domain.CaseMLE,
+					MemoryKiB: int(static >> 10),
+					Message:   "静态内存（全局数组）超过内存限制",
+				}
+			}
+			return domain.JudgeOutcome{Cases: out}, nil
+		}
 	}
 	out := make([]domain.CaseResult, len(req.Cases))
 	failedSubtasks := map[int]bool{}
@@ -202,8 +259,26 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 			}
 			continue
 		}
+		// 边界抖动重测（对标 LemonLime needRejudge）：程序在软硬墙之间完成
+		// 时重跑一次，取重跑结果；命中硬墙（TimedOut）的稳定 TLE 不重测。
+		for attempt := 0; RejudgeTimes > 0 && attempt < RejudgeTimes; attempt++ {
+			if !isOverSoftLimit(run, cl.TimeMs) || !borderlineTLE(run, cl.TimeMs) {
+				break
+			}
+			run, err = o.Runner.Run(ctx, compile.Argv(), resolveIO(c.Input), cl, workdir)
+			if err != nil {
+				break
+			}
+		}
+		if err != nil {
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+			if c.Subtask > 0 {
+				failedSubtasks[c.Subtask] = true
+			}
+			continue
+		}
 		switch {
-		case run.TimedOut || run.CpuMs > cl.TimeMs:
+		case isOverSoftLimit(run, cl.TimeMs):
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseTLE, TimeMs: run.TimeMs, CpuMs: run.CpuMs}
 		case run.OutOfMemory:
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseMLE, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
@@ -212,9 +287,10 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		case run.NoOutput:
 			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA, TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
 		case run.ExitCode != 0:
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: mapRuntimeError(req.Language, run), TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
+			// RE 附 stderr 尾部摘要（对标 LemonLime _tmperr 附带），方便学生定位。
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: mapRuntimeError(req.Language, run), TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs, Message: stderrTail(run.Stderr)}
 		default:
-			out[i] = judgeOutput(ctx, o.Runner, checker, compile, c, run, req, cl, workdir)
+			out[i] = judgeOutput(ctx, checker, c, run, req, workdir)
 			out[i].CaseIndex = i
 		}
 		if out[i].Verdict != domain.CaseAC && c.Subtask > 0 {
@@ -247,12 +323,32 @@ func mergeLimits(base, over Limits) Limits {
 	return base
 }
 
-// judgeOutput 默认比较或特判二选一。
-func judgeOutput(ctx context.Context, _ Runner, checker *compiledChecker, _ CompileResult, c CaseInput, run RunResult, req Request, _ Limits, workdir string) domain.CaseResult {
+// isOverSoftLimit 软时限判定：wall 或 CPU 任一超限即 TLE 口径
+// （硬墙已放宽到 时限+额外时间，见 runner.go）。
+func isOverSoftLimit(run RunResult, limitMs int) bool {
+	return run.TimedOut || run.TimeMs > limitMs || run.CpuMs > limitMs
+}
+
+// stderrTail 取 stderr 尾部摘要（1KB，对标 LemonLime _tmperr 附加）。
+func stderrTail(s string) string {
+	if len(s) <= 1024 {
+		return s
+	}
+	return s[len(s)-1024:]
+}
+
+// judgeOutput 默认比较或特判二选一；特判协议给出部分分（CasePartly 带 Score）。
+func judgeOutput(ctx context.Context, checker *compiledChecker, c CaseInput, run RunResult, req Request, workdir string) domain.CaseResult {
 	res := domain.CaseResult{TimeMs: run.TimeMs, MemoryKiB: run.PeakKiB, CpuMs: run.CpuMs}
+	caseFull := c.Score
+	if caseFull <= 0 {
+		caseFull = 100
+	}
 	if checker != nil {
-		verdict, _ := checker.check(ctx, resolveIO(c.Input), run.Stdout, resolveIO(c.Expected), workdir)
+		verdict, score, message := checker.check(ctx, resolveIO(c.Input), run.Stdout, resolveIO(c.Expected), caseFull, workdir)
 		res.Verdict = verdict
+		res.Score = score
+		res.Message = message
 		return res
 	}
 	if domain.CompareOutput(run.Stdout, resolveIO(c.Expected), req.Compare, req.RealEps) {

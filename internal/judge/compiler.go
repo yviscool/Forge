@@ -17,6 +17,12 @@ type CompileResult struct {
 	Interpreted bool
 	Interpreter string
 	SourceFile  string
+	// TimeLimitRatio / MemoryLimitRatio 工具链声明的运行限额倍率
+	// （对标 LemonLime Compiler ratio；0 = 未设置，按 1 处理）。
+	TimeLimitRatio   float64
+	MemoryLimitRatio float64
+	// DisableMemoryLimitCheck 该语言的运行时不适用硬内存墙（如带 GC 的运行时）。
+	DisableMemoryLimitCheck bool
 }
 
 // Compiler 语言工具链抽象（可 fake 单测 verdict 映射）。
@@ -59,6 +65,15 @@ func (t Toolchain) spec(lang string) ToolSpec {
 	}
 	if over.CompileMemoryMiB > 0 {
 		base.CompileMemoryMiB = over.CompileMemoryMiB
+	}
+	if over.TimeLimitRatio > 0 {
+		base.TimeLimitRatio = over.TimeLimitRatio
+	}
+	if over.MemoryLimitRatio > 0 {
+		base.MemoryLimitRatio = over.MemoryLimitRatio
+	}
+	if over.DisableMemoryLimitCheck != nil {
+		base.DisableMemoryLimitCheck = over.DisableMemoryLimitCheck
 	}
 	return base
 }
@@ -108,7 +123,9 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 			return CompileResult{}, err
 		}
 		if hit, ok := t.Cache.Get(lang, src, t.Config, workdir); ok {
-			return CompileResult{OK: true, Executable: hit}, nil
+			return CompileResult{OK: true, Executable: hit,
+				TimeLimitRatio: sp.TimeLimitRatio, MemoryLimitRatio: sp.MemoryLimitRatio,
+				DisableMemoryLimitCheck: sp.DisableMemoryLimitCheck != nil && *sp.DisableMemoryLimitCheck}, nil
 		}
 		var out bytes.Buffer
 		// 缺省即 CCF 复赛口径：-O2 -std=c++14（可在工具链配置覆盖）。
@@ -121,7 +138,9 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 			return CompileResult{Message: out.String()}, nil
 		}
 		t.Cache.Put(lang, src, t.Config, exePath)
-		return CompileResult{OK: true, Executable: exePath}, nil
+		return CompileResult{OK: true, Executable: exePath,
+			TimeLimitRatio: sp.TimeLimitRatio, MemoryLimitRatio: sp.MemoryLimitRatio,
+			DisableMemoryLimitCheck: sp.DisableMemoryLimitCheck != nil && *sp.DisableMemoryLimitCheck}, nil
 	case "go", "golang":
 		srcPath := filepath.Join(workdir, "main.go")
 		exePath := filepath.Join(workdir, "main.exe")
@@ -134,13 +153,18 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 		if err := t.runCompiler(ctx, append([]string{sp.Command}, args...), workdir, sp.CompileMemoryMiB, &out); err != nil {
 			return CompileResult{Message: out.String()}, nil
 		}
-		return CompileResult{OK: true, Executable: exePath}, nil
+		return CompileResult{OK: true, Executable: exePath,
+			TimeLimitRatio: sp.TimeLimitRatio, MemoryLimitRatio: sp.MemoryLimitRatio,
+			DisableMemoryLimitCheck: sp.DisableMemoryLimitCheck != nil && *sp.DisableMemoryLimitCheck}, nil
 	case "python", "python3", "py":
 		srcPath := filepath.Join(workdir, "main.py")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
 		}
-		return CompileResult{OK: true, Executable: srcPath, Interpreted: true, Interpreter: sp.Command, SourceFile: srcPath}, nil
+		return CompileResult{OK: true, Executable: srcPath, Interpreted: true,
+			Interpreter: sp.Command, SourceFile: srcPath,
+			TimeLimitRatio: sp.TimeLimitRatio, MemoryLimitRatio: sp.MemoryLimitRatio,
+			DisableMemoryLimitCheck: sp.DisableMemoryLimitCheck != nil && *sp.DisableMemoryLimitCheck}, nil
 	default:
 		return CompileResult{Message: "unsupported language: " + lang}, nil
 	}
@@ -151,7 +175,8 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 // Job 的 KILL_ON_CLOSE 保证超时连坐杀掉整棵编译进程树。
 func (t Toolchain) runCompiler(ctx context.Context, argv []string, workdir string, memMiB int, out *bytes.Buffer) error {
 	if memMiB > 0 {
-		argv = confineArgv(argv, Limits{MemoryMiB: memMiB})
+		// 编译进程树不进 bwrap 沙箱（只需 prlimit 内存墙）。
+		argv = confineArgv(argv, Limits{MemoryMiB: memMiB}, "")
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	if workdir != "" {

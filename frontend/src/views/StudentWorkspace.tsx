@@ -106,6 +106,8 @@ const verdictMeta: Record<
   runtime_error: { label: 'Runtime Error', variant: 'danger' },
   compile_error: { label: 'Compile Error', variant: 'danger' },
   checker_error: { label: 'Checker Error', variant: 'danger' },
+  // 特判协议给出的部分分（Lemon scoreFile / testlib points）。
+  partially_correct: { label: 'Partially Correct', variant: 'warning' },
   system_error: { label: 'System Error', variant: 'danger' },
   skipped: { label: 'Skipped', variant: 'default' },
   queued: { label: 'Queued', variant: 'info' },

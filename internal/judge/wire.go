@@ -135,6 +135,7 @@ func BuildRequest(x domain.Submission, p domain.Problem) (Request, bool) {
 			Limits:    Limits{TimeMs: tc.TimeLimitMs, MemoryMiB: tc.MemoryMiB},
 			Subtask:   tc.Subtask,
 			DependsOn: append([]int(nil), tc.DependsOn...),
+			Score:     tc.Score,
 		}
 	}
 	req := Request{
@@ -154,8 +155,16 @@ func BuildRequest(x domain.Submission, p domain.Problem) (Request, bool) {
 		req.Limits.OutFile = p.Code + ".out"
 	}
 	if p.CheckerCode != "" {
-		req.Checker = &CheckerSpec{Language: checkerLang(p.CheckerLang), Code: p.CheckerCode}
-		req.Compare = domain.CompareSpecialJudge
+		flavor := checkerFlavor(p.CompareMode)
+		req.Checker = &CheckerSpec{Language: checkerLang(p.CheckerLang), Code: p.CheckerCode, Flavor: flavor}
+		switch flavor {
+		case "lemon":
+			req.Compare = domain.CompareLemonSpecialJudge
+		case "testlib":
+			req.Compare = domain.CompareTestlibSpecialJudge
+		default:
+			req.Compare = domain.CompareSpecialJudge
+		}
 	}
 	if p.TaskType == domain.TaskInteraction && p.InteractorCode != "" {
 		req.Interactor = &InteractorSpec{Language: checkerLang(p.InteractorLang), Code: p.InteractorCode}
@@ -182,4 +191,18 @@ func checkerLang(s string) string {
 		return "cpp"
 	}
 	return s
+}
+
+// checkerFlavor 由题目的比较模式推导特判协议：
+// lemon_special_judge → Lemon scoreFile 协议；testlib_special_judge →
+// testlib stderr 协议；其余（special_judge/custom_checker）→ 退出码协议。
+func checkerFlavor(mode domain.ComparisonMode) string {
+	switch domain.NormalizeComparisonMode(mode) {
+	case domain.CompareLemonSpecialJudge:
+		return "lemon"
+	case domain.CompareTestlibSpecialJudge:
+		return "testlib"
+	default:
+		return ""
+	}
 }

@@ -953,7 +953,9 @@ export function TeacherConsole() {
     }
     if (
       (editingProblem.compareMode === 'special_judge' ||
-        editingProblem.compareMode === 'custom_checker') &&
+        editingProblem.compareMode === 'custom_checker' ||
+        editingProblem.compareMode === 'lemon_special_judge' ||
+        editingProblem.compareMode === 'testlib_special_judge') &&
       !editingProblem.checkerCode?.trim()
     ) {
       toast.error('特判题缺少检查器', '请填写 Checker / SPJ 源码后再保存。')
@@ -2987,7 +2989,9 @@ export function TeacherConsole() {
                         <option value="ignore_space">忽略多余空白 (NOI/CSP 官方默认)</option>
                         <option value="line_by_line">逐行严格比对 (diff / 格式敏感)</option>
                         <option value="real_number">浮点数精度容差 (实数判断)</option>
-                        <option value="special_judge">自定义特判器 (SPJ / testlib.h)</option>
+                        <option value="special_judge">自定义特判器 (SPJ / testlib.h 退出码)</option>
+                        <option value="lemon_special_judge">Lemon 特判器 (scoreFile 部分分)</option>
+                        <option value="testlib_special_judge">testlib 特判器 (stderr 部分分)</option>
                       </select>
                     </div>
 
@@ -3125,13 +3129,19 @@ export function TeacherConsole() {
 
                   {/* 自定义特判 SPJ 详情 */}
                   {(editingProblem.compareMode === 'custom_checker' ||
-                    editingProblem.compareMode === 'special_judge') && (
+                    editingProblem.compareMode === 'special_judge' ||
+                    editingProblem.compareMode === 'lemon_special_judge' ||
+                    editingProblem.compareMode === 'testlib_special_judge') && (
                     <div className="p-2.5 rounded-lg bg-amber-50/60 border border-amber-200/60 space-y-2 text-xs">
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <span className="font-bold text-amber-900">Custom Special Judge 源码</span>
                           <p className="text-[10px] text-amber-700">
-                            基于 testlib.h / 传统 argv[1,2,3] 返回 0 为 AC；浏览器不会执行。
+                            {editingProblem.compareMode === 'lemon_special_judge'
+                              ? 'Lemon 协议：argv = input output answer 满分 _score _message，_score 写 0..满分 支持部分分。'
+                              : editingProblem.compareMode === 'testlib_special_judge'
+                                ? 'testlib 协议：argv = input output answer，stderr 打 ok / partially correct (N) / points X。'
+                                : '基于 testlib.h / 传统 argv[1,2,3] 返回 0 为 AC；浏览器不会执行。'}
                           </p>
                         </div>
                         <label className="flex items-center gap-1.5 text-[10px] font-bold text-amber-900">

@@ -1,6 +1,7 @@
 package judge
 
 import (
+	"os"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -62,7 +63,10 @@ func newJobLimiter(memoryMiB, maxProcs int) (*jobLimiter, error) {
 }
 
 // confineArgv Windows 下直通（Job Object 已做内存墙+单进程墙）。
-func confineArgv(argv []string, _ Limits) []string { return argv }
+func confineArgv(argv []string, _ Limits, _ string) []string { return argv }
+
+// processPeakBytes Windows 无需 rusage 回退：Job Object 已给峰值。
+func processPeakBytes(_ *os.ProcessState) uint64 { return 0 }
 
 // Attach 将已启动进程纳入 Job（调用方需在 Start 后立刻执行）。
 // 通过 PID 二次打开句柄：os.Process 不暴露 Windows 句柄。

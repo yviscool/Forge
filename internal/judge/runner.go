@@ -51,14 +51,18 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	if len(argv) == 0 {
 		return res, errEmptyArgv
 	}
-	timeout := time.Duration(lim.TimeMs) * time.Millisecond
-	if timeout <= 0 {
-		timeout = time.Second
+	// 硬杀墙 = 时限 + 额外时间（对标 LemonLime extraTime = max(2000ms,
+	// 2×时限)×比例）。软判定（记 TLE）在 judge.go 按 TimeMs/CpuMs 计算；
+	// 此处只兜底杀进程，让边界抖动的程序留给上层一次重测机会。
+	hardMs := lim.TimeMs
+	if hardMs <= 0 {
+		hardMs = 1000
 	}
+	timeout := time.Duration(hardMs+extraTimeMs(hardMs)) * time.Millisecond
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	argv = confineArgv(argv, lim)
+	argv = confineArgv(argv, lim, workdir)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = scrubEnv()
@@ -123,9 +127,15 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 		}
 	}
 	res.Truncated = outCap.truncated || errCap.truncated
-	res.PeakKiB = int(limiter.PeakBytes() >> 10)
+	peak := limiter.PeakBytes()
+	if peak == 0 && cmd.ProcessState != nil {
+		// Unix 侧 jobLimiter 无 Job Object：用 wait4 rusage 的 ru_maxrss 回填。
+		peak = processPeakBytes(cmd.ProcessState)
+	}
+	res.PeakKiB = int(peak >> 10)
 
 	if ctx.Err() == context.DeadlineExceeded {
+		// 命中硬杀墙（= 软时限 + 额外时间），稳定 TLE，无需重测。
 		res.TimedOut = true
 		limiter.Terminate()
 		return res, nil
