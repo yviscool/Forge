@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { Contest, Problem, api } from '../api/client'
 import { useStore } from '../store/useStore'
+import { formatBytes } from '../features/student/submissionFiles'
 import { MarkdownView } from './MarkdownView'
 import { ContestTimer } from './ContestTimer'
 import { Button } from './ui/button'
@@ -15,6 +16,7 @@ import {
   ShieldAlert,
   Lock,
   Trash2,
+  Upload,
   X,
   Minus,
   Square,
@@ -42,6 +44,12 @@ interface UbuntuDesktopProps {
   onExitDesktop: () => void
   onSubmit: () => void
   submitting: boolean
+  /** 已选择待上传的源文件（真实考场方式：选择文件 → 上传）。 */
+  uploadFile: { name: string; size: number } | null
+  /** 文件名与题面英文名不一致时的提示（本题期望的目录名）。 */
+  uploadMismatch: string | null
+  onPickUploadFile: () => void
+  onClearUploadFile: () => void
 }
 
 type WindowKey = 'files' | 'editor' | 'terminal' | 'pdf' | 'doctor' | 'unlock'
@@ -72,6 +80,10 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   onExitDesktop,
   onSubmit,
   submitting,
+  uploadFile,
+  uploadMismatch,
+  onPickUploadFile,
+  onClearUploadFile,
 }) => {
   const { session } = useStore()
   const queryClient = useQueryClient()
@@ -934,6 +946,29 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   </Button>
                   <Button
                     size="sm"
+                    variant="outline"
+                    onClick={onPickUploadFile}
+                    className="h-6 px-2 text-[10px] gap-1 text-slate-700 bg-white"
+                    title="选择本地源文件直接提交（真实考场方式）"
+                  >
+                    <Upload className="w-3 h-3" /> 选择文件
+                  </Button>
+                  {uploadFile && (
+                    <span className="inline-flex h-6 items-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-1.5 text-[10px] font-bold text-emerald-800">
+                      <span className="font-mono">{uploadFile.name}</span>
+                      <span className="text-emerald-600">· {formatBytes(uploadFile.size)}</span>
+                      <button
+                        type="button"
+                        onClick={onClearUploadFile}
+                        aria-label="取消已选文件"
+                        className="text-emerald-500 transition hover:text-emerald-800"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </span>
+                  )}
+                  <Button
+                    size="sm"
                     onClick={onSubmit}
                     disabled={submitting}
                     className="h-6 px-2.5 text-[10px] gap-1 bg-blue-600 hover:bg-blue-700 text-white font-bold"
@@ -941,6 +976,14 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                     <Send className="w-3 h-3" /> {submitting ? '提交中...' : '正式提交'}
                   </Button>
                 </div>
+                {uploadMismatch && uploadFile && (
+                  <div className="border-t border-amber-300 bg-amber-50 px-3 py-1 text-[10px] font-semibold leading-4 text-amber-800">
+                    文件名与题面英文名不一致：本题目录为{' '}
+                    <span className="font-mono">{uploadMismatch}</span>，当前选择{' '}
+                    <span className="font-mono">{uploadFile.name}</span>
+                    。真实考场按文件名/目录对应题目，请确认没有选错文件。
+                  </div>
+                )}
               </div>
 
               {/* Editor Workspace */}

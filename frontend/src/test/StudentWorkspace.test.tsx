@@ -237,4 +237,35 @@ describe('StudentWorkspace answer-only workflow', () => {
     ).toBeInTheDocument()
     expect(rankingSpy).not.toHaveBeenCalled()
   })
+
+  it('keeps the branded workspace with stat cards for online contests', async () => {
+    installStudentRoutes()
+    renderWorkspace()
+
+    expect((await screen.findAllByText('最终答案')).length).toBeGreaterThan(0)
+    expect(screen.getByText('参赛者')).toBeInTheDocument()
+    expect(screen.queryByText(/NOI 全真模拟进行中/)).not.toBeInTheDocument()
+  })
+
+  it('switches to the plain exam skin for NOI contests', async () => {
+    const noiContest: Contest = { ...contest, mode: 'noi' }
+    server.use(
+      apiRoutes.get('/time', () =>
+        HttpResponse.json({ serverTime: new Date().toISOString() })
+      ),
+      apiRoutes.get('/contests/contest-1', () => HttpResponse.json(noiContest)),
+      apiRoutes.get('/contests/contest-1/problems', () =>
+        HttpResponse.json([answerProblem])
+      ),
+      apiRoutes.get('/contests/contest-1/submissions', () => HttpResponse.json([])),
+      apiRoutes.get('/contests/contest-1/ranking', () => HttpResponse.json([])),
+      apiRoutes.get('/contests/contest-1/messages', () => HttpResponse.json([]))
+    )
+    renderWorkspace()
+
+    // 考场皮肤：统计卡整体隐藏（display:none），只留倒计时/题目/提交/通告。
+    expect(await screen.findByText(/NOI 全真模拟进行中/)).toBeInTheDocument()
+    const statGrid = screen.getByText('参赛者').closest('div.rounded-xl')?.parentElement
+    expect(statGrid).toHaveClass('hidden')
+  })
 })

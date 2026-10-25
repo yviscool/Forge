@@ -78,6 +78,7 @@ import {
   normalizeLanguage,
   readSourceFile,
   selectSourceFolder,
+  sourceExtension,
   type FolderFileMatch,
   type FolderSelection,
   type SupportedLanguage,
@@ -478,6 +479,13 @@ export function StudentWorkspace() {
   const [submitting, setSubmitting] = useState(false)
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  // 文件直提（真实考场方式）：选择本地源文件后按文件内容提交，编辑器草稿不动。
+  const uploadInputRef = React.useRef<HTMLInputElement>(null)
+  const [uploadFile, setUploadFile] = useState<{
+    file: File
+    text: string
+    language: SupportedLanguage
+  } | null>(null)
   const [sourceError, setSourceError] = useState('')
   const [exporting, setExporting] = useState<'pdf' | 'html' | null>(null)
   const [folder, setFolder] = useState<FolderSelection | null>(null)
@@ -508,6 +516,9 @@ export function StudentWorkspace() {
   const paperReady = Boolean(contest) && !zipLocked
   // NOI 全真模拟进行中：服务端已对判定/榜单脱敏，前端同步隐藏入口并提示。
   const noiMasked = contest?.mode === 'noi' && contest?.status === 'running'
+  // NOI 全真模拟：学生端整体切考场皮肤——朴素白底、无品牌装饰，
+  // 对齐 NOI Linux 考场 web 系统的观感；赛后同样保持，避免考试中途换肤。
+  const examSkin = contest?.mode === 'noi'
 
   // 版本历史（历史面板打开时拉取，供版本对比与回滚）。
   const [diffVerA, setDiffVerA] = useState(0)
@@ -811,8 +822,12 @@ export function StudentWorkspace() {
     setConfirmOpen(false)
     setSubmitting(true)
     setSourceError('')
-    const submitLanguage = activeProblem.taskType === 'answers_only' ? 'answer' : language
-    const fingerprint = `${activeProblem.id}\u0000${submitLanguage}\u0000${code}`
+    const submitCode = uploadFile?.text ?? code
+    const submitLanguage =
+      activeProblem.taskType === 'answers_only'
+        ? 'answer'
+        : uploadFile?.language ?? language
+    const fingerprint = `${activeProblem.id}\u0000${submitLanguage}\u0000${submitCode}`
     const pending =
       pendingSubmissionRef.current?.fingerprint === fingerprint
         ? pendingSubmissionRef.current
@@ -822,9 +837,10 @@ export function StudentWorkspace() {
       const result = await api.submit(cid, {
         problemID: activeProblem.id,
         language: submitLanguage,
-        code,
+        code: submitCode,
       }, pending.key)
       pendingSubmissionRef.current = null
+      setUploadFile(null)
       setLastResult(result)
       toast.success(
         '提交成功',
@@ -851,6 +867,15 @@ export function StudentWorkspace() {
     if (!activeProblem || submitting) return
     if (!canSubmit) {
       toast.error('当前不可提交', '比赛尚未开始或已经结束。')
+      return
+    }
+    if (uploadFile) {
+      // 文件直提：内容、语言与大小在选文件时已校验，不再看编辑器草稿。
+      if (problemSubmissions.length > 0) {
+        setConfirmOpen(true)
+        return
+      }
+      await commitSubmit()
       return
     }
     if (!code.trim()) {
@@ -903,6 +928,42 @@ export function StudentWorkspace() {
       const message = cause instanceof Error ? cause.message : '源文件读取失败。'
       setSourceError(message)
       toast.error('无法载入源文件', message)
+    }
+  }
+
+  // CSP 收题口径的目录名：题面英文名优先，退回题号小写。
+  const problemDirName = (problem: Problem | null): string =>
+    problem?.slug?.trim() || problem?.code.toLowerCase() || 'a'
+  // 文件名与题面英文名不一致时给出非阻塞提醒——真实考场按文件/目录名对应题目，
+  // 选错文件是现场爆零的第一大原因，模拟时就要把这件事练出来。
+  const uploadMismatch =
+    uploadFile && activeProblem
+      ? uploadFile.file.name.replace(/\.[^.]+$/, '').toLowerCase() !==
+          problemDirName(activeProblem).toLowerCase()
+        ? problemDirName(activeProblem)
+        : null
+      : null
+
+  const handleUploadSubmitFile = async (file: File | undefined) => {
+    if (!file || !activeProblem) return
+    setSourceError('')
+    try {
+      const detected = normalizeLanguage(
+        file.name.slice(file.name.lastIndexOf('.') + 1)
+      )
+      if (!detected) {
+        throw new Error('仅支持 .cpp / .cc / .cxx / .c / .py / .go 源文件。')
+      }
+      if (!languageOptions.some((option) => option.value === detected)) {
+        throw new Error(`本场比赛不允许提交 ${languageLabel(detected)}。`)
+      }
+      const text = await readSourceFile(file)
+      setUploadFile({ file, text, language: detected })
+      toast.success('已选择源文件', `${file.name} · ${formatBytes(file.size)}，点击提交完成上传。`)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : '源文件读取失败。'
+      setSourceError(message)
+      toast.error('无法选择源文件', message)
     }
   }
 
@@ -1136,6 +1197,18 @@ export function StudentWorkspace() {
             }
           />
         )}
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept={SOURCE_ACCEPT}
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => {
+            void handleUploadSubmitFile(event.target.files?.[0])
+            event.target.value = ''
+          }}
+        />
         <React.Suspense fallback={<EditorLoading fullscreen />}>
           <UbuntuDesktop
             contest={contest}
@@ -1149,6 +1222,10 @@ export function StudentWorkspace() {
               void submit()
             }}
             submitting={submitting}
+            uploadFile={uploadFile ? { name: uploadFile.file.name, size: uploadFile.file.size } : null}
+            uploadMismatch={uploadMismatch}
+            onPickUploadFile={() => uploadInputRef.current?.click()}
+            onClearUploadFile={() => setUploadFile(null)}
           />
         </React.Suspense>
         <BroadcastBanner notice={contest.notice} messages={messages} />
@@ -1191,19 +1268,45 @@ export function StudentWorkspace() {
         messages={messages}
       />
       <BroadcastBanner notice={contest?.notice} messages={messages} />
+      <input
+          ref={uploadInputRef}
+          type="file"
+          accept={SOURCE_ACCEPT}
+          className="hidden"
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => {
+            void handleUploadSubmitFile(event.target.files?.[0])
+            event.target.value = ''
+          }}
+        />
 
       <section className="overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#fffefa] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_18px_40px_-30px_rgba(16,24,40,0.25)]">
-        <div className="relative overflow-hidden bg-[#14283d] px-5 py-5 text-white sm:px-6">
-          <div className="absolute inset-0 forge-grid opacity-20" aria-hidden="true" />
-          <div
-            className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-forge-500/20 blur-3xl"
-            aria-hidden="true"
-          />
+        <div
+          className={
+            examSkin
+              ? 'relative overflow-hidden border-b border-slate-200 bg-white px-5 py-5 text-slate-900 sm:px-6'
+              : 'relative overflow-hidden bg-[#14283d] px-5 py-5 text-white sm:px-6'
+          }
+        >
+          {!examSkin && (
+            <>
+              <div className="absolute inset-0 forge-grid opacity-20" aria-hidden="true" />
+              <div
+                className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-forge-500/20 blur-3xl"
+                aria-hidden="true"
+              />
+            </>
+          )}
           <div className="relative flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <Link
                 to="/"
-                className="inline-flex items-center gap-1.5 text-[11px] font-bold text-white/55 transition hover:text-white"
+                className={
+                  examSkin
+                    ? 'inline-flex items-center gap-1.5 text-[11px] font-bold text-slate-500 transition hover:text-slate-800'
+                    : 'inline-flex items-center gap-1.5 text-[11px] font-bold text-white/55 transition hover:text-white'
+                }
               >
                 <ArrowLeft className="h-3.5 w-3.5" />
                 返回比赛大厅
@@ -1212,7 +1315,11 @@ export function StudentWorkspace() {
                 <Badge
                   variant={phase === 'running' ? 'success' : phase === 'upcoming' ? 'info' : 'default'}
                   dot
-                  className="border-white/15 bg-white/10 text-white"
+                  className={
+                    examSkin
+                      ? 'border-slate-300 bg-slate-50 text-slate-700'
+                      : 'border-white/15 bg-white/10 text-white'
+                  }
                 >
                   {phase === 'running'
                     ? '进行中'
@@ -1222,14 +1329,24 @@ export function StudentWorkspace() {
                         ? '已结束'
                         : '未开始'}
                 </Badge>
-                <span className="text-[11px] font-semibold text-white/45">
+                <span
+                  className={
+                    examSkin
+                      ? 'text-[11px] font-semibold text-slate-500'
+                      : 'text-[11px] font-semibold text-white/45'
+                  }
+                >
                   {contest?.rankingMode === 'acm' ? 'ACM 赛制' : 'OI 赛制'}
                 </span>
                 {activeTaskType !== 'choice' && (
                   <span
                     role="status"
                     aria-live="polite"
-                    className="inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60"
+                    className={
+                      examSkin
+                        ? 'inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-500'
+                        : 'inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/60'
+                    }
                   >
                     {autoSave.state === 'saving'
                       ? '自动保存中…'
@@ -1244,10 +1361,16 @@ export function StudentWorkspace() {
                   role="status"
                   className={
                     streamState === 'live'
-                      ? 'inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-200'
+                      ? examSkin
+                        ? 'inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold text-emerald-700'
+                        : 'inline-flex items-center gap-1 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-2 py-0.5 text-[10px] font-bold text-emerald-200'
                       : streamState === 'offline'
-                        ? 'inline-flex items-center gap-1 rounded-full border border-rose-300/20 bg-rose-400/10 px-2 py-0.5 text-[10px] font-bold text-rose-200'
-                        : 'inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/50'
+                        ? examSkin
+                          ? 'inline-flex items-center gap-1 rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-[10px] font-bold text-rose-700'
+                          : 'inline-flex items-center gap-1 rounded-full border border-rose-300/20 bg-rose-400/10 px-2 py-0.5 text-[10px] font-bold text-rose-200'
+                        : examSkin
+                          ? 'inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold text-slate-500'
+                          : 'inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-bold text-white/50'
                   }
                 >
                   <i
@@ -1257,7 +1380,9 @@ export function StudentWorkspace() {
                         ? 'h-1.5 w-1.5 rounded-full bg-emerald-400'
                         : streamState === 'offline'
                           ? 'h-1.5 w-1.5 rounded-full bg-rose-400'
-                          : 'h-1.5 w-1.5 animate-pulse rounded-full bg-white/50'
+                          : examSkin
+                            ? 'h-1.5 w-1.5 animate-pulse rounded-full bg-slate-400'
+                            : 'h-1.5 w-1.5 animate-pulse rounded-full bg-white/50'
                     }
                   />
                   {streamState === 'live'
@@ -1271,25 +1396,45 @@ export function StudentWorkspace() {
                 {contest?.name || '比赛工作台'}
               </h1>
               {contest?.description && (
-                <p className="mt-1.5 line-clamp-1 max-w-2xl text-xs text-white/55">
+                <p
+                  className={
+                    examSkin
+                      ? 'mt-1.5 line-clamp-1 max-w-2xl text-xs text-slate-500'
+                      : 'mt-1.5 line-clamp-1 max-w-2xl text-xs text-white/55'
+                  }
+                >
                   {contest.description}
                 </p>
               )}
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <div className="rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 backdrop-blur-sm">
+              <div
+                className={
+                  examSkin
+                    ? 'rounded-xl border border-slate-200 bg-slate-50 px-3 py-2'
+                    : 'rounded-xl border border-white/10 bg-white/[0.07] px-3 py-2 backdrop-blur-sm'
+                }
+              >
                 {contest ? <ContestTimer contest={contest} userId={session?.userId} /> : null}
               </div>
               <button
                 type="button"
                 onClick={() => setNotificationsOpen(true)}
-                className="relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.07] text-white/70 transition hover:bg-white/15 hover:text-white"
+                className={
+                  examSkin
+                    ? 'relative grid h-10 w-10 place-items-center rounded-xl border border-slate-200 bg-slate-50 text-slate-600 transition hover:bg-slate-100 hover:text-slate-900'
+                    : 'relative grid h-10 w-10 place-items-center rounded-xl border border-white/10 bg-white/[0.07] text-white/70 transition hover:bg-white/15 hover:text-white'
+                }
                 aria-label="查看考场通告"
               >
                 <Megaphone className="h-4 w-4" />
                 {messageCount > 0 && (
-                  <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-forge-500 px-1 font-mono text-[9px] font-bold text-white">
+                  <span className={
+                    examSkin
+                      ? 'absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-blue-600 px-1 font-mono text-[9px] font-bold text-white'
+                      : 'absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-forge-500 px-1 font-mono text-[9px] font-bold text-white'
+                  }>
                     {messageCount > 9 ? '9+' : messageCount}
                   </span>
                 )}
@@ -1299,7 +1444,11 @@ export function StudentWorkspace() {
                   variant="outline"
                   size="sm"
                   onClick={() => setDesktopMode(true)}
-                  className="border-white/15 bg-white/[0.07] text-white hover:border-white/25 hover:bg-white/15"
+                  className={
+                    examSkin
+                      ? 'border-slate-300 bg-white text-slate-700 hover:bg-slate-100'
+                      : 'border-white/15 bg-white/[0.07] text-white hover:border-white/25 hover:bg-white/15'
+                  }
                 >
                   <Monitor className="h-3.5 w-3.5" />
                   Ubuntu 模拟
@@ -1308,7 +1457,13 @@ export function StudentWorkspace() {
             </div>
           </div>
 
-          <div className="relative mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div
+            className={
+              examSkin
+                ? 'hidden'
+                : 'relative mt-6 grid gap-2 sm:grid-cols-2 lg:grid-cols-4'
+            }
+          >
             {[
               { icon: BookOpen, label: '题目', value: problems.length },
               { icon: Check, label: '已解决', value: solvedCount },
@@ -1670,16 +1825,46 @@ export function StudentWorkspace() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 border-t border-[#eaecf0] bg-[#fbfaf6] px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2 border-t border-[#eaecf0] bg-[#fbfaf6] px-3 py-3">
                   <div className="hidden min-w-0 flex-1 items-center gap-1.5 text-[10px] text-slate-400 sm:flex">
                     <CloudUpload className="h-3.5 w-3.5" />
                     {answerOnly ? '答案自动保存于本机草稿' : '自动保存于本机草稿'}
                   </div>
+                  {!answerOnly && (
+                    <button
+                      type="button"
+                      onClick={() => uploadInputRef.current?.click()}
+                      disabled={!canSubmit}
+                      className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-2.5 text-[11px] font-bold text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"
+                      title="选择本地源文件直接提交（真实考场方式）"
+                    >
+                      <Upload className="h-3.5 w-3.5" />
+                      选择文件上传
+                    </button>
+                  )}
+                  {uploadFile && !answerOnly && (
+                    <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 px-2.5 text-[11px] font-bold text-emerald-800">
+                      <FileCode2 className="h-3.5 w-3.5" />
+                      <span className="font-mono">{uploadFile.file.name}</span>
+                      <span className="text-emerald-600">· {formatBytes(uploadFile.file.size)}</span>
+                      <button
+                        type="button"
+                        onClick={() => setUploadFile(null)}
+                        aria-label="取消已选文件"
+                        className="text-emerald-500 transition hover:text-emerald-800"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  )}
                   <Button
                     onClick={() => {
                       void submit()
                     }}
-                    disabled={!canSubmit || !code.trim() || codeBytes > MAX_SOURCE_BYTES}
+                    disabled={
+                      !canSubmit ||
+                      (!uploadFile && (!code.trim() || codeBytes > MAX_SOURCE_BYTES))
+                    }
                     loading={submitting}
                     className="ml-auto gap-2"
                   >
@@ -1687,6 +1872,15 @@ export function StudentWorkspace() {
                     {answerOnly ? '提交答案' : t('submit_code')}
                   </Button>
                 </div>
+                {uploadMismatch && !answerOnly && (
+                  <div className="border-t border-amber-200 bg-amber-50 px-3 py-2 text-[11px] font-semibold leading-5 text-amber-900">
+                    文件名与题面英文名不一致：本题源文件应为{' '}
+                    <span className="font-mono">{uploadMismatch}.{sourceExtension(uploadFile?.language ?? 'cpp')}</span>
+                    ，当前选择{' '}
+                    <span className="font-mono">{uploadFile?.file.name}</span>
+                    。真实考场按文件名/目录对应题目，请确认没有选错文件。
+                  </div>
+                )}
               </div>
             )}
 
@@ -1825,12 +2019,19 @@ export function StudentWorkspace() {
             <p>
               {activeProblem?.taskType === 'answers_only'
                 ? '提交类型 · 纯文本答案'
-                : `语言 · ${languageLabel(language)}`}
+                : uploadFile
+                  ? `提交方式 · 上传文件 ${uploadFile.file.name}（语言 · ${languageLabel(uploadFile.language)}）`
+                  : `语言 · ${languageLabel(language)}`}
             </p>
             <p className="mt-1">
-              {activeProblem?.taskType === 'answers_only' ? '答案大小' : '代码大小'} ·{' '}
-              {formatBytes(codeBytes)}
+              {activeProblem?.taskType === 'answers_only' ? '答案大小' : '内容大小'} ·{' '}
+              {formatBytes(uploadFile ? uploadFile.file.size : codeBytes)}
             </p>
+            {uploadMismatch && (
+              <p className="mt-1 font-semibold text-amber-700">
+                注意：文件名与题面英文名不一致（本题源文件应为 {uploadMismatch}）。
+              </p>
+            )}
             <p className="mt-1 text-slate-400">以本次提交的评测结果为准。</p>
           </div>
         </div>
