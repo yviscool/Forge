@@ -10,7 +10,11 @@ export interface WindowRect {
 
 export const MIN_WINDOW_W = 420
 export const MIN_WINDOW_H = 320
-/** GNOME 顶栏高度（贴顶判定阈值 = 指针进入顶栏）。 */
+/**
+ * GNOME 顶栏高度（视口系）：拖拽贴顶判定 = 指针进入顶栏区域。
+ * 注意窗口矩形一律是「桌面容器系」（顶栏下方的区域），y 从 0 起；
+ * TOP_BAR_H 只用于视口系的指针判定，不得混入窗口矩形。
+ */
 export const TOP_BAR_H = 28
 /** 贴边判定：指针距屏幕左右边缘的像素阈值。 */
 export const SNAP_EDGE_PX = 10
@@ -35,7 +39,7 @@ export function applyResize(
   }
   if (dir.includes('n')) {
     const bottom = start.y + start.h
-    y = Math.max(TOP_BAR_H, Math.min(start.y + dy, bottom - MIN_WINDOW_H))
+    y = Math.max(0, Math.min(start.y + dy, bottom - MIN_WINDOW_H))
     h = bottom - y
   }
   // 不越出屏幕右/下缘。
@@ -59,17 +63,18 @@ export function detectSnapZone(
 
 /** 贴边落位后的目标矩形（顶栏下方铺满；半屏占左右一半）。 */
 export function snapRect(zone: Exclude<SnapZone, null>, viewport: { w: number; h: number }): WindowRect {
+  // 容器系：y 从 0（桌面内容区顶部）起。
   if (zone === 'max') {
-    return { x: 0, y: TOP_BAR_H, w: viewport.w, h: viewport.h - TOP_BAR_H }
+    return { x: 0, y: 0, w: viewport.w, h: viewport.h }
   }
   if (zone === 'left') {
-    return { x: 0, y: TOP_BAR_H, w: Math.round(viewport.w / 2), h: viewport.h - TOP_BAR_H }
+    return { x: 0, y: 0, w: Math.round(viewport.w / 2), h: viewport.h }
   }
   return {
     x: Math.round(viewport.w / 2),
-    y: TOP_BAR_H,
+    y: 0,
     w: viewport.w - Math.round(viewport.w / 2),
-    h: viewport.h - TOP_BAR_H,
+    h: viewport.h,
   }
 }
 

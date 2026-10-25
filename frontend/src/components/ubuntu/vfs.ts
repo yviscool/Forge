@@ -69,10 +69,46 @@ export function renameItem(items: VfsItem[], name: string, newName: string): Vfs
   return done(next)
 }
 
-/** 移到回收站：整个节点（文件夹含子树）从当前目录摘除。 */
+/**
+ * 移到回收站：摘除节点本身；若为目录，其子树（所有以 `${dirKey}/${name}/`
+ * 为前缀的 VFS 键）由调用方一并摘除挂到 trash 记录上——恢复时原样放回，
+ * 清空时真正删除。否则子树会成为不可见也清不掉的孤儿数据。
+ */
 export function trashItem(items: VfsItem[], name: string): { items: VfsItem[]; removed: VfsItem | null } {
   const removed = items.find((item) => item.name === name) ?? null
   return { items: items.filter((item) => item.name !== name), removed }
+}
+
+/** 摘除某目录的整棵子树：返回摘除后的表与被摘下的子树键值对。 */
+export function detachSubtree(
+  files: VfsDirMap,
+  dirKey: string,
+  name: string
+): { files: VfsDirMap; subtree: VfsDirMap } {
+  // 目录的直接内容键 = `${dirKey}/${name}`（无尾斜杠）；更深子键带 `/` 前缀。
+  const nodeKey = dirKey ? `${dirKey}/${name}` : name
+  const subtree: VfsDirMap = {}
+  const next: VfsDirMap = {}
+  for (const [key, value] of Object.entries(files)) {
+    if (key === nodeKey) {
+      subtree[''] = value
+    } else if (key.startsWith(`${nodeKey}/`)) {
+      subtree[key.slice(nodeKey.length + 1)] = value
+    } else {
+      next[key] = value
+    }
+  }
+  return { files: next, subtree }
+}
+
+/** 把子树挂回某目录之下（恢复用）。 */
+export function attachSubtree(files: VfsDirMap, dirKey: string, name: string, subtree: VfsDirMap): VfsDirMap {
+  const nodeKey = dirKey ? `${dirKey}/${name}` : name
+  const next: VfsDirMap = { ...files }
+  for (const [key, value] of Object.entries(subtree)) {
+    next[key === '' ? nodeKey : `${nodeKey}/${key}`] = value
+  }
+  return next
 }
 
 /** 从回收站恢复。 */

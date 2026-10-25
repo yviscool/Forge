@@ -17,9 +17,12 @@ import {
 } from './ubuntu/UbuntuYaru'
 import { YARU_ICONS } from './ubuntu/yaruIcons'
 import {
+  attachSubtree,
+  detachSubtree,
   dirKey,
   findItem,
   mkfile,
+  type VfsDirMap,
   listDir,
   mkdir as vfsMkdir,
   renameItem as vfsRename,
@@ -106,6 +109,10 @@ interface UbuntuDesktopProps {
 
 type WindowKey = 'files' | 'editor' | 'terminal' | 'pdf' | 'unlock'
 
+// 终端回滚上限（GNOME 终端默认 scrollback 同量级）：防止考一天后
+// 日志无限累积拖慢终端渲染。
+const TERMINAL_LOG_LIMIT = 512
+
 interface WindowState {
   isOpen: boolean
   isMinimized: boolean
@@ -182,7 +189,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   onPickUploadFile,
   onClearUploadFile,
 }) => {
-  const { session, drafts } = useStore()
+  const { session, drafts, persistenceError } = useStore()
   const queryClient = useQueryClient()
   const toast = useToast()
   // Only the signed grant reflected by the server is authoritative. A stale
@@ -219,14 +226,23 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   }, [serverTimeOffset])
 
   // 与 StudentWorkspace 的 submissionCode 同语义：合法 JSON 则美化，否则原样。
+  // 以内容为键的字面量缓存：drafts 每次击键都变，若每题重新 JSON.parse
+  // 全文，多题大文本时输入延迟线性放大；缓存键即草稿全文（数量有限）。
+  const submissionCacheRef = useRef(new Map<string, string>())
   const submissionCodeSafe = (value: string): string => {
+    const cache = submissionCacheRef.current
+    const hit = cache.get(value)
+    if (hit !== undefined) return hit
+    let out = value
     try {
       const parsed = JSON.parse(value) as unknown
-      if (parsed && typeof parsed === 'object') return JSON.stringify(parsed, null, 2)
+      if (parsed && typeof parsed === 'object') out = JSON.stringify(parsed, null, 2)
     } catch {
       // 普通源码不是 JSON，原样返回。
     }
-    return value
+    if (cache.size > 64) cache.clear()
+    cache.set(value, out)
+    return out
   }
 
   type DirEntry = {
@@ -284,6 +300,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   // Dragging support
   const [draggingKey, setDraggingKey] = useState<WindowKey | null>(null)
   const dragOffsetRef = useRef<{ ox: number; oy: number }>({ ox: 0, oy: 0 })
+  // 手势起点（Esc 取消时还原）；单指针守卫（第二根手指不再启动新手势）。
+  const gestureOriginRef = useRef<{ key: WindowKey; rect: WindowRect; wasMaximized: boolean } | null>(null)
   // 贴边：拖动中显示 GNOME 式半透明预览，松手落位；拖离已贴边窗口时先还原。
   const [snapPreview, setSnapPreview] = useState<'max' | 'left' | 'right' | null>(null)
   const lastFreeRectRef = useRef<Record<string, WindowRect>>({})
@@ -291,7 +309,31 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const [resizing, setResizing] = useState<{ key: WindowKey; dir: ResizeDir; start: WindowRect } | null>(null)
   const resizeStartPointerRef = useRef({ x: 0, y: 0 })
 
-  const viewport = () => ({ w: window.innerWidth, h: window.innerHeight })
+  // 坐标系统一：窗口矩形一律「桌面容器系」（dock 右侧内容区），viewport
+  // 返回容器尺寸而非浏览器视口——否则右缘钳制会偏出一个 dock 宽。
+  const viewport = () => {
+    const el = desktopRef.current
+    return el
+      ? { w: el.clientWidth, h: el.clientHeight }
+      : { w: window.innerWidth, h: window.innerHeight }
+  }
+  // 指针事件是视口系；贴边判定前换算为容器系。
+  const pointerInDesktop = (e: { clientX: number; clientY: number }) => {
+    const rect = desktopRef.current?.getBoundingClientRect()
+    return rect
+      ? { x: e.clientX - rect.left, y: e.clientY - rect.top }
+      : { x: e.clientX, y: e.clientY }
+  }
+  // 容器系贴边判定：y<=0（顶栏/容器顶）最大化，左右边缘半屏。
+  const detectSnap = (
+    p: { x: number; y: number },
+    vp: { w: number }
+  ): 'max' | 'left' | 'right' | null => {
+    if (p.y <= 0) return 'max'
+    if (p.x <= 10) return 'left'
+    if (p.x >= vp.w - 10) return 'right'
+    return null
+  }
 
   const windowRect = (key: WindowKey): WindowRect => {
     const w = windows[key]
@@ -302,7 +344,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const beginResize = (key: WindowKey, dir: ResizeDir, e: React.MouseEvent) => {
     e.stopPropagation()
     e.preventDefault()
+    if (draggingKey || resizing) return
     focusWindow(key)
+    gestureOriginRef.current = {
+      key,
+      rect: { x: windows[key].x, y: windows[key].y, w: windows[key].w, h: windows[key].h },
+      wasMaximized: windows[key].isMaximized,
+    }
     resizeStartPointerRef.current = { x: e.clientX, y: e.clientY }
     setResizing({ key, dir, start: windowRect(key) })
   }
@@ -310,7 +358,14 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const handleTitleMouseDown = (key: WindowKey, e: React.MouseEvent) => {
     // 头栏内的按钮（关闭/最小化/菜单等）不进入拖拽，否则拖拽启动会吞掉 click。
     if (e.target instanceof Element && e.target.closest('button')) return
+    // 多指针/多点触控守卫：已有手势进行中时忽略新手势，防 draggingKey 单值被覆盖。
+    if (draggingKey || resizing) return
     focusWindow(key)
+    gestureOriginRef.current = {
+      key,
+      rect: { x: windows[key].x, y: windows[key].y, w: windows[key].w, h: windows[key].h },
+      wasMaximized: windows[key].isMaximized,
+    }
     const vp = viewport()
     // 抓点基准一律取 DOM 实际位置：拖拽是 rAF 直写 style，React state 可能
     // 落后一个手势的距离——用 state 算抓点会让窗口在首次 mousemove 跳变。
@@ -326,19 +381,20 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       // GNOME：拖离贴边/最大化先还原，且保持抓点在标题栏内的相对比例
       // （按住头栏左端拖离，指针仍停在还原窗口头栏左端附近，不瞬移到中心）。
       const restore = w.restoreRect ?? { x: 120, y: 90, w: 880, h: 560 }
-      const maxRectNow = snapRect('max', vp)
-      const fx = Math.min(1, Math.max(0, (e.clientX - maxRectNow.x) / Math.max(1, maxRectNow.w)))
+      const p = pointerInDesktop(e)
+      const fx = Math.min(1, Math.max(0, p.x / Math.max(1, vp.w)))
       const ox = Math.min(restore.w - 24, Math.max(24, Math.round(fx * restore.w)))
-      const oy = Math.min(restore.h - 12, Math.max(10, e.clientY - cur.y))
-      const nx = Math.max(0, Math.min(e.clientX - ox, vp.w - restore.w))
-      const ny = Math.max(30, e.clientY - oy)
+      const oy = Math.min(restore.h - 12, Math.max(10, p.y - cur.y))
+      const nx = Math.max(0, Math.min(p.x - ox, vp.w - restore.w))
+      const ny = Math.max(0, p.y - oy)
       setWindows((prev) => ({
         ...prev,
         [key]: { ...prev[key], isMaximized: false, x: nx, y: ny, w: restore.w, h: restore.h, restoreRect: undefined },
       }))
       dragOffsetRef.current = { ox, oy }
     } else {
-      dragOffsetRef.current = { ox: e.clientX - cur.x, oy: e.clientY - cur.y }
+      const p = pointerInDesktop(e)
+      dragOffsetRef.current = { ox: p.x - cur.x, oy: p.y - cur.y }
     }
     setDraggingKey(key)
   }
@@ -381,13 +437,14 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     const handleMouseMove = (e: MouseEvent) => {
       if (draggingKey) {
         const vp = viewport()
-        const nx = Math.max(0, e.clientX - dragOffsetRef.current.ox)
-        const ny = Math.max(30, e.clientY - dragOffsetRef.current.oy)
+        const p = pointerInDesktop(e)
+        const nx = Math.max(0, Math.min(p.x - dragOffsetRef.current.ox, Math.max(0, vp.w - windows[draggingKey].w)))
+        const ny = Math.max(0, p.y - dragOffsetRef.current.oy)
         const w = windows[draggingKey].w
         const h = windows[draggingKey].h
         schedule(draggingKey, { x: nx, y: ny, w, h })
         lastFreeRectRef.current[draggingKey] = { x: nx, y: ny, w, h }
-        const zone = detectSnapZone({ x: e.clientX, y: e.clientY }, vp)
+        const zone = detectSnap(p, vp)
         setSnapPreview((prev) => (prev === zone ? prev : zone))
         return
       }
@@ -435,6 +492,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           },
         }))
       }
+      gestureOriginRef.current = null
       setDraggingKey(null)
       setSnapPreview(null)
       setResizing(null)
@@ -501,7 +559,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     }
     return loaded
   })
-  const [trash, setTrash] = useState<{ item: VfsItem; fromKey: string }[]>(() => {
+  const [trash, setTrash] = useState<{ item: VfsItem; fromKey: string; subtree?: VfsDirMap }[]>(() => {
     if (!vfsKey) return []
     try {
       return JSON.parse(localStorage.getItem(`${vfsKey}_trash`) ?? '[]')
@@ -550,22 +608,150 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   const [untitledContents, setUntitledContents] = useState<Record<string, string>>({})
 
   // 持久化：任何变更立即落 localStorage（考试机刷新 = 重新登录，不丢文件）。
+  // 写失败直接置红横幅——VFS 是考生文件，静默丢=丢卷。
+  const trySetItem = (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value)
+    } catch {
+      useStore.setState({
+        persistenceError: '本地存储写入失败（可能已满）：考场文件未保存！请立即举手联系监考教师。',
+      })
+    }
+  }
+
   useEffect(() => {
     if (!vfsKey) return
-    localStorage.setItem(vfsKey, JSON.stringify(userFiles))
+    trySetItem(vfsKey, JSON.stringify(userFiles))
   }, [userFiles, vfsKey])
   useEffect(() => {
     if (!vfsKey) return
-    localStorage.setItem(`${vfsKey}_trash`, JSON.stringify(trash))
+    trySetItem(`${vfsKey}_trash`, JSON.stringify(trash))
   }, [trash, vfsKey])
   useEffect(() => {
     if (!docsKey) return
-    localStorage.setItem(
+    trySetItem(
       docsKey,
       JSON.stringify(openDocs.filter((d) => d.kind !== 'untitled'))
     )
-    localStorage.setItem(`${docsKey}_active`, JSON.stringify(activeDocId))
+    trySetItem(`${docsKey}_active`, JSON.stringify(activeDocId))
   }, [openDocs, activeDocId, docsKey])
+
+  // P0-2 跨标签同步：同一考生开两个标签（手滑双击很常见）时，两个页面
+  // 各持内存态、后写覆盖先写——一个标签里的文件会悄悄回退。
+  // BroadcastChannel 让最后操作即刻广播到其它标签，避免互踩。
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined' || !vfsKey) return
+    const channel = new BroadcastChannel(vfsKey)
+    const payload = () => ({
+      userFiles,
+      trash,
+      openDocs: openDocs.filter((d) => d.kind !== 'untitled'),
+      activeDocId,
+    })
+    channel.onmessage = (event) => {
+      const data = event.data as { userFiles?: VfsDirMap; trash?: typeof trash; openDocs?: GeanyDoc[]; activeDocId?: string | null }
+      if (!data || typeof data !== 'object') return
+      setUserFiles(data.userFiles ?? {})
+      setTrash(data.trash ?? [])
+      setOpenDocs(data.openDocs ?? [])
+      setActiveDocId(data.activeDocId ?? null)
+    }
+    // 挂载即广播一次：让先开的标签把最新状态推给后进标签对齐。
+    channel.postMessage(payload())
+    return () => channel.close()
+    // 挂载即对齐一次；持续同步由下方状态 effect 负责。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [vfsKey])
+
+  const lastBroadcastRef = useRef(0)
+  useEffect(() => {
+    if (typeof BroadcastChannel === 'undefined' || !vfsKey) return
+    const now = Date.now()
+    if (now - lastBroadcastRef.current < 50) return
+    lastBroadcastRef.current = now
+    const channel = new BroadcastChannel(vfsKey)
+    channel.postMessage({
+      userFiles,
+      trash,
+      openDocs: openDocs.filter((d) => d.kind !== 'untitled'),
+      activeDocId,
+    })
+    channel.close()
+  }, [userFiles, trash, openDocs, activeDocId, vfsKey])
+
+  // P1-3/4 坐标系统一为桌面容器系 + 浏览器窗口 resize 跟随：
+  // 视口系（window.innerWidth）与容器系（dock 右侧内容区）混用会让
+  // resize 手柄的右缘钳制偏出一个 dock 宽；窗口缩小后窗口越界拉不回。
+  useEffect(() => {
+    const onResize = () => {
+      const el = desktopRef.current
+      if (!el) return
+      const vw = el.clientWidth
+      const vh = el.clientHeight
+      setWindows((prev) => {
+        const next: Record<WindowKey, WindowState> = { ...prev }
+        for (const key of Object.keys(prev) as WindowKey[]) {
+          const w = prev[key]
+          if (w.isMaximized) continue
+          const snapped =
+            w.restoreRect !== undefined ||
+            isSnapped({ x: w.x, y: w.y, w: w.w, h: w.h }, { w: vw, h: vh })
+          if (snapped && w.restoreRect) {
+            // 贴边窗口重算落位，跟随新尺寸。
+            const half = Math.round(vw / 2)
+            const onLeft = w.x < vw / 2
+            const rect = { x: onLeft ? 0 : half, y: 0, w: onLeft ? half : vw - half, h: vh }
+            next[key] = { ...w, ...rect }
+          } else {
+            // 普通窗口拉回可视区。
+            const nw = Math.min(w.w, vw)
+            const nh = Math.min(w.h, vh)
+            next[key] = {
+              ...w,
+              w: nw,
+              h: nh,
+              x: Math.max(0, Math.min(w.x, vw - nw)),
+              y: Math.max(0, Math.min(w.y, vh - nh)),
+            }
+          }
+        }
+        return next
+      })
+    }
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [])
+
+  // P2：Esc 取消拖拽/缩放（GNOME 行为）；多指针守卫见 handleTitleMouseDown。
+  useEffect(() => {
+    if (!draggingKey && !resizing) return
+    const onEsc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      // 还原手势起点。
+      const origin = gestureOriginRef.current
+      if (origin && origin.key in windows) {
+        setWindows((prev) => ({
+          ...prev,
+          [origin.key]: { ...prev[origin.key], ...origin.rect, isMaximized: origin.wasMaximized },
+        }))
+      }
+      gestureOriginRef.current = null
+      setDraggingKey(null)
+      setResizing(null)
+      setSnapPreview(null)
+    }
+    window.addEventListener('keydown', onEsc)
+    return () => window.removeEventListener('keydown', onEsc)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draggingKey, resizing])
+
+  // P2：终端日志上限（GNOME 默认 scrollback 量级），防止考一天后无限累积。
+  const pushTerminalLogs = (append: (prev: CommandLog[]) => CommandLog[]) => {
+    pushTerminalLogs((prev) => {
+      const next = append(prev)
+      return next.length > TERMINAL_LOG_LIMIT ? next.slice(next.length - TERMINAL_LOG_LIMIT) : next
+    })
+  }
   // Alt+Tab 窗口切换器（GNOME 行为：按住 Alt 连按 Tab 轮选，松开 Alt 落点）。
   const [switcher, setSwitcher] = useState<{ index: number } | null>(null)
   // 桌面空白处右键菜单。
@@ -897,7 +1083,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
     const trimmed = cmd.trim()
     if (!trimmed) return
 
-    setTerminalLogs((prev) => [...prev, { type: 'input', text: trimmed }])
+    pushTerminalLogs((prev) => [...prev, { type: 'input', text: trimmed }])
 
     const parts = trimmed.split(/\s+/)
     const mainCmd = parts[0]
@@ -908,7 +1094,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         break
 
       case 'help':
-        setTerminalLogs((prev) => [
+        pushTerminalLogs((prev) => [
           ...prev,
           { type: 'output', text: 'Available commands in NOI Linux emulator:' },
           { type: 'output', text: '  ls [-l]                     List files in current exam directory' },
@@ -922,7 +1108,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         break
 
       case 'pwd':
-        setTerminalLogs((prev) => [
+        pushTerminalLogs((prev) => [
           ...prev,
           { type: 'output', text: `/home/${homeName}/${currentPath.slice(2).join('/') || ''}` },
         ])
@@ -936,13 +1122,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             const mode = entry.kind === 'dir' ? 'drwxr-xr-x' : '-rw-r--r--'
             return `${mode} 1 noilinux noilinux ${size.toString().padStart(5, ' ')} Oct 08 18:50 ${entry.name}`
           })
-          setTerminalLogs((prev) => [
+          pushTerminalLogs((prev) => [
             ...prev,
             { type: 'output', text: `total ${dirEntries.length}` },
             ...rows.map((text) => ({ type: 'output' as const, text })),
           ])
         } else {
-          setTerminalLogs((prev) => [
+          pushTerminalLogs((prev) => [
             ...prev,
             { type: 'output', text: dirEntries.map((entry) => entry.name).join('  ') || '(空目录)' },
           ])
@@ -953,14 +1139,14 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       case 'mkdir': {
         const name = parts[1]
         if (!name) {
-          setTerminalLogs((prev) => [...prev, { type: 'error', text: 'mkdir: missing operand' }])
+          pushTerminalLogs((prev) => [...prev, { type: 'error', text: 'mkdir: missing operand' }])
           break
         }
         const result = vfsMkdir(userFiles[homeKey] ?? [], name)
         if (result.ok) {
           setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
         } else {
-          setTerminalLogs((prev) => [...prev, { type: 'error', text: `mkdir: ${result.error}` }])
+          pushTerminalLogs((prev) => [...prev, { type: 'error', text: `mkdir: ${result.error}` }])
         }
         break
       }
@@ -969,7 +1155,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
         const target = parts[1]
         if (!target || target === '~' || target === `/home/${homeName}`) {
           setCurrentPath(['home', homeName])
-          setTerminalLogs((prev) => [...prev, { type: 'output', text: '' }])
+          pushTerminalLogs((prev) => [...prev, { type: 'output', text: '' }])
         } else if (target === '..') {
           if (currentPath.length > 2) {
             setCurrentPath((prev) => prev.slice(0, prev.length - 1))
@@ -983,7 +1169,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             const problem = problems.find((p) => taskDirOf(p) === dirEntry.name)
             if (problem) setActiveProblem(problem)
           } else {
-            setTerminalLogs((prev) => [...prev, { type: 'error', text: `cd: no such file or directory: ${target}` }])
+            pushTerminalLogs((prev) => [...prev, { type: 'error', text: `cd: no such file or directory: ${target}` }])
           }
         }
         break
@@ -992,16 +1178,16 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       case 'cat': {
         const fileToCat = parts[1]
         if (!fileToCat) {
-          setTerminalLogs((prev) => [...prev, { type: 'error', text: 'cat: missing filename' }])
+          pushTerminalLogs((prev) => [...prev, { type: 'error', text: 'cat: missing filename' }])
         } else if (dirEntries.some((entry) => entry.name === fileToCat && entry.kind === 'dir')) {
-          setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: Is a directory` }])
+          pushTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: Is a directory` }])
         } else {
           const entry = dirEntries.find((e) => e.name === fileToCat)
           if (!entry) {
-            setTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: No such file` }])
+            pushTerminalLogs((prev) => [...prev, { type: 'error', text: `cat: ${fileToCat}: No such file` }])
           } else {
             const content = entry.content ?? ''
-            setTerminalLogs((prev) => [...prev, { type: 'output', text: content }])
+            pushTerminalLogs((prev) => [...prev, { type: 'output', text: content }])
           }
         }
         break
@@ -1013,7 +1199,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           // static source checks, but it must never pretend to be a compiler.
           const sourceMatch = trimmed.match(/(\w+\.cpp)/)
           if (!sourceMatch) {
-            setTerminalLogs((prev) => [
+            pushTerminalLogs((prev) => [
               ...prev,
               { type: 'error', text: 'g++: fatal error: no input files\ncompilation terminated.' },
             ])
@@ -1021,15 +1207,15 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
           }
           const targetSource = sourceMatch[1]
           if (targetSource !== `${currentTaskDir}.cpp`) {
-            setTerminalLogs((prev) => [
+            pushTerminalLogs((prev) => [
               ...prev,
               { type: 'error', text: `g++: error: ${targetSource}: No such file or directory` },
             ])
             return
           }
-          setTerminalLogs((prev) => [...prev, ...buildStaticCheckLog(code, targetSource, activeProblem)])
+          pushTerminalLogs((prev) => [...prev, ...buildStaticCheckLog(code, targetSource, activeProblem)])
         } else if (trimmed.startsWith('./')) {
-          setTerminalLogs((prev) => [
+          pushTerminalLogs((prev) => [
             ...prev,
             {
               type: 'output',
@@ -1039,7 +1225,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             },
           ])
         } else {
-          setTerminalLogs((prev) => [
+          pushTerminalLogs((prev) => [
             ...prev,
             { type: 'error', text: `bash: ${mainCmd}: command not found. Type "help" for list.` },
           ])
@@ -1061,6 +1247,16 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       style={{ fontFamily: YARU_SANS }}
     >
       {/* ============================================================ */}
+      {/* 持久化失败横幅：草稿/文件没写进磁盘，必须让考生第一眼看到 */}
+      {persistenceError && (
+        <div
+          role="alert"
+          className="fixed inset-x-0 top-0 z-[100] bg-rose-700 px-4 py-2 text-center text-[13px] font-bold text-white shadow-lg"
+        >
+          {persistenceError}
+        </div>
+      )}
+
       {/* 1. GNOME Shell 顶栏（Ubuntu 20.04 / NOI Linux 2.0）          */}
       {/* ============================================================ */}
       <div className="relative h-7 bg-black px-3 flex items-center justify-between text-xs text-slate-200 z-40">
@@ -1386,8 +1582,13 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 onTrash={(name) => {
                   const result = vfsTrash(userFiles[homeKey] ?? [], name)
                   if (result.removed) {
-                    setUserFiles((prev) => ({ ...prev, [homeKey]: result.items }))
-                    setTrash((prev) => [...prev, { item: result.removed!, fromKey: homeKey }])
+                    // 目录连带子树一起进回收站（GNOME 语义），不留孤儿数据。
+                    const { files, subtree } = detachSubtree(userFiles, homeKey, name)
+                    setUserFiles({ ...files, [homeKey]: result.items })
+                    setTrash((prev) => [
+                      ...prev,
+                      { item: result.removed!, fromKey: homeKey, subtree },
+                    ])
                   }
                 }}
                 onRestore={(name) => {
@@ -1395,11 +1596,19 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   if (!entry) return
                   const result = vfsRestore(userFiles[entry.fromKey] ?? [], entry.item)
                   if (result.ok) {
-                    setUserFiles((prev) => ({ ...prev, [entry.fromKey]: result.items }))
+                    setUserFiles((prev) =>
+                      attachSubtree(
+                        { ...prev, [entry.fromKey]: result.items },
+                        entry.fromKey,
+                        entry.item.name,
+                        entry.subtree ?? {}
+                      )
+                    )
                     setTrash((prev) => prev.filter((t) => t.item.name !== name))
                   }
                 }}
                 onEmptyTrash={() => {
+                  // 子树随条目一并丢弃（attachSubtree 反向已不需要：直接丢弃）。
                   setTrash([])
                 }}
                 onOpenTerminal={() => toggleWindow('terminal')}
@@ -1545,7 +1754,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                 path={currentPath.slice(2).join('/')}
                 logs={terminalLogs}
                 onCommand={handleTerminalCommand}
-                onHint={(text) => setTerminalLogs((prev) => [...prev, { type: 'output', text }])}
+                onHint={(text) => pushTerminalLogs((prev) => [...prev, { type: 'output', text }])}
                 onClearScreen={() => setTerminalLogs([])}
                 completions={terminalCompletions}
                 onMouseDown={(e) => handleTitleMouseDown('terminal', e)}

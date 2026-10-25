@@ -31,7 +31,7 @@ describe('窗口几何：边缘调整大小', () => {
   it('最小尺寸约束与顶栏上界', () => {
     expect(applyResize(base, 'e', -5000, 0, VP).w).toBe(MIN_WINDOW_W)
     expect(applyResize(base, 's', 0, -5000, VP).h).toBe(MIN_WINDOW_H)
-    expect(applyResize(base, 'n', 0, -5000, VP).y).toBe(TOP_BAR_H)
+    expect(applyResize(base, 'n', 0, -5000, VP).y).toBe(0)
     // 西把手收过头：右缘固定，宽被钳到最小
     const west = applyResize(base, 'w', 5000, 0, VP)
     expect(west.w).toBe(MIN_WINDOW_W)
@@ -55,7 +55,7 @@ describe('窗口几何：贴边', () => {
 
   it('落位：最大化铺满顶栏以下，半屏各占一半', () => {
     const max = snapRect('max', VP)
-    expect(max).toEqual({ x: 0, y: TOP_BAR_H, w: 1440, h: 900 - TOP_BAR_H })
+    expect(max).toEqual({ x: 0, y: 0, w: 1440, h: 900 })
     const left = snapRect('left', VP)
     expect(left.x).toBe(0)
     expect(left.w).toBe(720)

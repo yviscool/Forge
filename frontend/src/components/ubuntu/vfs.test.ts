@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  attachSubtree,
+  type VfsDirMap,
+  detachSubtree,
   findItem,
   uniqueUntitledName,
   listDir,
@@ -77,5 +80,39 @@ describe('考场桌面 VFS', () => {
     const ro: VfsItem[] = [{ name: 'poker.in', kind: 'file', content: '6', readonly: true }]
     expect(writeFile(ro, 'poker.in', 'x').ok).toBe(false)
     expect(writeFile(base, 'ghost', 'x').ok).toBe(false)
+  })
+})
+
+describe('VFS 子树回收', () => {
+  it('detach 摘除整棵子树，attach 原样放回', () => {
+    const files: VfsDirMap = {
+      '': [{ name: 'work', kind: 'dir' }],
+      'work': [{ name: 'a.cpp', kind: 'file', content: 'x' }],
+      'work/sub': [{ name: 'b.cpp', kind: 'file', content: 'y' }],
+      'other': [{ name: 'c.cpp', kind: 'file', content: 'z' }],
+    }
+    // detach 只摘子树键；父层条目（work 目录项）由 vfsTrash 单独摘除。
+    const { files: after, subtree } = detachSubtree(files, '', 'work')
+    expect(Object.keys(after).sort()).toEqual(['', 'other'].sort())
+    expect(subtree).toEqual({
+      '': [{ name: 'a.cpp', kind: 'file', content: 'x' }],
+      sub: [{ name: 'b.cpp', kind: 'file', content: 'y' }],
+    })
+    const restored = attachSubtree(after, '', 'work', subtree)
+    expect(restored['work']).toEqual(files['work'])
+    expect(restored['work/sub']).toEqual(files['work/sub'])
+    expect(restored.other).toEqual(files.other)
+  })
+
+  it('嵌套目录的子树前缀正确', () => {
+    const files: VfsDirMap = {
+      'poker': [{ name: 'drafts', kind: 'dir' }],
+      'poker/drafts': [{ name: 's.cpp', kind: 'file', content: 's' }],
+    }
+    const { files: after, subtree } = detachSubtree(files, 'poker', 'drafts')
+    // 父键 'poker' 保留（含 drafts 条目，由 vfsTrash 摘）；子键被摘走。
+    expect(after['poker']).toEqual([{ name: 'drafts', kind: 'dir' }])
+    expect(Object.keys(after)).toEqual(['poker'])
+    expect(subtree).toEqual({ '': [{ name: 's.cpp', kind: 'file', content: 's' }] })
   })
 })

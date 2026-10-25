@@ -286,31 +286,32 @@ describe('EvinceWindow', () => {
     onClose: vi.fn(),
   }
 
-  it('真 PDF 模式：src 携带 page/zoom；头栏缩放与页码输入跳页', async () => {
+  it('真 PDF 模式：初始 src 携带 page/zoom；翻页缩放走 hash 导航不重载', async () => {
     render(<EvinceWindow {...base} pdfUrl="/api/v1/contests/c1/pdf" />)
-    const srcOf = () => screen.getByTitle('day1.pdf').getAttribute('src') ?? ''
-    expect(srcOf()).toContain('page=1')
-    expect(srcOf()).toContain('zoom=100')
-    // 3.36 常驻缩放组
+    const frame = screen.getByTitle('day1.pdf') as HTMLIFrameElement
+    expect(frame.getAttribute('src')).toContain('page=1')
+    expect(frame.getAttribute('src')).toContain('zoom=100')
+    // 缩放：same-origin hash 导航（src 不变 = 不销毁重建 iframe）
     fireEvent.click(screen.getByLabelText('放大'))
-    await waitFor(() => expect(srcOf()).toContain('zoom=125'))
-    fireEvent.click(screen.getByLabelText('缩小'))
-    await waitFor(() => expect(srcOf()).toContain('zoom=100'))
+    await waitFor(() =>
+      expect(frame.contentWindow?.location.hash).toContain('zoom=125')
+    )
+    expect(frame.getAttribute('src')).toContain('zoom=100') // src 未被重写
     // 页码输入框回车跳页
     const pageInput = screen.getByLabelText('页码')
     await userEvent.clear(pageInput)
     await userEvent.type(pageInput, '2{Enter}')
-    await waitFor(() => expect(srcOf()).toMatch(/page=2&/))
+    await waitFor(() => expect(frame.contentWindow?.location.hash).toMatch(/page=2/))
   })
 
   it('键盘翻页：PgDn 递增并钳制到 1..max', async () => {
     render(<EvinceWindow {...base} pdfUrl="/api/v1/contests/c1/pdf" />)
     const shell = screen.getByLabelText('day1.pdf 查看器')
-    const srcOf = () => screen.getByTitle('day1.pdf').getAttribute('src') ?? ''
+    const frame = screen.getByTitle('day1.pdf') as HTMLIFrameElement
     fireEvent.keyDown(shell, { key: 'PageDown' })
-    await waitFor(() => expect(srcOf()).toContain('page=2'))
+    await waitFor(() => expect(frame.contentWindow?.location.hash).toContain('page=2'))
     fireEvent.keyDown(shell, { key: 'Home' })
-    await waitFor(() => expect(srcOf()).toMatch(/page=1&/))
+    await waitFor(() => expect(frame.contentWindow?.location.hash).toMatch(/page=1/))
   })
 
   it('离线模式渲染 Markdown 分页与页码', () => {

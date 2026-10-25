@@ -1950,7 +1950,7 @@ function EvinceWindowImpl({
   useEffect(() => {
     if (!pdfUrl) return
     let cancelled = false
-    void fetch(pdfUrl, { credentials: 'same-origin' })
+    void fetch(pdfUrl, { credentials: 'same-origin', method: 'HEAD' })
       .then((response) => {
         const pages = Number(response.headers.get('X-Pdf-Pages') ?? '')
         if (!cancelled && Number.isFinite(pages) && pages > 0) setTotalPages(pages)
@@ -1961,12 +1961,29 @@ function EvinceWindowImpl({
     }
   }, [pdfUrl])
 
+  const frameRef = useRef<HTMLIFrameElement | null>(null)
   const pdfMode = Boolean(pdfUrl)
   const pages = paginateStatement(content)
   const outline = evinceOutline(content)
   const maxPage = totalPages ?? (pdfMode ? null : pages.length)
   const zoom = EVINCE_ZOOM_STEPS[zoomIndex]
   const pageCount = totalPages ?? pages.length
+
+  // hash 导航：same-origin 下直接改 contentWindow.location.hash，Chromium
+  // PDF viewer 响应 #page/#zoom 而无需重载文档；跨源/异常时回退改 src。
+  useEffect(() => {
+    if (!pdfMode || !pdfUrl) return
+    const frame = frameRef.current
+    if (!frame) return
+    const hash = `#page=${page}&zoom=${Math.round(zoom * 100)}`
+    try {
+      if (frame.contentWindow && frame.contentWindow.location.hash !== hash) {
+        frame.contentWindow.location.hash = hash
+      }
+    } catch {
+      frame.src = `${pdfUrl}${hash}&toolbar=0&navpanes=0&view=Fit`
+    }
+  }, [pdfMode, pdfUrl, page, zoom])
 
   const gotoPageClamped = (target: number) => {
     const bounded = Math.max(1, Math.min(maxPage ?? Infinity, target))
@@ -2176,8 +2193,9 @@ function EvinceWindowImpl({
         {pdfMode ? (
           <div className="min-h-0 flex-1" style={{ background: '#383838' }}>
             <iframe
-              key={`${pdfUrl}#${page}#${Math.round(zoom * 100)}`}
-              src={`${pdfUrl}#page=${page}&zoom=${Math.round(zoom * 100)}&toolbar=0&navpanes=0&view=Fit`}
+              key={pdfUrl}
+              ref={frameRef}
+              src={`${pdfUrl}#page=1&zoom=100&toolbar=0&navpanes=0&view=Fit`}
               title={fileName}
               className="h-full w-full border-0"
             />

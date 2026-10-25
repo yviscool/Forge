@@ -58,6 +58,10 @@ interface AppState {
   setUnreadBroadcasts: (cnt: number) => void
   activeAlert: BroadcastAlert | null
   setActiveAlert: (alert: BroadcastAlert | null) => void
+
+  /** 本地持久化失败（配额满/私密模式）：UI 顶部红色横幅，考生可见。 */
+  persistenceError: string | null
+  clearPersistenceError: () => void
 }
 
 // Local exam artifacts must never cross account boundaries on a shared exam
@@ -99,11 +103,25 @@ const getStorageItem = (k: string) => {
   }
 }
 
+// persistenceBroken：一次失败后持续告警，直到成功写入复位。
+let persistenceBroken = false
+
 const setStorageItem = (k: string, v: string) => {
   try {
     getBrowserStorage()?.setItem(k, v)
+    return true
   } catch {
-    // Private browsing and quota failures must never break the exam UI.
+    // 私密模式/配额满：不抛异常打断 UI，但必须让上层知道写入失败——
+    // 草稿是考生答卷，静默丢失等于丢卷（持久化失败横幅由 UI 呈现）。
+    persistenceBroken = true
+    queueMicrotask(() => {
+      try {
+        useStore.setState({ persistenceError: '本地存储写入失败（可能已满）：草稿与考场文件未保存！请立即举手联系监考教师。' })
+      } catch {
+        /* store 未初始化时忽略 */
+      }
+    })
+    return false
   }
 }
 
@@ -118,6 +136,43 @@ const removeStorageItem = (k: string) => {
 // Remove credentials persisted by pre-launch builds. Authentication now lives
 // exclusively in an HttpOnly cookie and must never be readable by JavaScript.
 removeStorageItem('forge_session')
+
+// 草稿持久化：打字高频，全量序列化走 debounce（300ms）；页面卸载/隐藏时
+// 同步 flush，保证「保存」语义在任何退出路径下成立。
+let draftsPending: Record<string, string> | null = null
+let draftsTimer = 0
+const flushDrafts = () => {
+  if (draftsTimer) {
+    clearTimeout(draftsTimer)
+    draftsTimer = 0
+  }
+  if (!draftsPending) return
+  const snapshot = draftsPending
+  draftsPending = null
+  if (setStorageItem('forge_drafts', JSON.stringify(snapshot)) && persistenceBroken) {
+    persistenceBroken = false
+    try {
+      useStore.setState({ persistenceError: null })
+    } catch {
+      /* noop */
+    }
+  }
+}
+const scheduleDraftsFlush = (drafts: Record<string, string>) => {
+  draftsPending = drafts
+  if (draftsTimer) return
+  draftsTimer = window.setTimeout(() => {
+    draftsTimer = 0
+    flushDrafts()
+  }, 300)
+}
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', flushDrafts)
+  window.addEventListener('pagehide', flushDrafts)
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushDrafts()
+  })
+}
 
 export const useStore = create<AppState>((set) => ({
   locale: (getStorageItem('forge_locale') as Locale) || 'zh-CN',
@@ -139,6 +194,7 @@ export const useStore = create<AppState>((set) => ({
     set({ session, authStatus: session ? 'authenticated' : 'anonymous' })
   },
   logout: () => {
+    flushDrafts()
     removeStorageItem('forge_session')
     removeStorageItem('forge_unlocked')
     set({
@@ -163,12 +219,13 @@ export const useStore = create<AppState>((set) => ({
       return {}
     }
   })(),
-  setDraft: (problemId, code) =>
+  setDraft: (problemId, code) => {
     set((state) => {
       const nextDrafts = { ...state.drafts, [problemId]: code }
-      setStorageItem('forge_drafts', JSON.stringify(nextDrafts))
+      scheduleDraftsFlush(nextDrafts)
       return { drafts: nextDrafts }
-    }),
+    })
+  },
 
   serverTimeOffset: 0,
   setServerTimeOffset: (serverTimeOffset) => set({ serverTimeOffset }),
@@ -198,4 +255,6 @@ export const useStore = create<AppState>((set) => ({
   setUnreadBroadcasts: (unreadBroadcasts) => set({ unreadBroadcasts }),
   activeAlert: null,
   setActiveAlert: (activeAlert) => set({ activeAlert }),
+  persistenceError: null,
+  clearPersistenceError: () => set({ persistenceError: null }),
 }))
