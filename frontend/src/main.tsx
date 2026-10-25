@@ -18,6 +18,12 @@ const queryClient = new QueryClient({
   },
 })
 
+// 开发预览：?desktop-preview 直接渲染考场桌面（不进生产构建）
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has('desktop-preview')) {
+  void import('./dev/DesktopPreview').then(({ DesktopPreview }) => {
+    ReactDOM.createRoot(document.getElementById('root')!).render(<DesktopPreview />)
+  })
+} else {
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -27,3 +33,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
     </QueryClientProvider>
   </React.StrictMode>
 )
+}

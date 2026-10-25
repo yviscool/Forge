@@ -10,6 +10,7 @@ import {
   NoiWallpaper,
   TerminalWindow,
   YARU_SANS,
+  YaruHeaderBar,
   registerMonacoSlot,
   type GeanyEditorHandle,
 } from './ubuntu/UbuntuYaru'
@@ -18,14 +19,12 @@ import { ContestTimer } from './ContestTimer'
 import { Button } from './ui/button'
 import { useToast } from './ui/toast'
 import {
+  LayoutGrid,
   Terminal as TerminalIcon,
   FileText,
   ShieldCheck,
   ShieldAlert,
   Lock,
-  X,
-  Minus,
-  Square,
   Sparkles,
   HardDrive,
   Wifi,
@@ -142,8 +141,8 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
       const day = String(d.getDate()).padStart(2, '0')
       const h = String(d.getHours()).padStart(2, '0')
       const min = String(d.getMinutes()).padStart(2, '0')
-      const s = String(d.getSeconds()).padStart(2, '0')
-      setCurrentTimeStr(`${m}月${day}日 ${h}:${min}:${s}`)
+      const weekday = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'][d.getDay()]
+      setCurrentTimeStr(`${weekday} ${m}月${day}日 ${h}:${min}`)
     }
     updateTime()
     const t = setInterval(updateTime, 1000)
@@ -159,12 +158,12 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
   }
 
   const [windows, setWindows] = useState<Record<WindowKey, WindowState>>({
-    files: { isOpen: true, isMinimized: false, isMaximized: false, x: 70, y: 50, w: 560, h: 420, zIndex: 10 },
-    editor: { isOpen: true, isMinimized: false, isMaximized: false, x: 260, y: 70, w: 760, h: 540, zIndex: 12 },
-    terminal: { isOpen: false, isMinimized: false, isMaximized: false, x: 180, y: 220, w: 680, h: 400, zIndex: 14 },
-    pdf: { isOpen: false, isMinimized: false, isMaximized: false, x: 120, y: 60, w: 640, h: 560, zIndex: 11 },
-    doctor: { isOpen: false, isMinimized: false, isMaximized: false, x: 320, y: 120, w: 540, h: 460, zIndex: 15 },
-    unlock: { isOpen: !isUnlocked, isMinimized: false, isMaximized: false, x: 380, y: 160, w: 420, h: 280, zIndex: 30 },
+    files: { isOpen: true, isMinimized: false, isMaximized: false, x: 80, y: 46, w: 880, h: 560, zIndex: 10 },
+    editor: { isOpen: true, isMinimized: false, isMaximized: false, x: 210, y: 84, w: 920, h: 620, zIndex: 12 },
+    terminal: { isOpen: false, isMinimized: false, isMaximized: false, x: 170, y: 220, w: 660, h: 420, zIndex: 14 },
+    pdf: { isOpen: false, isMinimized: false, isMaximized: false, x: 120, y: 60, w: 680, h: 580, zIndex: 11 },
+    doctor: { isOpen: false, isMinimized: false, isMaximized: false, x: 320, y: 120, w: 560, h: 480, zIndex: 15 },
+    unlock: { isOpen: !isUnlocked, isMinimized: false, isMaximized: false, x: 380, y: 160, w: 440, h: 300, zIndex: 30 },
   })
 
   // Bring window to focus
@@ -724,6 +723,17 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
             )}
           </button>
 
+          {/* 应用网格（Show Applications，视觉还原） */}
+          <button
+            onClick={() =>
+              toast.notify('info', 'GNOME Shell', '模拟桌面不提供应用网格；所有考场应用已固定在左侧坞站。')
+            }
+            className="w-10 h-10 rounded-xl flex items-center justify-center text-slate-300 hover:bg-white/10 transition-transform"
+            title="显示应用"
+          >
+            <LayoutGrid className="w-5 h-5" />
+          </button>
+
           <div className="w-8 h-px bg-white/10 my-auto" />
 
           {/* Trash */}
@@ -821,21 +831,27 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               <NautilusWindow
                 homeName={homeName}
                 dirName={currentPath.length > 2 ? currentPath[2] : ''}
-                items={[
-                  ...problems.map((p) => ({
-                    id: `folder-${p.id}`,
-                    name: taskDirOf(p),
-                    kind: 'folder' as const,
-                  })),
-                  {
-                    id: 'source',
-                    name: `${currentTaskDir}.cpp`,
-                    kind: 'source' as const,
-                    sizeBytes: new Blob([code || '']).size,
-                  },
-                ]}
+                items={
+                  currentPath.length > 2
+                    ? [
+                        {
+                          id: 'source',
+                          name: `${currentTaskDir}.cpp`,
+                          kind: 'source' as const,
+                          sizeBytes: new Blob([code || '']).size,
+                        },
+                      ]
+                    : problems.map((p) => ({
+                        id: `folder-${p.id}`,
+                        name: taskDirOf(p),
+                        kind: 'folder' as const,
+                      }))
+                }
                 selectedId={selectedNautilus}
                 onSelect={setSelectedNautilus}
+                onNavigate={(level) => {
+                  if (level === 0) setCurrentPath(['home', homeName])
+                }}
                 onOpen={(item) => {
                   if (item.kind === 'folder') {
                     const problem = problems.find((p) => taskDirOf(p) === item.name)
@@ -894,6 +910,7 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
                   setGeanyCompilerLog(buildStaticCheckLog(code, `${currentTaskDir}.cpp`))
                   focusWindow('editor')
                 }}
+                onRun={() => toggleWindow('terminal')}
                 onDoctor={() => focusWindow('doctor')}
                 onPickUploadFile={onPickUploadFile}
                 uploadFile={uploadFile}
@@ -982,42 +999,14 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               className="absolute bg-white rounded-xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
             >
               {/* Header */}
-              <div
+              <YaruHeaderBar
+                title="CCF 考场静态检查器（非编译器）"
                 onMouseDown={(e) => handleTitleMouseDown('doctor', e)}
-                className="h-10 bg-amber-600 px-4 flex items-center justify-between text-white cursor-move select-none"
-              >
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-amber-200" />
-                  <span className="text-xs font-bold tracking-wide">
-                    CCF 考场静态检查器（非编译器）
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isMinimized: true } }))}
-                    className="p-1 rounded hover:bg-amber-700 text-white/80"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                  </button>
-                  <button
-                    onClick={() =>
-                      setWindows((p) => ({
-                        ...p,
-                        doctor: { ...p.doctor, isMaximized: !p.doctor.isMaximized },
-                      }))
-                    }
-                    className="p-1 rounded hover:bg-amber-700 text-white/80"
-                  >
-                    <Square className="w-3 h-3" />
-                  </button>
-                  <button
-                    onClick={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isOpen: false } }))}
-                    className="p-1 rounded hover:bg-red-500 text-white/80 transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
+                onMinimize={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isMinimized: true } }))}
+                onMaximize={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isMaximized: !p.doctor.isMaximized } }))}
+                onClose={() => setWindows((p) => ({ ...p, doctor: { ...p.doctor, isOpen: false } }))}
+                actions={<Sparkles className="h-4 w-4 text-amber-500" />}
+              />
 
               {/* Diagnostic Score Card */}
               <div className="p-4 bg-amber-50/70 border-b border-amber-100 flex items-center justify-between">
@@ -1077,21 +1066,11 @@ export const UbuntuDesktop: React.FC<UbuntuDesktopProps> = ({
               }}
               className="absolute bg-white rounded-2xl shadow-2xl border border-slate-300 text-slate-800 flex flex-col overflow-hidden animate-in fade-in-50 duration-100"
             >
-              <div
+              <YaruHeaderBar
+                title="考场试题包密码解锁"
                 onMouseDown={(e) => handleTitleMouseDown('unlock', e)}
-                className="h-10 bg-slate-900 px-4 flex items-center justify-between text-white cursor-move select-none"
-              >
-                <div className="flex items-center gap-2">
-                  <Lock className="w-4 h-4 text-amber-400" />
-                  <span className="text-xs font-bold">考场试题包密码解锁</span>
-                </div>
-                <button
-                  onClick={() => setWindows((p) => ({ ...p, unlock: { ...p.unlock, isOpen: false } }))}
-                  className="p-1 rounded hover:bg-slate-800 text-slate-400"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                onClose={() => setWindows((p) => ({ ...p, unlock: { ...p.unlock, isOpen: false } }))}
+              />
 
               <form onSubmit={handleUnlock} className="p-6 space-y-4">
                 <div className="text-center space-y-1">
