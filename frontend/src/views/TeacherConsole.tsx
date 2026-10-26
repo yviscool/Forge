@@ -248,6 +248,11 @@ export function TeacherConsole() {
   // User Management State
   const [newGroupForm, setNewGroupForm] = useState({ name: '' })
   const [groupMemberDraft, setGroupMemberDraft] = useState<Record<string, string>>({})
+  // 新增一律走弹窗配置（与「创建新比赛」同范式），不再内联在面板里。
+  const [showCreateUser, setShowCreateUser] = useState(false)
+  const [createUserBusy, setCreateUserBusy] = useState(false)
+  const [showCreateGroup, setShowCreateGroup] = useState(false)
+  const [createGroupBusy, setCreateGroupBusy] = useState(false)
   const [newUserForm, setNewUserForm] = useState({ name: '', username: '', role: 'student', password: '', province: '' })
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [editingUser, setEditingUser] = useState<User | null>(null)
@@ -1012,6 +1017,7 @@ export function TeacherConsole() {
       toast.error('初始密码过短', '商业版要求密码至少 10 位。建议使用“随机生成”。')
       return
     }
+    setCreateUserBusy(true)
     try {
       const created = await api.createUser(
         newUserForm.name.trim(),
@@ -1022,9 +1028,12 @@ export function TeacherConsole() {
       )
       setNewUserForm({ name: '', username: '', role: 'student', password: '', province: newUserForm.province })
       await refetchUsers()
+      setShowCreateUser(false)
       toast.success('账号已录入', `登录账号：${created.username}${created.province ? ' · 省份：' + provinceName(created.province) : ''}`)
     } catch (cause) {
       toast.error('录入失败', errorText(cause))
+    } finally {
+      setCreateUserBusy(false)
     }
   }
 
@@ -1132,14 +1141,21 @@ export function TeacherConsole() {
   }
 
   const handleCreateGroup = async () => {
-    if (!newGroupForm.name.trim()) return
+    if (!newGroupForm.name.trim()) {
+      toast.error('请填写组别名称')
+      return
+    }
+    setCreateGroupBusy(true)
     try {
       await api.createGroup(newGroupForm.name.trim())
       setNewGroupForm({ name: '' })
       await refetchGroups()
+      setShowCreateGroup(false)
       toast.success('组别已创建')
     } catch (cause) {
       toast.error('创建组别失败', errorText(cause))
+    } finally {
+      setCreateGroupBusy(false)
     }
   }
 
@@ -1526,7 +1542,6 @@ export function TeacherConsole() {
         open={showCreateContest}
         onClose={() => setShowCreateContest(false)}
         title="创建新比赛"
-        eyebrow="New contest"
         footer={
           <>
             <Button variant="ghost" onClick={() => setShowCreateContest(false)}>
@@ -1630,13 +1645,189 @@ export function TeacherConsole() {
         </div>
       </Dialog>
 
+      {/* 新增学员：与创建比赛同范式的弹窗配置 */}
+      <Dialog
+        open={showCreateUser}
+        onClose={() => {
+          if (!createUserBusy) setShowCreateUser(false)
+        }}
+        title="新增学员"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={createUserBusy}
+              onClick={() => setShowCreateUser(false)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="accent"
+              onClick={() => void handleCreateUser()}
+              loading={createUserBusy}
+            >
+              录入学员
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-700">姓名</span>
+            <Input
+              autoFocus
+              placeholder="如：张伟"
+              value={newUserForm.name}
+              onChange={(event) => setNewUserForm({ ...newUserForm, name: event.target.value })}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-700">角色</span>
+              <Select
+                value={newUserForm.role}
+                onChange={(event) =>
+                  setNewUserForm({ ...newUserForm, role: event.target.value })
+                }
+              >
+                <option value="student">选手（学生）</option>
+                <option value="teacher">教师</option>
+              </Select>
+            </label>
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-700">省份（可选）</span>
+              <Select
+                value={newUserForm.province}
+                onChange={(event) =>
+                  setNewUserForm({ ...newUserForm, province: event.target.value })
+                }
+                title="CSP 准考证号的省份编号来源"
+              >
+                <option value="">不设置</option>
+                {enabledProvinces.map((p) => (
+                  <option key={p.code} value={p.code}>
+                    {p.code} · {p.name}
+                  </option>
+                ))}
+              </Select>
+            </label>
+          </div>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-700">学号 / 账号</span>
+            <Input
+              placeholder="唯一识别码，如 stu001"
+              value={newUserForm.username}
+              onChange={(event) =>
+                setNewUserForm({ ...newUserForm, username: event.target.value })
+              }
+            />
+          </label>
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-700">初始密码（至少 10 位）</span>
+            <div className="flex gap-2">
+              <Input
+                type="text"
+                placeholder="点击「随机」自动生成"
+                value={newUserForm.password}
+                onChange={(event) =>
+                  setNewUserForm({ ...newUserForm, password: event.target.value })
+                }
+                className="flex-1 font-mono"
+              />
+              <Button
+                variant="outline"
+                type="button"
+                onClick={() => setNewUserForm({ ...newUserForm, password: generateInitialPassword() })}
+              >
+                随机
+              </Button>
+            </div>
+          </label>
+          <p className="rounded-xl bg-slate-50 px-4 py-3 text-[11px] leading-5 text-slate-500">
+            账号创建后请把账号与初始密码发给本人；可在名册中随时重置密码或导出台账。
+          </p>
+        </div>
+      </Dialog>
+
+      {/* 新建班级 / 组别 */}
+      <Dialog
+        open={showCreateGroup}
+        onClose={() => {
+          if (!createGroupBusy) setShowCreateGroup(false)
+        }}
+        title="新建班级 / 组别"
+        width="sm"
+        footer={
+          <>
+            <Button
+              variant="ghost"
+              disabled={createGroupBusy}
+              onClick={() => setShowCreateGroup(false)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="accent"
+              onClick={() => void handleCreateGroup()}
+              loading={createGroupBusy}
+            >
+              创建组别
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <label className="block space-y-1.5">
+            <span className="text-xs font-bold text-slate-700">组别名称</span>
+            <Input
+              autoFocus
+              placeholder="如：高一竞赛A班、CSP强化组"
+              value={newGroupForm.name}
+              onChange={(event) => setNewGroupForm({ name: event.target.value })}
+            />
+          </label>
+          <p className="rounded-xl bg-slate-50 px-4 py-3 text-[11px] leading-5 text-slate-500">
+            组别是全局名单的组织单位；创建后在名册中把学员加入组别，再授权给具体比赛。
+          </p>
+        </div>
+      </Dialog>
+
+      {/* CSV 批量导入 */}
+      <Dialog
+        open={showImportCsv}
+        onClose={() => setShowImportCsv(false)}
+        title="CSV 批量导入学员"
+        footer={
+          <>
+            <Button variant="ghost" onClick={() => setShowImportCsv(false)}>
+              取消
+            </Button>
+            <Button onClick={() => void handleImportCsv()} disabled={!csvContent.trim()}>
+              执行导入
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <p className="text-xs leading-5 text-slate-600">
+            粘贴 CSV 内容（格式：name,role,group,password,username,province；省份可填编号或中文全名，如 HA 或 河南）。
+          </p>
+          <textarea
+            rows={7}
+            value={csvContent}
+            onChange={(event) => setCsvContent(event.target.value)}
+            placeholder={'张伟,student,高一1班,请使用至少10位密码\n李想,student,高一1班,可留空由系统生成'}
+            className="w-full rounded-[10px] border border-[#ccd5df] bg-white p-3 font-mono text-xs text-slate-800 focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10"
+          />
+        </div>
+      </Dialog>
+
       <Dialog
         open={showImportBundle}
         onClose={() => {
           if (!bundleBusy) setShowImportBundle(false)
         }}
         title="导入 Forge 比赛包"
-        eyebrow="Bundle import"
         width="md"
         footer={
           <>
@@ -1969,24 +2160,19 @@ export function TeacherConsole() {
           {/* Group Management Section */}
           <div className="grid gap-5 md:grid-cols-[280px_1fr]">
             <Card>
-              <CardHeader>
-                <CardTitle className="text-sm">新建全局班级 / 组别</CardTitle>
+              <CardHeader className="flex-row items-center justify-between pb-3">
+                <CardTitle className="text-sm">全局班级 / 组别（{groups.length}）</CardTitle>
+                <Button
+                  size="sm"
+                  variant="accent"
+                  onClick={() => setShowCreateGroup(true)}
+                  className="gap-1 text-xs"
+                >
+                  <Plus className="h-3.5 w-3.5" /> 新建
+                </Button>
               </CardHeader>
               <CardContent className="space-y-3">
-                <Input
-                  placeholder="如: 高一竞赛A班、CSP强化组"
-                  value={newGroupForm.name}
-                  onChange={(e) => setNewGroupForm({ name: e.target.value })}
-                />
-                <Button size="sm" onClick={handleCreateGroup} className="w-full">
-                  添加组别
-                </Button>
-
-                <div className="pt-3 border-t border-slate-100 space-y-2">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                    已创建组别 ({groups.length})
-                  </span>
-                  <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
                     {groups.map((g) => (
                       <div
                         key={g.id}
@@ -2064,7 +2250,6 @@ export function TeacherConsole() {
                         </div>
                       </div>
                     ))}
-                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -2076,6 +2261,14 @@ export function TeacherConsole() {
                   全局学员名册 ({users.length} 人)
                 </CardTitle>
                 <div className="flex items-center gap-2">
+                  <Button
+                    size="sm"
+                    variant="accent"
+                    onClick={() => setShowCreateUser(true)}
+                    className="gap-1 text-xs"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 新增学员
+                  </Button>
                   <Button
                     size="sm"
                     variant="outline"
@@ -2100,7 +2293,7 @@ export function TeacherConsole() {
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => setShowImportCsv(!showImportCsv)}
+                    onClick={() => setShowImportCsv(true)}
                     className="text-xs gap-1"
                   >
                     <Upload className="w-3.5 h-3.5" /> CSV 批量导入
@@ -2120,72 +2313,6 @@ export function TeacherConsole() {
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                {/* Single User Add Row */}
-                <div className="grid gap-2 sm:grid-cols-4 p-3 bg-slate-50 rounded-lg border border-slate-200">
-                  <Input
-                    placeholder="姓名 (如: 张伟)"
-                    value={newUserForm.name}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, name: e.target.value })}
-                  />
-                  <Input
-                    placeholder="学号/账号 (唯一识别码)"
-                    value={newUserForm.username}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, username: e.target.value })}
-                  />
-                  <Input
-                    type="password"
-                    placeholder="初始密码（至少 10 位）"
-                    value={newUserForm.password}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, password: e.target.value })}
-                  />
-                  <Select
-                    aria-label="录入省份"
-                    value={newUserForm.province}
-                    onChange={(e) => setNewUserForm({ ...newUserForm, province: e.target.value })}
-                    className="h-9 text-xs"
-                    title="CSP 准考证号的省份编号来源"
-                  >
-                    <option value="">省份（可选）…</option>
-                    {enabledProvinces.map((p) => (
-                      <option key={p.code} value={p.code}>
-                        {p.code} · {p.name}
-                      </option>
-                    ))}
-                  </Select>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      type="button"
-                      onClick={() => setNewUserForm({ ...newUserForm, password: generateInitialPassword() })}
-                      className="shrink-0 text-xs"
-                    >
-                      随机
-                    </Button>
-                    <Button size="sm" onClick={handleCreateUser} className="flex-1">
-                      录入学员
-                    </Button>
-                  </div>
-                </div>
-
-                {showImportCsv && (
-                  <div className="p-3 bg-blue-50/50 rounded-lg border border-blue-200 space-y-2">
-                    <span className="text-xs font-semibold text-blue-800">
-                      粘贴 CSV 内容 (格式: name,role,group,password,username,province；省份可填编号或中文全名，如 HA 或 河南):
-                    </span>
-                    <textarea
-                      rows={3}
-                      value={csvContent}
-                      onChange={(e) => setCsvContent(e.target.value)}
-                      placeholder="张伟,student,高一1班,请使用至少10位密码&#10;李想,student,高一1班,可留空由系统生成"
-                      className="w-full text-xs font-mono p-2 rounded border border-blue-300 bg-white"
-                    />
-                    <Button size="sm" onClick={handleImportCsv} className="text-xs">
-                      执行导入
-                    </Button>
-                  </div>
-                )}
-
                 {/* Users Table */}
                 <div tabIndex={0} className="overflow-x-auto rounded-lg border border-slate-200">
                   <table className="w-full min-w-[1000px] text-left text-xs">
@@ -3888,7 +4015,6 @@ export function TeacherConsole() {
           if (!resetBusy) setResetUser(null)
         }}
         title="重置账号密码"
-        eyebrow="Credential rotation"
         width="sm"
         footer={
           <>
@@ -3955,7 +4081,6 @@ export function TeacherConsole() {
           if (!deleteBusy) setDeleteTarget(null)
         }}
         title="删除账号"
-        eyebrow="Remove account"
         width="sm"
         footer={
           <>
@@ -4007,7 +4132,6 @@ export function TeacherConsole() {
         open={Boolean(editingUser)}
         onClose={() => setEditingUser(null)}
         title="编辑账号"
-        eyebrow="Account profile"
         footer={
           <>
             <Button size="sm" variant="outline" onClick={() => setEditingUser(null)}>
@@ -4085,7 +4209,6 @@ export function TeacherConsole() {
         open={showBatchProvince}
         onClose={() => setShowBatchProvince(false)}
         title="批量设置省份"
-        eyebrow="Batch province"
         footer={
           <>
             <Button size="sm" variant="outline" onClick={() => setShowBatchProvince(false)}>
@@ -4127,7 +4250,6 @@ export function TeacherConsole() {
         open={showSeatCardModal}
         onClose={() => setShowSeatCardModal(false)}
         title="智能准考证与机房座位卡"
-        eyebrow="Exam credentials"
         width="lg"
         footer={
           <>

@@ -65,7 +65,6 @@ export function ChangePasswordDialog({ open, onClose }: ChangePasswordDialogProp
       open={open}
       onClose={close}
       title="修改登录密码"
-      eyebrow="Account security"
       width="sm"
       dismissible={!busy}
       footer={

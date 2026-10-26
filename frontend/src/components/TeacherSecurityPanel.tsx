@@ -1133,7 +1133,6 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
           if (!confirming) setConfirmState(null)
         }}
         title={confirmState?.title || '确认操作'}
-        eyebrow="Safety check"
         width="sm"
         dismissible={!confirming}
         footer={

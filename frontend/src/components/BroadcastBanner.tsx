@@ -96,7 +96,6 @@ export const BroadcastBanner: React.FC<BroadcastBannerProps> = ({
         open={historyOpen}
         onClose={() => setHistoryOpen(false)}
         title="考场通知"
-        eyebrow="Announcements"
         width="md"
         footer={
           <Button variant="secondary" onClick={() => setHistoryOpen(false)}>

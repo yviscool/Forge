@@ -190,7 +190,6 @@ function NoticeDrawer({
       open={open}
       onClose={onClose}
       title="考场通告"
-      eyebrow="Announcements"
       width="md"
       footer={
         <Button variant="secondary" onClick={onClose}>
@@ -1988,7 +1987,6 @@ export function StudentWorkspace() {
         open={confirmOpen}
         onClose={() => setConfirmOpen(false)}
         title={`再次提交 ${activeProblem?.code ?? ''}`}
-        eyebrow="Submit confirmation"
         width="sm"
         footer={
           <>
@@ -2043,7 +2041,6 @@ export function StudentWorkspace() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         title="从本地载入代码"
-        eyebrow="Local source"
         width="lg"
         footer={
           <Button variant="secondary" onClick={() => setUploadOpen(false)}>
