@@ -32,12 +32,13 @@ func ShUlimitArgv(argv []string, lim Limits) []string {
 
 // BwrapArgv 用 bubblewrap 包一层命名空间沙箱（Linux 强化路径，对标
 // LemonLime processrunner_unix 的 bwrap 参数）：--unshare-all 断网/断 IPC、
-// /usr 只读、/tmp 私有 tmpfs、工作目录可写。返回 bwrap + "--" + inner。
-func BwrapArgv(inner []string, workdir string) []string {
-	if len(inner) == 0 {
+// /usr 只读、/tmp 私有 tmpfs、工作目录可写。返回 [bwrap, 旗标..., "--", inner]。
+func BwrapArgv(bwrap string, inner []string, workdir string) []string {
+	if bwrap == "" || len(inner) == 0 {
 		return inner
 	}
 	args := []string{
+		bwrap,
 		"--dev", "/dev",
 		"--proc", "/proc",
 		"--ro-bind", "/usr", "/usr",

@@ -121,3 +121,17 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
 - [x] 合理排除:类型-only 模块、main/App 挂载壳、UbuntuDesktop/DesktopPreview
       桌面专用外壳(由桌面构建与 E2E 验证,jsdom 无法承载)——理由落配置注释
 - [x] 覆盖率 43.2/41.7/40.3/45.4 → 60.4/55.5/54.2/62.3,四项阈值(55/51/50/58)全越线
+
+# BwrapArgv 真缺陷修复(2026-10-27,ubuntu CI 首次跑通 test 步骤暴露)
+
+- [x] BwrapArgv 只拼旗标、从未把 bwrap 二进制放进 argv 头部——exec 去找
+      "--dev" 这个"可执行文件"(`exec: "--dev": executable file not found`),
+      所有 Linux 真实工具链测试全灭。batch-1 起就是死代码,ubuntu 的 test
+      步骤此前永远被 doctor(137)/vet 挡住,今天是首次执行。修复签名
+      (bwrap 路径入参入 argv[0])+ align_test 断言二进制必须居首
+- [x] bwrap 可用性探测:Ubuntu 23.10+ 默认限制非特权 userns(AppArmor),
+      探测失败退回 prlimit-only,沙箱封装本身不得变成选手程序的 RE
+- [x] MLE 信号启发式补 bwrap 包装器口径:致命信号经包装器以 128+信号码
+      退出码上报,一并识别(SIGABRT/BUS/KILL/SEGV)
+- [x] 教训固化为 CI 门禁:cross-vet(GOOS=linux/darwin go vet)已入 go job;
+      judge doctor 纯诊断步骤容错化,不再挡住后续步骤

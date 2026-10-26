@@ -22,6 +22,25 @@ func toolPaths() (prlimit, bwrap string) {
 	return prlimitPath, bwrapPath
 }
 
+var bwrapProbeOnce sync.Once
+var bwrapUsable bool
+
+// bwrapAvailable 探测 bwrap 是否真的可用：Ubuntu 23.10+ 默认限制非特权
+// user namespaces（AppArmor），bwrap --unshare-all 会被拒。探测失败时
+// 退回 prlimit-only 资源墙（对标 LemonLime "bwrap 缺失 → 不强化" 的降级），
+// 决不能让沙箱封装本身变成选手程序的 RE。
+func bwrapAvailable() bool {
+	toolPaths()
+	bwrapProbeOnce.Do(func() {
+		if bwrapPath == "" {
+			return
+		}
+		probe := exec.Command(bwrapPath, "--unshare-all", "--ro-bind", "/", "/", "--", "/bin/true")
+		bwrapUsable = probe.Run() == nil
+	})
+	return bwrapUsable
+}
+
 // Unix 资源墙层级（对标 LemonLime processrunner_unix）：
 //  1. Linux 且有 bwrap：命名空间沙箱（断网/文件系统隔离）包外层，prlimit 内层；
 //  2. 其余且有 prlimit：RLIMIT_AS / RLIMIT_CPU / RLIMIT_NPROC；
@@ -46,8 +65,8 @@ func confineArgv(argv []string, lim Limits, workdir string) []string {
 		inner = ShUlimitArgv(argv, effectiveLim(lim))
 	}
 	// bwrap 只包选手程序（workdir 非空）；编译器与特判等辅助进程不进沙箱。
-	if runtime.GOOS == "linux" && bwrap != "" && workdir != "" {
-		return BwrapArgv(inner, workdir)
+	if runtime.GOOS == "linux" && bwrap != "" && workdir != "" && bwrapAvailable() {
+		return BwrapArgv(bwrap, inner, workdir)
 	}
 	return inner
 }
@@ -98,17 +117,25 @@ func processPeakBytes(ps *os.ProcessState) uint64 {
 // SIGKILL/SIGABRT→MLE）：进程死于致命信号且（峰值贴墙 或 stderr 报
 // bad_alloc —— RLIMIT_AS 拒绝分配的典型路径）时判 MLE 而非 RE。
 // SIGKILL 可能来自外部 OOM killer；本方看门狗的组杀走 TLE 分支优先。
+// bwrap 包裹下致命信号以 128+信号码 的退出码上报，一并识别。
 func crashedOnMemoryWall(ps *os.ProcessState, stderr string, limitBytes int64) bool {
 	if limitBytes <= 0 || ps == nil {
 		return false
 	}
-	status, ok := ps.Sys().(syscall.WaitStatus)
-	if !ok || !status.Signaled() {
-		return false
+	abnormal := false
+	if status, ok := ps.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+		switch status.Signal() {
+		case syscall.SIGABRT, syscall.SIGSEGV, syscall.SIGBUS, syscall.SIGKILL:
+			abnormal = true
+		}
+	} else if code := ps.ExitCode(); code >= 128+int(syscall.SIGABRT) {
+		switch code {
+		case 128 + int(syscall.SIGABRT), 128 + int(syscall.SIGBUS),
+			128 + int(syscall.SIGKILL), 128 + int(syscall.SIGSEGV):
+			abnormal = true
+		}
 	}
-	switch status.Signal() {
-	case syscall.SIGABRT, syscall.SIGSEGV, syscall.SIGBUS, syscall.SIGKILL:
-	default:
+	if !abnormal {
 		return false
 	}
 	if processPeakBytes(ps) >= uint64(limitBytes)*95/100 {

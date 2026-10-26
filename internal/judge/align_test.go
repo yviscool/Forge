@@ -102,12 +102,20 @@ func TestUnixWrapBuilders(t *testing.T) {
 		t.Errorf("argv 透传错误: %v", sh[3:])
 	}
 
-	bw := BwrapArgv([]string{"prog", "arg"}, "/tmp/w")
+	bw := BwrapArgv("/usr/bin/bwrap", []string{"prog", "arg"}, "/tmp/w")
 	joined := strings.Join(bw, " ")
 	for _, want := range []string{"--unshare-all", "--die-with-parent", "--ro-bind /usr /usr", "--bind /tmp/w /tmp/w", "-- prog"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("bwrap 参数缺 %q: %v", want, bw)
 		}
+	}
+	// 二进制必须在 argv 头部——缺失会让 exec 去找 "--dev" 这个"可执行文件"
+	// （linux CI 上真实暴露过的缺陷）。
+	if bw[0] != "/usr/bin/bwrap" {
+		t.Errorf("bwrap 二进制必须在 argv[0]: %v", bw)
+	}
+	if stripped := BwrapArgv("", []string{"prog"}, "/tmp/w"); len(stripped) != 1 || stripped[0] != "prog" {
+		t.Errorf("空 bwrap 路径必须原样返回: %v", stripped)
 	}
 
 	pr := PrlimitArgv([]string{"prog"}, Limits{TimeMs: 1000, MemoryMiB: 128}, "/usr/bin/prlimit")
