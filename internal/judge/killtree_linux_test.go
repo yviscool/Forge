@@ -29,6 +29,7 @@ func TestKillTreeReapsGrandchild(t *testing.T) {
 	if !run.TimedOut {
 		t.Fatalf("infinite loop must hit the hard wall: %+v", run)
 	}
+	waitForBwrapProbe(15 * time.Second)
 	if bwrapSandboxActive() {
 		// bwrap 的 PID namespace 里,宿主侧 syscall.Kill(pid,0) 返回 EPERM,
 		// 外部探针不可用;命名空间整体销毁(--die-with-parent + unshare-pid)

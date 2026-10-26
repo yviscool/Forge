@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 )
@@ -23,8 +24,11 @@ func toolPaths() (prlimit, bwrap string) {
 	return prlimitPath, bwrapPath
 }
 
-var bwrapProbeOnce sync.Once
-var bwrapUsable bool
+var (
+	bwrapProbeOnce sync.Once
+	bwrapUsable    atomic.Bool
+	bwrapProbeDone = make(chan struct{})
+)
 
 // bwrapAvailable 探测 bwrap 是否真的可用于判题：两个条件都必须成立——
 //  1. --unshare-all 能建命名空间（Ubuntu 23.10+ 默认限制非特权 user
@@ -35,32 +39,51 @@ var bwrapUsable bool
 //
 // 任一不满足都退回 prlimit-only 资源墙——沙箱封装本身决不能变成选手
 // 程序的 RE 或误判（对标 LemonLime "bwrap 缺失 → 不强化" 的降级）。
+// 探测在后台异步执行：同步等它烧完 CPU 会吃光调用方紧巴巴的运行 ctx
+// （首单全部 context deadline exceeded 的根因）。结果未就绪时先按
+// prlimit-only 跑——正确性无损，probe 完成后后续评测自动启用沙箱。
 func bwrapAvailable() bool {
 	toolPaths()
 	bwrapProbeOnce.Do(func() {
-		if bwrapPath == "" {
-			return
-		}
-		probe := exec.Command(
-			bwrapPath, "--unshare-all", "--ro-bind", "/", "/", "--",
-			"/bin/sh", "-c", "i=0; while [ $i -lt 10000000 ]; do i=$((i+1)); done",
-		)
-		probe.Stdout, probe.Stderr = nil, nil
-		if err := probe.Run(); err != nil {
-			return
-		}
-		if ps := probe.ProcessState; ps != nil &&
-			ps.UserTime()+ps.SystemTime() >= 10*time.Millisecond {
-			bwrapUsable = true
-		}
+		go func() {
+			defer close(bwrapProbeDone)
+			bwrapProbeBody()
+		}()
 	})
-	return bwrapUsable
+	return bwrapUsable.Load()
+}
+
+func bwrapProbeBody() {
+	if bwrapPath == "" {
+		return
+	}
+	probe := exec.Command(
+		bwrapPath, "--unshare-all", "--ro-bind", "/", "/", "--",
+		"/bin/sh", "-c", "i=0; while [ $i -lt 10000000 ]; do i=$((i+1)); done",
+	)
+	probe.Stdout, probe.Stderr = nil, nil
+	if err := probe.Run(); err != nil {
+		return
+	}
+	if ps := probe.ProcessState; ps != nil &&
+		ps.UserTime()+ps.SystemTime() >= 10*time.Millisecond {
+		bwrapUsable.Store(true)
+	}
 }
 
 // bwrapSandboxActive 报告选手程序当前是否真的在 bwrap 沙箱内运行
 // （测试用：PID namespace 内的进程无法从外部按 PID 探测）。
 func bwrapSandboxActive() bool {
 	return bwrapAvailable()
+}
+
+// waitForBwrapProbe 等待后台探测完成（测试用，最多 d）。
+func waitForBwrapProbe(d time.Duration) {
+	toolPaths()
+	select {
+	case <-bwrapProbeDone:
+	case <-time.After(d):
+	}
 }
 
 // Unix 资源墙层级（对标 LemonLime processrunner_unix）：
