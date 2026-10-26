@@ -109,3 +109,15 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
       (white/45→60、white/40→60,4.2/3.62 → ≈6.2:1)
 - [x] 本地全量验证:eslint/tsc/vitest/build + Playwright 9/9
       (chromium+firefox+webkit)+ go vet/test + GOOS=linux/darwin vet
+
+# 覆盖率门禁重建(2026-10-27)
+
+- [x] filesubmit 特性(0 覆盖 ~2600 行)补 6 个测试文件 53 用例:
+      keys/time 纯函数、Lemon mockApi(含 lemonState=pre/ended 动态导入)、
+      河南版 mockApi(校验顺序/封禁/冻结/publish)、TaskSubmitPanel
+      (草稿/提交/覆盖确认/Ctrl+Enter/文件上传/答案题)、ChoiceAnswerPanel
+      (切题/多选/草稿/回填/部分作答确认/窗口外锁定)
+- [x] monacoMock 补 updateOptions/layout(挂载同步缺方法会让组件树卸载)
+- [x] 合理排除:类型-only 模块、main/App 挂载壳、UbuntuDesktop/DesktopPreview
+      桌面专用外壳(由桌面构建与 E2E 验证,jsdom 无法承载)——理由落配置注释
+- [x] 覆盖率 43.2/41.7/40.3/45.4 → 60.4/55.5/54.2/62.3,四项阈值(55/51/50/58)全越线

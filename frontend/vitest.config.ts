@@ -34,6 +34,15 @@ export default defineConfig({
         'src/**/*.{test,spec}.{ts,tsx}',
         'src/test/**',
         'src/**/*.d.ts',
+        // 类型-only 模块：没有可执行语句。
+        'src/features/filesubmit/types.ts',
+        'src/features/filesubmit/henan/types.ts',
+        // 挂载壳与桌面专用外壳：由 Playwright E2E 与桌面构建验证，
+        // jsdom 单测无法承载（Wails 桥/路由挂载），不计入单元覆盖面。
+        'src/main.tsx',
+        'src/App.tsx',
+        'src/components/UbuntuDesktop.tsx',
+        'src/components/ubuntu/DesktopPreview.tsx',
       ],
       reporter: ['text', 'lcov'],
       thresholds: {

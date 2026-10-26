@@ -7,6 +7,9 @@ export const editor = {
     getValue: () => '',
     onDidChangeModelContent: () => ({ dispose() {} }),
     setValue() {},
+    // 挂载与 props 同步（语言/字号）时会被调用，缺失会让组件树卸载。
+    updateOptions() {},
+    layout() {},
   }),
   createDiffEditor: () => ({
     dispose() {},

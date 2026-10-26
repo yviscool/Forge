@@ -32,15 +32,18 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
+          # 纯诊断步骤,绝不失败:par.exe 的 4 线程总 CPU 恰好在 --cpu=3
+          # 边界附近,繁忙 runner 上会被 RLIMIT_CPU 硬墙 SIGKILL(137),
+          # 这本身就是有价值的观测输出,用 || echo 吞掉退出码。
           g++ --version | head -1
           which prlimit && prlimit --version | head -1 || echo "NO prlimit"
           nproc; free -m | head -2
           g++ -O2 -std=c++14 -o /tmp/par.exe internal/judge/testdata/csp-day1/solutions/parallel.cpp
-          echo "--- direct run:"; /tmp/par.exe; echo "exit=$?"
-          if command -v prlimit >/dev/null; then echo "--- under prlimit:"; prlimit --as=536870912 --cpu=3 --nproc=64 -- /tmp/par.exe; echo "exit=$?"; fi
+          echo "--- direct run:"; /tmp/par.exe || echo "exit=$?"
+          if command -v prlimit >/dev/null; then echo "--- under prlimit:"; prlimit --as=536870912 --cpu=3 --nproc=64 -- /tmp/par.exe || echo "exit=$? (137=SIGKILL by the hard CPU wall: expected under load)"; fi
           echo "--- runner-exact replication (pipe stdin + scrubbed env + tempdir):"
           mkdir -p /tmp/rt && cd /tmp/rt
-          echo -n "" | env -i PATH="$PATH" prlimit --as=536870912 --cpu=3 --nproc=64 -- /tmp/par.exe; echo "exit=$?"
+          echo -n "" | env -i PATH="$PATH" prlimit --as=536870912 --cpu=3 --nproc=64 -- /tmp/par.exe || echo "exit=$? (137=SIGKILL by the hard CPU wall: expected under load)"
       - name: gofmt
         shell: bash
         run: test -z "$(gofmt -l internal cmd)"
