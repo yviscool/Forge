@@ -1,9 +1,9 @@
 package judge
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -47,6 +47,9 @@ type compiledChecker struct {
 	argv   []string
 	msg    string
 	flavor string
+	// interpreted 解释型特判：跳过地址空间墙（ulimit -v/RLIMIT_AS 会误杀
+	// 自带内存管理的运行时），保留 CPU/进程数墙与超时。
+	interpreted bool
 }
 
 func compileChecker(ctx context.Context, comp Compiler, spec CheckerSpec, workdir string) (*compiledChecker, error) {
@@ -56,7 +59,7 @@ func compileChecker(ctx context.Context, comp Compiler, spec CheckerSpec, workdi
 	}
 	// testlib 兼容头随手可得：checker 直接 #include "testlib_min.h"。
 	_ = os.WriteFile(filepath.Join(dir, "testlib_min.h"), []byte(testlibMinH), 0644)
-	res, err := comp.Compile(ctx, spec.Language, []byte(spec.Code), dir)
+	res, err := comp.Compile(ctx, spec.Language, []byte(spec.Code), dir, CompileOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +72,7 @@ func compileChecker(ctx context.Context, comp Compiler, spec CheckerSpec, workdi
 	default:
 		flavor = checkerFlavorExit
 	}
-	return &compiledChecker{ok: true, argv: res.Argv(), flavor: flavor}, nil
+	return &compiledChecker{ok: true, argv: res.Argv(), flavor: flavor, interpreted: res.Interpreted}, nil
 }
 
 // check 运行一次特判：返回判定、该点得分（0..full）与附注消息。
@@ -100,7 +103,7 @@ func (c *compiledChecker) checkExit(ctx context.Context, input, output, answer s
 			return domain.CaseCheckerError, 0, err.Error()
 		}
 	}
-	verdict, msg, err := runCheckerExit(ctx, c.argv, inF, outF, ansF, nil)
+	verdict, msg, err := c.runExitProtocol(ctx, dir, []string{inF, outF, ansF}, nil)
 	if err != nil {
 		return domain.CaseCheckerError, 0, err.Error() + ": " + msg
 	}
@@ -137,14 +140,15 @@ func (c *compiledChecker) checkLemon(ctx context.Context, input, output, answer 
 		inF, outF, ansF, strconv.Itoa(fullScore), scoreF, msgF)
 	ctx, cancel := context.WithTimeout(ctx, checkerTimeout)
 	defer cancel()
-	var combined bytes.Buffer
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Stdout, cmd.Stderr = &combined, &combined
-	if err := cmd.Run(); err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
-			return domain.CaseCheckerError, 0, fmt.Sprintf("lemon checker exit %d: %s", ee.ExitCode(), combined.String())
+	out := newCapped(1 << 20)
+	if err := runConfined(ctx, argv, dir, c.interpreted, out, out); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return domain.CaseCheckerError, 0, "lemon checker timeout"
 		}
-		return domain.CaseCheckerError, 0, fmt.Sprintf("lemon checker error: %v: %s", err, combined.String())
+		if ee, ok := err.(*exec.ExitError); ok {
+			return domain.CaseCheckerError, 0, fmt.Sprintf("lemon checker exit %d: %s", ee.ExitCode(), out.String())
+		}
+		return domain.CaseCheckerError, 0, fmt.Sprintf("lemon checker error: %v: %s", err, out.String())
 	}
 	scoreRaw, err := os.ReadFile(scoreF)
 	if err != nil {
@@ -180,14 +184,15 @@ func (c *compiledChecker) checkTestlib(ctx context.Context, input, output, answe
 	ctx, cancel := context.WithTimeout(ctx, checkerTimeout)
 	defer cancel()
 	argv := append(append([]string{}, c.argv...), inF, outF, ansF)
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	runErr := cmd.Run()
-	if runErr != nil {
-		ee, ok := runErr.(*exec.ExitError)
+	stdout, stderr := newCapped(1<<20), newCapped(1<<20)
+	err = runConfined(ctx, argv, dir, c.interpreted, stdout, stderr)
+	if err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return domain.CaseCheckerError, 0, "testlib checker timeout"
+		}
+		ee, ok := err.(*exec.ExitError)
 		if !ok {
-			return domain.CaseCheckerError, 0, fmt.Sprintf("testlib checker error: %v", runErr)
+			return domain.CaseCheckerError, 0, fmt.Sprintf("testlib checker error: %v", err)
 		}
 		switch ee.ExitCode() {
 		case 1:
@@ -231,30 +236,30 @@ func verdictForScore(score, full int) domain.CaseVerdict {
 	}
 }
 
-// runCheckerExit 退出码协议执行（exit 0=AC/1=WA/2=PE/其他=CheckerError）。
+// runExitProtocol 退出码协议执行（exit 0=AC/1=WA/2=PE/其他=CheckerError）。
 // extraArgs 允许追加参数（协议扩展用），nil 即经典三参。
-func runCheckerExit(ctx context.Context, argv []string, inF, outF, ansF string, extraArgs []string) (domain.CaseVerdict, string, error) {
+func (c *compiledChecker) runExitProtocol(ctx context.Context, dir string, fileArgs, extraArgs []string) (domain.CaseVerdict, string, error) {
 	ctx, cancel := context.WithTimeout(ctx, checkerTimeout)
 	defer cancel()
-	var stdout bytes.Buffer
-	full := append(append([]string{}, argv...), inF, outF, ansF)
-	full = append(full, extraArgs...)
-	cmd := exec.CommandContext(ctx, full[0], full[1:]...)
-	cmd.Stdout, cmd.Stderr = &stdout, &stdout
-	if err := cmd.Run(); err != nil {
+	out := newCapped(1 << 20)
+	full := append(append(append([]string{}, c.argv...), fileArgs...), extraArgs...)
+	if err := runConfined(ctx, full, dir, c.interpreted, out, out); err != nil {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			return domain.CaseCheckerError, "checker timeout", nil
+		}
 		if ee, ok := err.(*exec.ExitError); ok {
 			switch ee.ExitCode() {
 			case 1:
-				return domain.CaseWA, stdout.String(), nil
+				return domain.CaseWA, out.String(), nil
 			case 2:
-				return domain.CasePE, stdout.String(), nil
+				return domain.CasePE, out.String(), nil
 			default:
-				return domain.CaseCheckerError, fmt.Sprintf("checker crash (exit %d): %s", ee.ExitCode(), stdout.String()), nil
+				return domain.CaseCheckerError, fmt.Sprintf("checker crash (exit %d): %s", ee.ExitCode(), out.String()), nil
 			}
 		}
-		return domain.CaseCheckerError, fmt.Sprintf("checker error: %v: %s", err, stdout.String()), nil
+		return domain.CaseCheckerError, fmt.Sprintf("checker error: %v: %s", err, out.String()), nil
 	}
-	return domain.CaseAC, stdout.String(), nil
+	return domain.CaseAC, out.String(), nil
 }
 
 // parseLemonScore 解析 Lemon 协议 _score 文件：整数分值（允许首尾空白）。
@@ -279,7 +284,8 @@ var (
 // 返回 (分值比例或绝对值, 是否命中打分标记, 是否 FAIL)。
 //   - "ok" 前缀 → 1.0（满分）
 //   - "partially correct (N)" → N/100
-//   - "points X" → X（0..1 的比例由调用方乘满分）
+//   - "points X" → X（0..1 的比例由调用方乘满分；X>1 钳制到满分，
+//     与 upstream points X×fullScore 等价且不会落超满分分——有意差异）
 func parseTestlibResult(stderr string) (float64, bool, bool) {
 	text := strings.TrimSpace(stderr)
 	if text == "" {

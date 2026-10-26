@@ -399,9 +399,9 @@ func (s *Service) GetSubmission(id string) (domain.Submission, error) {
 	return s.store.GetSubmission(id)
 }
 
-// JudgeCases 按点回写：聚合子任务分（LemonLime dependence 语义）后落总分，
-// verdict 取最差点结论映射；编译信息（CE 原文）一并落库。
-func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf func(int) int, fullOf func(int) int) (domain.Submission, error) {
+// JudgeCases 按点回写：聚合子任务分（LemonLime dependence 语义，含依赖
+// DAG 清零）后落总分，verdict 取最差点结论映射；编译信息（CE 原文）一并落库。
+func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf func(int) int, fullOf func(int) int, depsOf func(int) []int) (domain.Submission, error) {
 	var x domain.Submission
 	stale := false
 	err := s.withTx(func(tx ports.Store) error {
@@ -417,7 +417,7 @@ func (s *Service) JudgeCases(subID string, oc domain.JudgeOutcome, subtaskOf fun
 			return nil
 		}
 		cases := oc.Cases
-		score := domain.AggregateScore(cases, subtaskOf, fullOf)
+		score := domain.AggregateScoreWithDeps(cases, subtaskOf, fullOf, depsOf)
 		verdict := domain.VerdictAccepted
 		for _, c := range cases {
 			if c.Verdict != domain.CaseAC {

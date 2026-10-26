@@ -874,7 +874,7 @@ func TestSubmissionCodeVisibility(t *testing.T) {
 	_, _ = e.svc.JudgeCases(subs[0].ID, domain.JudgeOutcome{
 		Cases:          []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseCE}},
 		CompileMessage: "main.cpp:1: error",
-	}, func(int) int { return 0 }, func(int) int { return 100 })
+	}, func(int) int { return 0 }, func(int) int { return 100 }, nil)
 
 	// Students receive their own history only; peers do not leak timestamps,
 	// verdicts, scores, source, or compile output. Teachers see the full feed.
@@ -914,7 +914,7 @@ func TestAutoJudgePipeline(t *testing.T) {
 	srv := NewServer(svc, nil)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	pool := judge.AutoJudgePool(svc, judge.Toolchain{})
+	pool := app.AutoJudgePool(svc, judge.Toolchain{})
 	defer func() { cancel(); pool.Wait() }()
 	pool.Start(ctx, 1)
 	srv.OnSubmit = func(x domain.Submission) error {

@@ -63,6 +63,8 @@ jobs:
         run: bash scripts/backup_test.sh
       - name: race (fast packages)
         run: go test -race ./internal/domain/ ./internal/app/ ./internal/auth/ ./internal/realtime/ ./internal/adapters/store/...
+      - name: race (judge concurrency subset; heavy corpus excluded for time)
+        run: go test -race ./internal/judge/ -run 'TestPool|TestCache|TestBuildRequest|TestSubtask|TestCompileCache|TestPerProblemRatio|TestDefaultWorkers'
 
   frontend:
     runs-on: ubuntu-latest

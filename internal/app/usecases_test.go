@@ -103,7 +103,7 @@ func TestJudgeCasesSubtaskAggregation(t *testing.T) {
 			}
 			return 1
 		},
-		func(st int) int { return subtasks[st] })
+		func(st int) int { return subtasks[st] }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestJudgeCasesDoesNotOverwriteManualDecision(t *testing.T) {
 
 	late, err := svc.JudgeCases(sub.ID, domain.JudgeOutcome{
 		Cases: []domain.CaseResult{{CaseIndex: 0, Verdict: domain.CaseWA}},
-	}, func(int) int { return 0 }, func(int) int { return 100 })
+	}, func(int) int { return 0 }, func(int) int { return 100 }, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

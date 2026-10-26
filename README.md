@@ -96,6 +96,23 @@ compileMemoryMiB` 外，还支持按语言的限额倍率（对标 LemonLime Com
 }
 ```
 
+题目级覆盖（对标 LemonLime 每题每编译器配置，可与工具链倍率叠加）：
+`compileStd`（仅 C/C++，如 `"c++17"`）、`timeLimitRatio`、`memoryLimitRatio`、
+`disableMemoryLimitCheck`。比较模式 `external_tool` 另需 `diffCommand`/
+`diffArgs`（对标 LemonLime 外部 diff 工具，缺省参数
+`--ignore-space-change --text --brief`）。
+
+评测基石平台口径：比较模式 `ignore_space` 对标 LemonLime 的 token 比较语义——
+token 相同但换行位置不同记 `PE`，多出尾部内容记 `OLE`；时间软限按 wall 或
+CPU 任一超限判定，硬杀墙 = 时限 + max(2s, 2×时限)×25%，软硬墙之间的边界
+抖动自动重测；内存墙 Windows 走 Job Object、Linux 走 prlimit（可选 bwrap
+命名空间沙箱）、macOS 降级 sh ulimit，均可从 BSS 静态足迹起跑前判 MLE；
+交互器与特判程序运行在独立资源墙内，交互器可在 exit 0 时向 stderr 写
+testlib 打分标记（`ok` / `partially correct (N)` / `points X`）给出部分分；
+编译产物按（源码, 生效工具链, 编译器版本, 平台）缓存并 LRU 淘汰，worker
+缺省取物理核数（`FORGE_JUDGE_WORKERS` 显式配置优先），评测期间 Windows
+教师机阻止系统休眠。
+
 特判支持三种协议：`special_judge`（退出码 0=AC/1=WA/2=PE）、`lemon_special_judge`
 （Lemon scoreFile 协议，支持 0..满分 部分分）、`testlib_special_judge`（testlib
 stderr 协议，`ok` / `partially correct (N)` / `points X` 支持部分分）。

@@ -828,14 +828,15 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			}
 			seen[result.CaseIndex] = true
 		}
-		subtaskOf, fullOf := judge.SubtaskMaps(problem.TestCases)
+		subtaskOf, fullOf, depsOf := judge.SubtaskMaps(problem.TestCases)
 		if subtaskOf == nil {
 			subtaskOf = func(int) int { return 0 }
 			fullOf = func(int) int { return domain.ProblemTotalScore(problem) }
+			depsOf = func(int) []int { return nil }
 		}
 		j, err := h.svc.JudgeCases(parts[1], domain.JudgeOutcome{
 			Cases: v.Cases, CompileMessage: "",
-		}, subtaskOf, fullOf)
+		}, subtaskOf, fullOf, depsOf)
 		if err != nil {
 			h.err(w, r, 400, err)
 			return

@@ -4,6 +4,7 @@ package domain
 
 import (
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -23,6 +24,9 @@ const (
 	// CompareTestlibSpecialJudge testlib 协议特判：argv = input output answer，
 	// stderr 解析 ok / partially correct (N) / points X。
 	CompareTestlibSpecialJudge ComparisonMode = "testlib_special_judge"
+	// CompareExternalTool 外部 diff 工具比较（对标 LemonLime ExternalToolMode）：
+	// 运行教师配置的 diff 命令，exit 0 = AC，否则 WA。
+	CompareExternalTool ComparisonMode = "external_tool"
 )
 
 // NormalizeSubmissionVerdict maps API input onto the canonical persistence
@@ -106,6 +110,8 @@ func NormalizeComparisonMode(mode ComparisonMode) ComparisonMode {
 		return CompareLemonSpecialJudge
 	case string(CompareTestlibSpecialJudge), "testlib_checker":
 		return CompareTestlibSpecialJudge
+	case string(CompareExternalTool), "diff", "diff_tool":
+		return CompareExternalTool
 	default:
 		return mode
 	}
@@ -170,6 +176,41 @@ func normalize(s string, mode ComparisonMode) string {
 // CompareOutput 比较选手输出与标准输出。
 // realEps 仅在 CompareRealNumber 下使用（如 1e-3 对标 LemonLime realPrecision）。
 func CompareOutput(got, want string, mode ComparisonMode, realEps float64) bool {
+	return CompareVerdict(got, want, mode, realEps) == CaseAC
+}
+
+// CompareVerdict 比较并给出三态结论：AC / PE / WA（必要时 OLE）。
+// ignore_space 对标 LemonLime compareIgnoreSpaces（casejudger.cpp:276-340）：
+//   - token 序列相同且各 token 所在行号一致 → AC；
+//   - token 序列相同但行号分叉（换行位置不同）→ PE；
+//   - 选手比标准多出尾部 token → OLE，少尾部 token → WA，中间不同 → WA。
+//
+// 其余模式仍只有 AC/WA 两态（PE 仅来自 ignore_space 与特判 exit 2）。
+func CompareVerdict(got, want string, mode ComparisonMode, realEps float64) CaseVerdict {
+	switch mode {
+	case CompareIgnoreSpace:
+		gt, gl := tokenLineSeq(got)
+		wt, wl := tokenLineSeq(want)
+		if slices.Equal(gt, wt) {
+			if slices.Equal(gl, wl) {
+				return CaseAC
+			}
+			return CasePE
+		}
+		if len(gt) > len(wt) && slices.Equal(gt[:len(wt)], wt) {
+			return CaseOLE
+		}
+		return CaseWA
+	default:
+		if compareOutputLegacy(got, want, mode, realEps) {
+			return CaseAC
+		}
+		return CaseWA
+	}
+}
+
+// compareOutputLegacy 原布尔比较（line_by_line/real_number/特判占位/default）。
+func compareOutputLegacy(got, want string, mode ComparisonMode, realEps float64) bool {
 	switch mode {
 	case CompareIgnoreSpace:
 		return normalize(got, mode) == normalize(want, mode)
@@ -304,4 +345,35 @@ func ShouldSkipCase(subtask int, deps []int, failedSubtasks map[int]bool) bool {
 		}
 	}
 	return false
+}
+
+// tokenLineSeq 把文本切成 token 序列与各 token 所在行号（1 起）。
+// 空白（空格/制表/回车/换行）只作分隔不计 token，对标 upstream
+// BufferedStreamReader::nextUntilSpace 的行号记账方式。
+func tokenLineSeq(s string) (tokens []string, lines []int) {
+	line := 1
+	for i := 0; i < len(s); {
+		c := s[i]
+		if c == '\n' {
+			line++
+			i++
+			continue
+		}
+		if c == ' ' || c == '\t' || c == '\r' {
+			i++
+			continue
+		}
+		j := i
+		for j < len(s) {
+			cj := s[j]
+			if cj == ' ' || cj == '\t' || cj == '\r' || cj == '\n' {
+				break
+			}
+			j++
+		}
+		tokens = append(tokens, s[i:j])
+		lines = append(lines, line)
+		i = j
+	}
+	return tokens, lines
 }

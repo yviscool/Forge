@@ -111,7 +111,7 @@ type customCompiler struct {
 	checkerOK bool
 }
 
-func (c *customCompiler) Compile(_ context.Context, _ string, code []byte, _ string) (CompileResult, error) {
+func (c *customCompiler) Compile(_ context.Context, _ string, code []byte, _ string, _ CompileOptions) (CompileResult, error) {
 	if string(code) == "broken checker" {
 		return CompileResult{OK: c.checkerOK, Message: "checker compile failed"}, nil
 	}

@@ -23,8 +23,9 @@ type Job struct {
 // Pool 有界 worker 池：Submit 入队，N 个 worker 串行 JudgeOne 后 Report。
 // 对标 LemonLime JudgingController 的任务分发。
 type Pool struct {
-	judge  func(context.Context, Request) (domain.JudgeOutcome, error)
-	report ReportFunc
+	judge     func(context.Context, Request) (domain.JudgeOutcome, error)
+	report    ReportFunc
+	inhibitor *sleepInhibitor
 
 	mu      sync.Mutex
 	queue   chan Job
@@ -49,7 +50,8 @@ func NewPool(queueLen int, judge func(context.Context, Request) (domain.JudgeOut
 	}
 	return &Pool{
 		judge: judge, report: report, queue: make(chan Job, queueLen),
-		active: make(map[string]struct{}),
+		active:    make(map[string]struct{}),
+		inhibitor: newSleepInhibitor(),
 	}
 }
 
@@ -146,11 +148,16 @@ func (p *Pool) loop(ctx context.Context) {
 
 func (p *Pool) do(ctx context.Context, j Job) {
 	defer p.release(j.SubID)
+	// 评测期间阻止系统休眠（Windows 实装；其余平台 no-op）。
+	p.inhibitor.acquire()
+	defer p.inhibitor.release()
 	oc, err := p.judge(ctx, j.Req)
 	if err != nil {
+		// 基础设施故障（临时目录/编译器崩溃等）不得误报学生 RE：
+		// 全点 SystemError，教师可一键重判（此前是死枚举）。
 		cases := make([]domain.CaseResult, len(j.Req.Cases))
 		for i := range cases {
-			cases[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+			cases[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseSystemError}
 		}
 		oc = domain.JudgeOutcome{Cases: cases}
 	}

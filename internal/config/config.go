@@ -7,9 +7,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
+
+	"github.com/yviscool/forge/internal/judge"
 )
 
 // Config 是进程级配置基石：全部来自环境变量，开箱即用。
@@ -89,7 +90,9 @@ func Load() Config {
 		adminPw = randomPassword()
 		adminGenerated = true
 	}
-	workers := runtime.NumCPU()
+	// 缺省取物理核数（SMT 超订阅会污染 CPU-time 计时，对标 LemonLime
+	// cputopology）；探测失败回退逻辑核数。显式配置优先。
+	workers := judge.DefaultWorkers()
 	if raw := strings.TrimSpace(os.Getenv("FORGE_JUDGE_WORKERS")); raw != "" {
 		n, parseErr := strconv.Atoi(raw)
 		if parseErr != nil || n < 1 {

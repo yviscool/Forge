@@ -14,7 +14,7 @@ func collectFixture() CollectSource {
 		{ID: "u-none", Username: "stu_none", Name: "丙", Role: RoleStudent},
 	}
 	contest := Contest{
-		ID:  "c1", Name: "CSP-J 模拟", Status: string(Running),
+		ID: "c1", Name: "CSP-J 模拟", Status: string(Running),
 		Season: "2026", TicketGroup: "J",
 		ParticipantUserIDs: []string{"u-j", "u-none"},
 		GroupIDs:           []string{"g1"},

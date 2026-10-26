@@ -2177,6 +2177,29 @@ components:
           enum: [stdio, file]
         compareMode:
           type: string
+          description: >-
+            line_by_line | ignore_space | real_number | special_judge |
+            lemon_special_judge | testlib_special_judge | external_tool.
+        compileStd:
+          type: string
+          description: Per-problem C/C++ -std override (e.g. c++17). Teacher-only.
+        timeLimitRatio:
+          type: number
+          description: Per-problem run time-limit multiplier (stacks with toolchain ratio).
+        memoryLimitRatio:
+          type: number
+          description: Per-problem memory-limit multiplier (stacks with toolchain ratio).
+        disableMemoryLimitCheck:
+          type: boolean
+          description: Per-problem hard memory wall switch. Teacher-only.
+        diffCommand:
+          type: string
+          description: External diff tool for compareMode=external_tool. Teacher-only.
+        diffArgs:
+          type: array
+          description: Arguments for diffCommand; defaults to LemonLime's brief diff flags.
+          items:
+            type: string
         checkerLang:
           type: string
         checkerCode:

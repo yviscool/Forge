@@ -1,112 +1,8 @@
 package judge
 
 import (
-	"context"
-	"errors"
-	"fmt"
-	"log/slog"
-	"time"
-
-	"github.com/yviscool/forge/internal/app"
 	"github.com/yviscool/forge/internal/domain"
 )
-
-// DefaultReconcileInterval bounds how long a durably queued submission can be
-// stranded after a transient in-memory queue rejection or process restart.
-const DefaultReconcileInterval = 30 * time.Second
-
-// AutoJudgePool 创建自动评测池：JudgeOne 评测，回写走 svc.JudgeCases。
-// 无测试点的题目跳过自动评测（保留人工判题入口）。
-func AutoJudgePool(svc *app.Service, tc Toolchain) *Pool {
-	o := &Orchestrator{Compiler: tc, Runner: LocalRunner{}}
-	return NewPool(128, o.JudgeOne, func(subID string, oc domain.JudgeOutcome) {
-		x, err := svc.GetSubmission(subID)
-		if err != nil {
-			return
-		}
-		p, err := svc.GetProblem(x.ContestID, x.ProblemID)
-		if err != nil {
-			return
-		}
-		so, fo := SubtaskMaps(p.TestCases)
-		if so == nil {
-			return
-		}
-		_, _ = svc.JudgeCases(subID, oc, so, fo)
-	})
-}
-
-// EnqueueQueuedSubmissions recovers durable queued work. Enqueue blocks under
-// queue pressure, while Pool deduplication makes repeated reconciliation safe.
-// Submissions without automatic test cases remain queued for manual judging.
-func EnqueueQueuedSubmissions(ctx context.Context, svc *app.Service, pool *Pool) (int, error) {
-	subs, err := svc.Store().ListQueuedSubmissions()
-	if err != nil {
-		return 0, err
-	}
-	enqueued := 0
-	var reconcileErrs []error
-	for _, x := range subs {
-		p, err := svc.GetProblem(x.ContestID, x.ProblemID)
-		if err != nil {
-			reconcileErrs = append(reconcileErrs, fmt.Errorf(
-				"submission %s problem %s/%s: %w",
-				x.ID, x.ContestID, x.ProblemID, err,
-			))
-			continue
-		}
-		req, ok := BuildRequest(x, p)
-		if !ok {
-			continue
-		}
-		if err := pool.Enqueue(ctx, Job{SubID: x.ID, Req: req}); err != nil {
-			reconcileErrs = append(reconcileErrs, fmt.Errorf(
-				"enqueue submission %s: %w", x.ID, err,
-			))
-			break
-		}
-		enqueued++
-	}
-	return enqueued, errors.Join(reconcileErrs...)
-}
-
-// RunQueueReconciler performs an immediate recovery pass, then periodically
-// repairs queued submissions that could not enter the bounded worker queue.
-func RunQueueReconciler(
-	ctx context.Context,
-	svc *app.Service,
-	pool *Pool,
-	interval time.Duration,
-	logger *slog.Logger,
-) {
-	if interval <= 0 {
-		interval = DefaultReconcileInterval
-	}
-	if logger == nil {
-		logger = slog.Default()
-	}
-	reconcile := func() {
-		n, err := EnqueueQueuedSubmissions(ctx, svc, pool)
-		if err != nil {
-			logger.Error("reconcile queued submissions", "enqueued", n, "err", err)
-			return
-		}
-		if n > 0 {
-			logger.Debug("reconciled queued submissions", "enqueued", n)
-		}
-	}
-	reconcile()
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			reconcile()
-		}
-	}
-}
 
 // BuildRequest 由提交 + 题目组装评测请求。
 // TestCase.InputFile/OutputFile 支持内联文本或数据文件路径（存在即读）。
@@ -142,6 +38,11 @@ func BuildRequest(x domain.Submission, p domain.Problem) (Request, bool) {
 		Language: x.Language, Code: x.Code, Cases: cases,
 		Compare: cmpOf(p), RealEps: p.RealEps, TaskType: p.TaskType,
 		CompileTimeoutSec: p.CompileTimeoutSec,
+		// 题目级工具链覆盖（对标 LemonLime 每题每编译器配置）。
+		CompileStd:              p.CompileStd,
+		TimeLimitRatio:          p.TimeLimitRatio,
+		MemoryLimitRatio:        p.MemoryLimitRatio,
+		DisableMemoryLimitCheck: p.DisableMemoryLimitCheck,
 		Limits: Limits{
 			TimeMs: p.TimeLimitMs, MemoryMiB: p.MemoryLimitMiB,
 			IOMode: ioOf(p), InFile: p.InFile, OutFile: p.OutFile,
@@ -165,6 +66,9 @@ func BuildRequest(x domain.Submission, p domain.Problem) (Request, bool) {
 		default:
 			req.Compare = domain.CompareSpecialJudge
 		}
+	}
+	if req.Compare == domain.CompareExternalTool {
+		req.Diff = &DiffSpec{Command: p.DiffCommand, Args: p.DiffArgs}
 	}
 	if p.TaskType == domain.TaskInteraction && p.InteractorCode != "" {
 		req.Interactor = &InteractorSpec{Language: checkerLang(p.InteractorLang), Code: p.InteractorCode}

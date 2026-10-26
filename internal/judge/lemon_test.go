@@ -3,7 +3,6 @@ package judge
 import (
 	"context"
 	"os/exec"
-	"runtime"
 	"testing"
 	"time"
 
@@ -66,9 +65,7 @@ func TestDispatchMatrix(t *testing.T) {
 
 // TestDispatchMLE 内存项单独测（墙行为与平台相关，隔离断言）。
 func TestDispatchMLE(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("job wall is windows-only in this phase")
-	}
+	requireProcessWalls(t)
 	requireTool(t, "g++")
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -107,9 +104,7 @@ func TestSlowStartGuard(t *testing.T) {
 
 // TestForkbombContained fork 炸弹必须被墙快速拦下（Windows），Linux 走 prlimit 行为。
 func TestForkbombContained(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("active-process wall assertion is windows-only")
-	}
+	requireProcessWalls(t)
 	requireTool(t, "g++")
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -141,9 +136,6 @@ func verdictsOf(got []domain.CaseResult) []domain.CaseVerdict {
 
 // TestMemoryReported 内存必须真实上报（值为 0 的墙等于没墙）。
 func TestMemoryReported(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("peak RSS query is windows-only in this phase")
-	}
 	requireTool(t, "g++")
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)

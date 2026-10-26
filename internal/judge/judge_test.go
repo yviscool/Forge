@@ -20,7 +20,7 @@ type fakeCompiler struct {
 	msg string
 }
 
-func (f fakeCompiler) Compile(_ context.Context, _ string, _ []byte, _ string) (CompileResult, error) {
+func (f fakeCompiler) Compile(_ context.Context, _ string, _ []byte, _ string, _ CompileOptions) (CompileResult, error) {
 	if !f.ok {
 		return CompileResult{Message: f.msg}, nil
 	}
@@ -77,8 +77,8 @@ func TestJudgeOneCompileError(t *testing.T) {
 }
 
 func TestSubtaskMapsEmpty(t *testing.T) {
-	so, fo := SubtaskMaps(nil)
-	if so != nil || fo != nil {
+	so, fo, do := SubtaskMaps(nil)
+	if so != nil || fo != nil || do != nil {
 		t.Fatal("empty testcases must yield nil maps (skip auto-judge)")
 	}
 }
@@ -116,6 +116,21 @@ func requireTool(t *testing.T, name string) {
 	if _, err := exec.LookPath(name); err != nil {
 		t.Skipf("toolchain %s not found", name)
 	}
+}
+
+// requireProcessWalls 资源墙类断言需要 Windows Job 或 Linux prlimit；
+// 此前的 windows-only Skip 已过时（Linux prlimit 已落地），改为按能力跳过。
+func requireProcessWalls(t *testing.T) {
+	t.Helper()
+	switch runtime.GOOS {
+	case "windows":
+		return
+	case "linux":
+		if _, err := exec.LookPath("prlimit"); err == nil {
+			return
+		}
+	}
+	t.Skip("memory/process walls need windows job or linux prlimit")
 }
 
 func fixture(t *testing.T, name string) string {
@@ -238,9 +253,7 @@ func TestIntegrationCE_CPP(t *testing.T) {
 }
 
 func TestIntegrationMLE_CPP(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("job wall is windows-only in this phase")
-	}
+	requireProcessWalls(t)
 	requireTool(t, "g++")
 	o := realOrchestrator()
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)

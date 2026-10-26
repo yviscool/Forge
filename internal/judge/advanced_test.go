@@ -112,20 +112,20 @@ func TestCompileCache(t *testing.T) {
 	defer cancel()
 	work := t.TempDir()
 	src := []byte("int main(){return 0;}")
-	r1, err := tc.Compile(ctx, "cpp", src, work)
+	r1, err := tc.Compile(ctx, "cpp", src, work, CompileOptions{})
 	if err != nil || !r1.OK {
 		t.Fatalf("compile: %v %+v", r1, err)
 	}
-	if cc.Hits() != 0 {
+	if hits, _ := cc.Stats(); hits != 0 {
 		t.Fatal("first compile must miss")
 	}
 	work2 := t.TempDir()
-	r2, err := tc.Compile(ctx, "cpp", src, work2)
+	r2, err := tc.Compile(ctx, "cpp", src, work2, CompileOptions{})
 	if err != nil || !r2.OK {
 		t.Fatalf("cached compile: %v", err)
 	}
-	if cc.Hits() != 1 {
-		t.Fatalf("second compile must hit, hits=%d", cc.Hits())
+	if hits, _ := cc.Stats(); hits != 1 {
+		t.Fatalf("second compile must hit, hits=%d", hits)
 	}
 	if _, err := os.Stat(r2.Executable); err != nil {
 		t.Fatal("cached exe must exist in workdir")
@@ -268,7 +268,7 @@ func TestOutputLimitConfigurable(t *testing.T) {
 
 type sleepCompiler struct{ d time.Duration }
 
-func (s sleepCompiler) Compile(ctx context.Context, _ string, _ []byte, _ string) (CompileResult, error) {
+func (s sleepCompiler) Compile(ctx context.Context, _ string, _ []byte, _ string, _ CompileOptions) (CompileResult, error) {
 	select {
 	case <-time.After(s.d):
 		return CompileResult{OK: true, Executable: "x"}, nil
@@ -351,14 +351,14 @@ func TestCompilerPerLangLimits(t *testing.T) {
 	// 1ms 全局超时必杀真编译（表现为 OK=false；kill 无输出）。
 	dir := t.TempDir()
 	r, err := Toolchain{CompileTimeout: time.Millisecond}.Compile(
-		ctx, "cpp", []byte("#include<iostream>\nint main(){std::cout<<1;return 0;}"), dir)
+		ctx, "cpp", []byte("#include<iostream>\nint main(){std::cout<<1;return 0;}"), dir, CompileOptions{})
 	if err != nil || r.OK {
 		t.Fatalf("1ms compile timeout must kill: ok=%v err=%v", r.OK, err)
 	}
 	// 64MB 编译内存墙装不下 bits 头编译（正常需 300MB+）。
 	dir2 := t.TempDir()
 	r2, err := Toolchain{Config: ToolchainConfig{CPP: ToolSpec{CompileMemoryMiB: 64}}}.Compile(
-		ctx, "cpp", []byte("#include<bits/stdc++.h>\nint main(){return 0;}"), dir2)
+		ctx, "cpp", []byte("#include<bits/stdc++.h>\nint main(){return 0;}"), dir2, CompileOptions{})
 	if err != nil {
 		t.Fatalf("walled compile should fail cleanly, not error: %v", err)
 	}

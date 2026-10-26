@@ -2,6 +2,7 @@ package judge
 
 import (
 	"os"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -67,6 +68,17 @@ func confineArgv(argv []string, _ Limits, _ string) []string { return argv }
 
 // processPeakBytes Windows 无需 rusage 回退：Job Object 已给峰值。
 func processPeakBytes(_ *os.ProcessState) uint64 { return 0 }
+
+// sysProcAttr Windows 无进程组语义：杀树由 Job Object 的
+// KILL_ON_CLOSE / TerminateJobObject 覆盖。
+func sysProcAttr() *syscall.SysProcAttr { return nil }
+
+// killTree Windows 无进程组信号；组杀统一走 jobLimiter.Terminate。
+func killTree(int) {}
+
+// crashedOnMemoryWall Windows 的 MLE 判定走 Job 内存墙峰值贴墙路径
+// （runner.go），无需退出信号启发式。
+func crashedOnMemoryWall(*os.ProcessState, string, int64) bool { return false }
 
 // Attach 将已启动进程纳入 Job（调用方需在 Start 后立刻执行）。
 // 通过 PID 二次打开句柄：os.Process 不暴露 Windows 句柄。

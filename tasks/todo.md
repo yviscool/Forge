@@ -60,3 +60,37 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
 - [x] 测试：storetest Ticket/明文口令/删号级联契约（memory + sqlite 双实现）、
       domain 布局纯函数、app 发号赛季隔离与收题用例、HTTP 集成（zip 结构 + 越权）、
       vitest 收题流与收题口径保存；OpenAPI 对齐（redocly lint 通过）
+
+# 评测基石第二批(2026-10 完成,对齐 upstream Project_LemonLime@69aa223)
+
+规划与逐项评估见 tasks/judge-plan.md;全部 16 项已完成,验收全绿
+(gofmt/vet/build/test/cross-compile linux+darwin/race 子集)。
+
+- [x] P0-1 子任务依赖清零接通回写链路:`SubtaskMaps` 三返回(含 depsOf),
+      `JudgeCases` 换 `AggregateScoreWithDeps`,自动评测与人工回写两条链路同语义
+- [x] P0-2 特判/交互器/diff 收进资源墙:`runConfined` 统一最小环境 + 内存墙 +
+      组杀,checker 三协议超时显式落 CheckerError;发现并修复交互题父进程
+      管道写端不关导致 EOF 无法传播、交互器崩溃被误判 TLE 的缺陷
+- [x] P0-3 文件 IO 输出文件限额回读(OLE 配置兑现)+ stdin 异步写(防软限计时污染)
+- [x] P1-4 Unix 进程组杀树:Setpgid + watchGroupKill,孙进程不再逃逸
+      (Linux 集成测试用 fork fixture 断言子进程死亡)
+- [x] P1-5 confineArgv 裸跑分支收口:无 prlimit 的 Unix 统一降级 sh ulimit 墙
+- [x] P1-6 MLE 信号启发式(SIGABRT/SEGV + bad_alloc/贴墙 → MLE,对标 upstream
+      watcher 信号映射)+ 全平台静态内存 MLE 断言,三处陈旧 windows-only Skip 清除
+- [x] P2-7 ignore_space 补 PE/OLE 语义(对标 compareIgnoreSpaces 行号分叉判定)
+- [x] P2-8 交互题升级:双进程共享 Job 内存墙、峰值上报、capped stderr、
+      部分分协议(stderr testlib 标记)、交互器违约落 CheckerError 不误报学生 RE
+- [x] P2-9 SystemError 兑现:评测器基础设施故障扇出 SystemError,与学生 RE 分离
+- [x] P2-10 external_tool 比较模式(diff 命令,exit 0=AC/1=WA/其他=CheckerError)
+- [x] P2-11 题目级工具链覆盖(compileStd/倍率叠加/禁内存墙)+ 校验白名单
+      顺带修复 lemon/testlib 比较模式被 ValidateProblem 拒收的存量缺陷
+- [x] P3-12 编译缓存 v2:键含编译器版本指纹/GOOS/GOARCH/全量 ToolSpec,
+      LRU(256 条/1GiB)+ singleflight 同键去重 + hit/miss 指标(/metrics),
+      go build 产物进缓存
+- [x] P3-13 worker 缺省物理核(Windows GetLogicalProcessorInformation/
+      Linux /proc/cpuinfo/darwin sysctl,失败回退 NumCPU)
+- [x] P3-14 Windows 防休眠:评测期间 SetThreadExecutionState(专用锁定线程),
+      其余平台 no-op 注明
+- [x] P4-15 依赖方向归正:AutoJudgePool/EnqueueQueuedSubmissions/Reconciler
+      迁入 internal/app,judge 包不再反向 import 应用层(符合 SPEC 分层约束)
+- [x] P4-16 CI race 门禁加 internal/judge 并发子集;README/architecture 同步

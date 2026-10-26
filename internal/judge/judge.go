@@ -20,6 +20,8 @@ import (
 // Limits 单点资源限制（LemonLime TestCase.timeLimit/memoryLimit 的运行态）。
 // IOMode=file 时程序通过文件交互（OI 文件 IO 题）。
 // OutputLimitKiB=0 时取 DefaultOutputCap。
+// Interpreted 标记解释型运行时：Unix 侧跳过地址空间墙（ulimit -v /
+// RLIMIT_AS 会误杀自带内存管理的运行时），保留 CPU/进程数墙。
 type Limits struct {
 	TimeMs         int
 	MemoryMiB      int
@@ -27,6 +29,7 @@ type Limits struct {
 	InFile         string
 	OutFile        string
 	OutputLimitKiB int
+	Interpreted    bool
 }
 
 // DefaultOutputCap 缺省 stdout 上限 16MB。
@@ -61,6 +64,25 @@ type Request struct {
 	CompileTimeoutSec int
 	// Interactor 非空且 TaskType=interaction 时启用交互式评测。
 	Interactor *InteractorSpec
+	// Diff 非空且 Compare=external_tool 时用外部 diff 工具比较
+	// （对标 LemonLime ExternalToolMode）。
+	Diff *DiffSpec
+	// 题目级工具链覆盖（对标 LemonLime 每题编译配置；与工具链倍率叠加）。
+	CompileStd              string
+	TimeLimitRatio          float64
+	MemoryLimitRatio        float64
+	DisableMemoryLimitCheck *bool
+}
+
+// DiffSpec 外部 diff 工具（对标 LemonLime Settings diffPath + diffArguments）。
+type DiffSpec struct {
+	Command string
+	Args    []string
+}
+
+// DefaultDiffArgs LemonLime 缺省 diff 参数（对标 task.h ExternalToolMode）。
+func DefaultDiffArgs() []string {
+	return []string{"--ignore-space-change", "--text", "--brief"}
 }
 
 // TaskType 即 domain.TaskType（别名，调用方无需多导一包）。
@@ -105,10 +127,12 @@ func borderlineTLE(run RunResult, limitMs int) bool {
 
 // resolveIO 路径存在则读文件，否则按内联文本处理。
 // SubtaskMaps 由题目 TestCases 生成子任务映射（与 JudgeCases 聚合语义配套）。
-// 无测试点时返回 nil, nil，调用方应跳过自动评测、保留人工判题。
-func SubtaskMaps(tcs []domain.TestCase) (subtaskOf func(int) int, fullOf func(int) int) {
+// depsOf 返回各子任务声明的依赖（由用例级 DependsOn 去重聚合），供
+// AggregateScoreWithDeps 的依赖清零语义使用。
+// 无测试点时返回 nil, nil, nil，调用方应跳过自动评测、保留人工判题。
+func SubtaskMaps(tcs []domain.TestCase) (subtaskOf func(int) int, fullOf func(int) int, depsOf func(int) []int) {
 	if len(tcs) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	subtaskOf = func(i int) int {
 		if i < 0 || i >= len(tcs) {
@@ -117,11 +141,26 @@ func SubtaskMaps(tcs []domain.TestCase) (subtaskOf func(int) int, fullOf func(in
 		return tcs[i].Subtask
 	}
 	full := map[int]int{}
+	deps := map[int][]int{}
+	seen := map[int]map[int]bool{}
 	for _, tc := range tcs {
 		full[tc.Subtask] += tc.Score
+		if tc.Subtask <= 0 {
+			continue
+		}
+		for _, d := range tc.DependsOn {
+			if seen[tc.Subtask] == nil {
+				seen[tc.Subtask] = map[int]bool{}
+			}
+			if !seen[tc.Subtask][d] {
+				seen[tc.Subtask][d] = true
+				deps[tc.Subtask] = append(deps[tc.Subtask], d)
+			}
+		}
 	}
 	fullOf = func(st int) int { return full[st] }
-	return subtaskOf, fullOf
+	depsOf = func(st int) []int { return deps[st] }
+	return subtaskOf, fullOf, depsOf
 }
 
 // Orchestrator 编排一次评测：编译一次，分点运行比较。
@@ -136,10 +175,9 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 	if req.TaskType == domain.TaskAnswersOnly {
 		out := make([]domain.CaseResult, len(req.Cases))
 		for i, c := range req.Cases {
-			if domain.CompareOutput(req.Code, resolveIO(c.Expected), req.Compare, req.RealEps) {
-				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseAC}
-			} else {
-				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseWA}
+			out[i] = domain.CaseResult{
+				CaseIndex: i,
+				Verdict:   domain.CompareVerdict(req.Code, resolveIO(c.Expected), req.Compare, req.RealEps),
 			}
 		}
 		return domain.JudgeOutcome{Cases: out}, nil
@@ -158,7 +196,7 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		cctx, cancel = context.WithTimeout(ctx, time.Duration(req.CompileTimeoutSec)*time.Second)
 		defer cancel()
 	}
-	compile, err := o.Compiler.Compile(cctx, req.Language, []byte(req.Code), workdir)
+	compile, err := o.Compiler.Compile(cctx, req.Language, []byte(req.Code), workdir, CompileOptions{Std: req.CompileStd})
 	if err != nil {
 		return domain.JudgeOutcome{}, err
 	}
@@ -207,6 +245,19 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 	if compile.DisableMemoryLimitCheck {
 		lim.MemoryMiB = 0
 	}
+	// 题目级倍率与工具链倍率叠加相乘（对标 LemonLime 每题每编译器 ratio）；
+	// 题目级禁内存墙最后生效。
+	if req.TimeLimitRatio > 0 && req.TimeLimitRatio != 1 {
+		lim.TimeMs = int(math.Ceil(float64(lim.TimeMs) * req.TimeLimitRatio))
+	}
+	if req.MemoryLimitRatio > 0 && req.MemoryLimitRatio != 1 {
+		lim.MemoryMiB = int(math.Ceil(float64(lim.MemoryMiB) * req.MemoryLimitRatio))
+	}
+	if req.DisableMemoryLimitCheck != nil && *req.DisableMemoryLimitCheck {
+		lim.MemoryMiB = 0
+	}
+	// 解释型运行时：Unix 侧跳过地址空间墙（避免误杀），保留 CPU/进程数墙。
+	lim.Interpreted = compile.Interpreted
 
 	// 静态内存预检（对标 LemonLime watcher calculateStaticMemoryUsage）：
 	// 选手在 BSS 里开超大全局数组时，起跑前即判 MLE，省一次必然失败的运行。
@@ -237,7 +288,11 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		cl := mergeLimits(lim, c.Limits)
 		// 交互式：跳过普通运行，走管道对接。
 		if req.TaskType == domain.TaskInteraction && req.Interactor != nil {
-			ir, err := RunInteraction(ctx, o.Compiler, *req.Interactor, compile.Argv(), resolveIO(c.Input), cl, workdir)
+			caseFull := c.Score
+			if caseFull <= 0 {
+				caseFull = 100
+			}
+			ir, err := RunInteraction(ctx, o.Compiler, *req.Interactor, compile.Argv(), resolveIO(c.Input), cl, workdir, caseFull)
 			if err != nil {
 				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
 				if c.Subtask > 0 {
@@ -245,7 +300,10 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 				}
 				continue
 			}
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: ir.Verdict, TimeMs: ir.TimeMs}
+			out[i] = domain.CaseResult{
+				CaseIndex: i, Verdict: ir.Verdict, TimeMs: ir.TimeMs,
+				MemoryKiB: ir.MemoryKiB, CpuMs: ir.CpuMs, Score: ir.Score, Message: ir.Message,
+			}
 			if ir.Verdict != domain.CaseAC && c.Subtask > 0 {
 				failedSubtasks[c.Subtask] = true
 			}
@@ -351,11 +409,10 @@ func judgeOutput(ctx context.Context, checker *compiledChecker, c CaseInput, run
 		res.Message = message
 		return res
 	}
-	if domain.CompareOutput(run.Stdout, resolveIO(c.Expected), req.Compare, req.RealEps) {
-		res.Verdict = domain.CaseAC
-	} else {
-		res.Verdict = domain.CaseWA
+	if req.Compare == domain.CompareExternalTool {
+		return compareExternal(ctx, req.Diff, run.Stdout, resolveIO(c.Expected), workdir, res)
 	}
+	res.Verdict = domain.CompareVerdict(run.Stdout, resolveIO(c.Expected), req.Compare, req.RealEps)
 	return res
 }
 

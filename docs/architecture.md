@@ -90,9 +90,22 @@ flowchart TB
 1. 学生提交到 `/api/v1/contests/{cid}/submissions`。
 2. 应用层校验比赛状态、严格时间窗、IP 机位、参赛资格、题目归类和 64 KiB 上限。
 3. 选择题即时判分；其他题型创建 `queued` 提交并广播 `submission.created`。
-4. 自动评测启用时，worker 编译一次并按测试点执行。
+4. 自动评测启用时，worker 编译一次（产物按源码/工具链/编译器版本/平台缓存）
+   并按测试点执行；子任务依赖短路跳过，回写聚合含依赖清零语义。
 5. 结果通过 `submission.judged` 与 `ranking.updated` 推送，并持久化逐点详情。
 6. 自动评测关闭时，教师在教师控制台回写总分或逐点结果。
+
+评测执行（`internal/judge`，只依赖 `internal/domain`）要点：
+
+- 资源墙分级：Windows Job Object（内存 + 单进程数 + 关闭即杀树）、Linux
+  prlimit（可选 bwrap 命名空间沙箱，`--unshare-all`）、其余 Unix 降级
+  `/bin/sh` ulimit；解释型运行时跳过地址空间墙、保留 CPU/进程数墙。
+- 子进程全部进独立进程组（Unix `Setpgid`），超时组杀兜底孙进程；
+  特判与交互器另有独立资源墙与最小环境变量（`runConfined`）。
+- 比较模式：`line_by_line`、`ignore_space`（token 相同行分布不同 → PE）、
+  `real_number`（绝对+相对误差）、三种特判协议、`external_tool`（外部 diff）。
+- 基础设施故障（目录创建失败、评测器自身崩溃）落 `SystemError`，与
+  学生程序故障（RE）分离；交互器协议外异常退出同样落 `CheckerError`。
 
 ### 4.3 开赛预检
 

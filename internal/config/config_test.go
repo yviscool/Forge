@@ -23,8 +23,9 @@ func TestLoadDefaults(t *testing.T) {
 	if c.Environment != "development" || c.MinFreeDiskMiB != 512 {
 		t.Fatalf("environment/disk defaults: %+v", c)
 	}
-	if c.JudgeWorkers != runtime.NumCPU() {
-		t.Fatalf("workers default: %+v", c)
+	// 缺省物理核数（SMT 上小于逻辑核数）；区间断言不绑定具体机器。
+	if c.JudgeWorkers < 1 || c.JudgeWorkers > runtime.NumCPU() {
+		t.Fatalf("workers default out of range: %+v", c)
 	}
 	if c.TrustProxy {
 		t.Fatalf("proxy headers must be untrusted by default: %+v", c)

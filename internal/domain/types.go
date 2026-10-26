@@ -250,17 +250,29 @@ type Problem struct {
 	// OutputLimitKiB 单点 stdout 上限（KB），0 则默认；超限判 OLE。
 	OutputLimitKiB int `json:"outputLimitKib,omitempty"`
 	// CompileTimeoutSec 单次编译上限（秒），0 则默认。
-	CompileTimeoutSec int                      `json:"compileTimeoutSec,omitempty"`
-	TaskType          TaskType                 `json:"taskType,omitempty"`
-	IOMode            IOMode                   `json:"ioMode,omitempty"`
-	InFile            string                   `json:"inFile,omitempty"`
-	OutFile           string                   `json:"outFile,omitempty"`
-	CheckerLang       string                   `json:"checkerLang,omitempty"`
-	CheckerCode       string                   `json:"checkerCode,omitempty"`
-	InteractorLang    string                   `json:"interactorLang,omitempty"`
-	InteractorCode    string                   `json:"interactorCode,omitempty"`
-	Locales           map[string]ProblemLocale `json:"locales,omitempty"`
-	TestCases         []TestCase               `json:"testCases,omitempty"`
+	CompileTimeoutSec int      `json:"compileTimeoutSec,omitempty"`
+	TaskType          TaskType `json:"taskType,omitempty"`
+	IOMode            IOMode   `json:"ioMode,omitempty"`
+	InFile            string   `json:"inFile,omitempty"`
+	OutFile           string   `json:"outFile,omitempty"`
+	CheckerLang       string   `json:"checkerLang,omitempty"`
+	CheckerCode       string   `json:"checkerCode,omitempty"`
+	InteractorLang    string   `json:"interactorLang,omitempty"`
+	InteractorCode    string   `json:"interactorCode,omitempty"`
+	// 题目级工具链覆盖（对标 LemonLime 每题每编译器可选配置；空值继承全局
+	// FORGE_TOOLCHAINS 配置）。CompileStd 仅对 C/C++ 生效（如 "c++17"）。
+	CompileStd string `json:"compileStd,omitempty"`
+	// TimeLimitRatio / MemoryLimitRatio 题目级运行限额倍率（与工具链倍率
+	// 叠加相乘；0 = 不覆盖）。DisableMemoryLimitCheck 题目级关闭硬内存墙。
+	TimeLimitRatio          float64 `json:"timeLimitRatio,omitempty"`
+	MemoryLimitRatio        float64 `json:"memoryLimitRatio,omitempty"`
+	DisableMemoryLimitCheck *bool   `json:"disableMemoryLimitCheck,omitempty"`
+	// DiffCommand / DiffArgs external_tool 比较模式的外部 diff 工具
+	// （对标 LemonLime Settings diffPath；缺省参数 --ignore-space-change --text --brief）。
+	DiffCommand string                   `json:"diffCommand,omitempty"`
+	DiffArgs    []string                 `json:"diffArgs,omitempty"`
+	Locales     map[string]ProblemLocale `json:"locales,omitempty"`
+	TestCases   []TestCase               `json:"testCases,omitempty"`
 	// GESP 客观选择/判断题
 	ChoiceQuestions []ChoiceQuestion `json:"choiceQuestions,omitempty"`
 	ChoiceKeyJSON   string           `json:"choiceKeyJson,omitempty"`

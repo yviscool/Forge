@@ -46,6 +46,8 @@ type RuntimeStats struct {
 	JudgeJobsQueued    int
 	JudgeQueueCapacity int
 	SSESubscriberCount int
+	JudgeCacheHits     uint64
+	JudgeCacheMisses   uint64
 }
 
 func NewMetrics() *Metrics {
@@ -207,6 +209,12 @@ func (m *Metrics) render() string {
 	body.WriteString("# HELP forge_judge_enqueue_failures_total Transient judge handoff failures.\n")
 	body.WriteString("# TYPE forge_judge_enqueue_failures_total counter\n")
 	fmt.Fprintf(&body, "forge_judge_enqueue_failures_total %d\n", m.judgeEnqueueFailures.Load())
+	body.WriteString("# HELP forge_judge_cache_hits_total Compile cache hits.\n")
+	body.WriteString("# TYPE forge_judge_cache_hits_total counter\n")
+	fmt.Fprintf(&body, "forge_judge_cache_hits_total %d\n", runtimeStats.JudgeCacheHits)
+	body.WriteString("# HELP forge_judge_cache_misses_total Compile cache misses.\n")
+	body.WriteString("# TYPE forge_judge_cache_misses_total counter\n")
+	fmt.Fprintf(&body, "forge_judge_cache_misses_total %d\n", runtimeStats.JudgeCacheMisses)
 	body.WriteString("# HELP forge_sse_subscribers Active server-sent event streams.\n")
 	body.WriteString("# TYPE forge_sse_subscribers gauge\n")
 	fmt.Fprintf(&body, "forge_sse_subscribers %d\n", runtimeStats.SSESubscriberCount)

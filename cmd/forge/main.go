@@ -149,14 +149,16 @@ func main() {
 	workerCtx, stopWorkers := context.WithCancel(context.Background())
 	go pruneExpiredSessions(workerCtx, store, log)
 	var judgePool *judge.Pool
+	var compileCache *judge.CompileCache
 	if cfg.AutoJudge {
 		log.Warn("UNSAFE local judge enabled: submitted code will run on this host",
 			"protection", "process/memory walls only; no filesystem, network, or user isolation")
 		tc := judge.Toolchain{Config: toolchainCfg}
 		if cc, err := judge.NewCompileCache(filepath.Join(os.TempDir(), "forge-ccache")); err == nil {
 			tc.Cache = cc
+			compileCache = cc
 		}
-		judgePool = judge.AutoJudgePool(svc, tc)
+		judgePool = app.AutoJudgePool(svc, tc)
 		judgePool.Start(workerCtx, cfg.JudgeWorkers)
 		defer judgePool.Wait()
 		srv.AddReadinessCheck("judge_workers", func(context.Context) error {
@@ -183,11 +185,11 @@ func main() {
 			return nil
 		}
 		srv.OnSubmit = enqueue
-		go judge.RunQueueReconciler(
+		go app.RunQueueReconciler(
 			workerCtx,
 			svc,
 			judgePool,
-			judge.DefaultReconcileInterval,
+			app.DefaultReconcileInterval,
 			log,
 		)
 		log.Info("autojudge ready", "workers", cfg.JudgeWorkers)
@@ -208,6 +210,9 @@ func main() {
 			stats.JudgeJobsActive = judgeStats.Active
 			stats.JudgeJobsQueued = judgeStats.Queued
 			stats.JudgeQueueCapacity = judgeStats.Capacity
+		}
+		if compileCache != nil {
+			stats.JudgeCacheHits, stats.JudgeCacheMisses = compileCache.Stats()
 		}
 		return stats
 	})

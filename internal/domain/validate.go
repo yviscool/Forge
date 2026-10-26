@@ -150,11 +150,37 @@ func ValidateProblem(p Problem) error {
 	if p.CompileTimeoutSec < 0 || p.CompileTimeoutSec > maxCompileTimeoutSec {
 		return fmt.Errorf("compile timeout must be between 0 and %d seconds", maxCompileTimeoutSec)
 	}
+	if p.CompileStd != "" && !validCompileStd(p.CompileStd) {
+		return errors.New("compileStd must be a plain token like c++17 or c11")
+	}
+	if p.TimeLimitRatio < 0 || p.TimeLimitRatio > 100 {
+		return errors.New("time limit ratio must be between 0 and 100")
+	}
+	if p.MemoryLimitRatio < 0 || p.MemoryLimitRatio > 100 {
+		return errors.New("memory limit ratio must be between 0 and 100")
+	}
 	if p.CompareMode != "" {
 		switch NormalizeComparisonMode(p.CompareMode) {
-		case CompareLineByLine, CompareIgnoreSpace, CompareRealNumber, CompareSpecialJudge:
+		case CompareLineByLine, CompareIgnoreSpace, CompareRealNumber, CompareSpecialJudge,
+			CompareLemonSpecialJudge, CompareTestlibSpecialJudge, CompareExternalTool:
 		default:
 			return errors.New("unknown comparison mode")
+		}
+	}
+	if NormalizeComparisonMode(p.CompareMode) == CompareExternalTool {
+		if strings.TrimSpace(p.DiffCommand) == "" {
+			return errors.New("external tool compare requires diffCommand")
+		}
+		if len(p.DiffCommand) > 256 {
+			return errors.New("diffCommand is too long")
+		}
+		if len(p.DiffArgs) > 16 {
+			return errors.New("diffArgs accepts at most 16 arguments")
+		}
+		for _, arg := range p.DiffArgs {
+			if len(arg) > 256 {
+				return errors.New("diff argument is too long")
+			}
 		}
 	}
 	if p.IOMode == IOFile {
@@ -240,6 +266,23 @@ func ValidateProblem(p Problem) error {
 		}
 	}
 	return nil
+}
+
+// validCompileStd 校验题目级 -std 覆盖：只允许单 token（字母数字与少量
+// 安全符号），作为单个 argv 元素传给编译器，杜绝参数注入。
+func validCompileStd(std string) bool {
+	if len(std) == 0 || len(std) > 32 {
+		return false
+	}
+	for _, r := range std {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '+' || r == '-' || r == '=' || r == '.' || r == '_':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func validateTextLength(field, value string, limit int) error {

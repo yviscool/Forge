@@ -253,7 +253,7 @@ type fakeCompileRunner struct {
 	gotLim  []Limits
 }
 
-func (f *fakeCompileRunner) Compile(_ context.Context, _ string, _ []byte, _ string) (CompileResult, error) {
+func (f *fakeCompileRunner) Compile(_ context.Context, _ string, _ []byte, _ string, _ CompileOptions) (CompileResult, error) {
 	return f.compile, nil
 }
 

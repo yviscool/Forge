@@ -3,6 +3,8 @@ package judge
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,6 +68,7 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = workdir
 	cmd.Env = scrubEnv()
+	cmd.SysProcAttr = sysProcAttr()
 
 	// 文件 IO 模式（OI 文件读写题）：输入落盘，输出从文件回读。
 	// 文件名强制 Base 净化：配置来自题目数据，../ 不得逃逸工作目录。
@@ -85,8 +88,8 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	if err != nil {
 		return res, err
 	}
-	outCap := &cappedWriter{cap: outputCapOf(lim)}
-	errCap := &cappedWriter{cap: 1 << 20}
+	outCap := newCapped(outputCapOf(lim))
+	errCap := newCapped(1 << 20)
 	cmd.Stdout, cmd.Stderr = outCap, errCap
 
 	limiter, err := newJobLimiter(lim.MemoryMiB, 1)
@@ -99,17 +102,24 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	if err := cmd.Start(); err != nil {
 		return res, err
 	}
+	stop := watchGroupKill(ctx, cmd.Process.Pid)
+	defer stop()
 	// 启动后立刻纳入 Job：单进程程序无 Bourne-shell 间接层，窗口足够小。
 	if err := limiter.Attach(cmd.Process.Pid); err != nil {
 		_ = cmd.Process.Kill()
 		_ = cmd.Wait()
 		return res, err
 	}
-	if _, err := stdin.Write([]byte(stdinData)); err != nil {
-		// 程序提前退出导致管道关闭：非致命，继续等退出码。
-		_ = err
+	// stdin 异步写：输入超过管道缓冲且程序不读时，同步写会阻塞至硬墙
+	// 杀进程解锁，污染软限计时；goroutine 写完即关，进程退出管道自解。
+	if stdinData != "" {
+		go func() {
+			_, _ = io.Copy(stdin, bytes.NewReader([]byte(stdinData)))
+			_ = stdin.Close()
+		}()
+	} else {
+		_ = stdin.Close()
 	}
-	_ = stdin.Close()
 	waitErr := cmd.Wait()
 	elapsed := time.Since(start)
 
@@ -118,15 +128,23 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 		res.CpuMs = int((ps.UserTime() + ps.SystemTime()) / time.Millisecond)
 	}
 	res.Stdout, res.Stderr = outCap.String(), errCap.String()
+	fileTruncated := false
 	if outFromFile != "" {
-		if b, err := os.ReadFile(outFromFile); err == nil {
+		b, readErr := readCappedFile(outFromFile, outputCapOf(lim))
+		switch {
+		case errors.Is(readErr, errOutputFileMissing):
+			res.NoOutput = true
+		case errors.Is(readErr, errOutputCapExceeded):
+			fileTruncated = true
 			res.Stdout = string(b)
-		} else {
+		case readErr != nil:
 			res.NoOutput = true
 			res.Stdout = ""
+		default:
+			res.Stdout = string(b)
 		}
 	}
-	res.Truncated = outCap.truncated || errCap.truncated
+	res.Truncated = outCap.truncated || errCap.truncated || fileTruncated
 	peak := limiter.PeakBytes()
 	if peak == 0 && cmd.ProcessState != nil {
 		// Unix 侧 jobLimiter 无 Job Object：用 wait4 rusage 的 ru_maxrss 回填。
@@ -151,7 +169,39 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	if limitBytes(lim.MemoryMiB) > 0 && limiter.PeakBytes()*100 >= uint64(limitBytes(lim.MemoryMiB))*95 {
 		res.OutOfMemory = true
 	}
+	// Unix 补充：RLIMIT_AS 拒绝分配触发的致命信号（bad_alloc abort 等）
+	// 判 MLE 而非 RE（对标 LemonLime watcher 的信号映射口径）。
+	if !res.OutOfMemory && crashedOnMemoryWall(cmd.ProcessState, res.Stderr, limitBytes(lim.MemoryMiB)) {
+		res.OutOfMemory = true
+	}
 	return res, nil
+}
+
+// errOutputFileMissing / errOutputCapExceeded 文件 IO 回读的两种特判态。
+var (
+	errOutputFileMissing = errors.New("output file missing")
+	errOutputCapExceeded = errors.New("output cap exceeded")
+)
+
+// readCappedFile 限额读取输出文件：超限截断（文件 IO 模式的 OLE 口径，
+// 对标 LemonLime 输出上限；此前 os.ReadFile 无上限，OLE 配置不生效）。
+func readCappedFile(path string, cap int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, errOutputFileMissing
+		}
+		return nil, err
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, int64(cap)+1))
+	if err != nil {
+		return b, err
+	}
+	if len(b) > cap {
+		return b[:cap], errOutputCapExceeded
+	}
+	return b, nil
 }
 
 func limitBytes(mib int) int64 {

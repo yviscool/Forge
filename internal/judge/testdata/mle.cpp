@@ -1,14 +1,12 @@
 #include <bits/stdc++.h>
 using namespace std;
 int main() {
-    // commit 1MB at a time so the 64MB job wall kills us mid-run -> MLE
+    // commit 1MB at a time: Windows 命中 Job 内存墙截杀；Linux 触发
+    // std::bad_alloc -> terminate -> SIGABRT（stderr 带 bad_alloc），
+    // 两条路径都稳定落 MLE，而非 nothrow 返回 99 的近墙 RE。
     vector<char *> blocks;
-    for (int i = 0; i < 512; i++) {
-        char *p = new (nothrow) char[1 << 20];
-        if (!p) return 99; // allocation refused (also OOM, but wall-kill is the expected path)
-        memset(p, 1, 1 << 20);
-        blocks.push_back(p);
+    for (;;) {
+        blocks.push_back(new char[1 << 20]);
+        memset(blocks.back(), 1, 1 << 20);
     }
-    cout << "alive";
-    return 0;
 }

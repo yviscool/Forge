@@ -9,8 +9,13 @@ func TestCompareOutput(t *testing.T) {
 	if CompareOutput("1 2", "1 3", CompareLineByLine, 0) {
 		t.Fatal("different output must not match")
 	}
-	if !CompareOutput("1  2\n3", "1 2 3", CompareIgnoreSpace, 0) {
-		t.Fatal("ignore-space mode broken")
+	// ignore-space 下 token 相同但行分布不同 → PE（对标 upstream
+	// compareIgnoreSpaces 的行号分叉判定），不再计入布尔"相等"。
+	if v := CompareVerdict("1  2\n3", "1 2 3", CompareIgnoreSpace, 0); v != CasePE {
+		t.Fatalf("same tokens with different line layout must be PE, got %s", v)
+	}
+	if CompareOutput("1  2\n3", "1 2 3", CompareIgnoreSpace, 0) {
+		t.Fatal("PE is not exact output equality")
 	}
 	if !CompareOutput("0.333", "0.3334", CompareRealNumber, 1e-3) {
 		t.Fatal("real-number within eps should pass")
