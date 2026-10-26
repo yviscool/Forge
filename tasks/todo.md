@@ -144,3 +144,21 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
       killtree fork=-1 / checker 间歇 RE,doctor 单跑能过、测试并发即撞墙)。
       256 仍防 fork 炸弹(forkbomb fixture 连发 500 必然撞墙),Windows
       ActiveProcessLimit=1 单进程墙不变
+
+# CI 全绿(2026-10-27,run 40381440198 @ a63d20a)
+
+六 job 全过:frontend(覆盖率门禁)/ go-ubuntu(Linux 评测线首次真实验证)/
+go-windows / e2e(3 浏览器 axe)/ contract / security。
+
+本轮连环修复链(每轮 CI 日志驱动):
+1. killtree_linux_test 缺 []byte → CI 加 cross-vet(GOOS=linux/darwin vet)
+2. BwrapArgv 缺二进制头部(死代码首跑)→ 修签名 + 探测降级
+3. bwrap CPU 计量不穿透(ubuntu-26.04 实测 CpuMs 恒 1ms)→ 探测验证计量,
+   不穿透自动退 prlimit-only
+4. 探测同步执行吃光首单运行 ctx("case 0 RE deadline exceeded / case 1 AC")
+   → 探测异步化(上轮补丁静默失配未入库,带断言重写后落地)
+5. prlimit --nproc 64:CI runner 同 UID 进程数逼近配额,cc1plus/thread/fork
+   随机 EAGAIN → 提到 256(防炸弹语义不变)
+6. forkbomb fixture:三平台确定性拦截(500 连发 + 子进程先关 stdio + 
+   spawn 失败收割),Linux 分支补 vector/cstdio/signal 头
+7. 判题可观测性:runner/interactor 基础设施故障的 RE 携带错误原文
