@@ -60,6 +60,11 @@ func StaticMemoryBytes(path string) (uint64, error) {
 		var total uint64
 		for _, load := range exe.Loads {
 			if seg, ok := load.(*macho.Segment); ok {
+				// __PAGEZERO 是 arm64 Mach-O 的 4GiB 低位保护区（不可读写、
+				// 不承载任何分配），计入会把无害程序误判成 4GiB 静态足迹。
+				if seg.Name == "__PAGEZERO" {
+					continue
+				}
 				total += seg.Memsz
 			}
 		}

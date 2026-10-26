@@ -385,9 +385,11 @@ func TestCompilerPerLangLimits(t *testing.T) {
 		t.Fatalf("1ms compile timeout must kill: ok=%v err=%v", r.OK, err)
 	}
 	// 64MB 编译内存墙装不下 bits 头编译（正常需 300MB+）。
+	// 这里刻意用 bits/stdc++.h：断言的是「重型 TU 必然撞墙」，
+	// g++ 恒有该头；darwin 的 CI 过滤器不收录本测试，无 clang 兼容问题。
 	dir2 := t.TempDir()
 	r2, err := Toolchain{Config: ToolchainConfig{CPP: ToolSpec{CompileMemoryMiB: 64}}}.Compile(
-		ctx, "cpp", []byte("int main(){return 0;}"), dir2, CompileOptions{})
+		ctx, "cpp", []byte("#include<bits/stdc++.h>\nint main(){return 0;}"), dir2, CompileOptions{})
 	if err != nil {
 		t.Fatalf("walled compile should fail cleanly, not error: %v", err)
 	}
