@@ -81,3 +81,47 @@
 | 批 3(性能+维护) | P2-11/12、P3-13/14、P4-16/17/18 | 缓存命中率指标可见;`-race ./internal/judge/...` 快子集;`go vet`/gofmt 门禁 |
 
 每批遵守仓库门禁:gofmt / vet / build / test / cross-compile(linux+darwin guard)/ 前端五道门不变。
+
+---
+
+# 阶段二复盘与阶段三规划(2026-10-27,CI 全绿 @51b458e 后评估)
+
+## 定位评估(以 upstream 69aa223 为基准,数据见下)
+
+| 维度 | 结论 | 证据 |
+|---|---|---|
+| 判题闭环完备性 | **完备**(教学/机构竞赛主路径) | 编译→分点→比较/特判→聚合→回写→SSE 全链,ubuntu+windows CI 每次推送真实验证 |
+| 沙箱完备性 | **未达上游 Windows 水位** | 上游 2026 新增 AppContainer(ACL+运行时发现+授权缓存);Forge Windows 仍只有 Job 内存墙,无文件系统/网络隔离,需 UNSAFE 门禁 |
+| 架构 | **执行核超越,沙箱深度落后** | 分层 app→judge 单向(vs 上游 Qt 单体);RE 带原文/SystemError 分离/cache 指标(vs 上游无观测);编译缓存 v2(vs 上游无缓存);组杀+看门狗+异步探测自愈;上游领先:AppContainer 深度、CPU 拓扑全量、Qt UI |
+| 测试量 | **量级相当,执行密度更高** | 上游 tests/ ~2552 行 357 断言;Forge judge 2348 行 68 函数 27 子测试 209 断言 + CSP corpus(4 题×40 点×十余变体真实执行矩阵)+ domain 规则 236 行;全仓 10,965 行/200 函数 |
+| 测试完备性 | **CI 化超越,平台与模糊面缺口** | Forge 双 OS 全量+race+cross-vet 每次推送;上游 ctest 主要覆盖 macOS/watcher。缺口:darwin 无 CI job、解析器无 fuzz、race 未覆盖 runner 全路径 |
+| 功能对齐 | **最小集 100%,加强项多处** | 三特判/PE/OLE/依赖清零/倍率/重测/静态内存/双 IO/答案题全对齐;交互题超越(独立进程+部分分协议 vs 上游编译期耦合);有意不做:通信题/cgroup/stop-on-error |
+| 总评 | **可用性已满足;高危沙箱场景未满足** | 教学场景可直接投产;处理不可信代码仍需独立隔离环境或等阶段三 Windows 沙箱 |
+
+## 阶段三规划(安全补完 → 平台收口 → 运营观测)
+
+### P0 —— Windows 低权沙箱(对齐上游 AppContainer 的安全目标)
+- 落地方式:按"等效安全目标"而非逐 API 复刻——受限本地账户 + 工作目录 ACL +
+  网络拒绝(Windows 防火墙规则或 Job 内网络限制),复用 job_windows.go 的 Job 墙;
+  上游 AppContainer 的运行时发现/授权缓存逻辑作为参照。
+- 验收:windows CI 上"提交进程无法读工作目录外文件/无法联网"断言;
+  FORGE_ALLOW_UNSAFE_LOCAL_JUDGE 门禁语义收窄为"沙箱可用性探测失败时才需要"。
+
+### P0 —— Linux cgroup v2 资源墙(上游 TODO,我们做成正事)
+- memory.max + pids.max 替代/叠加 RLIMIT_AS(RLIMIT_AS 会把虚拟地址空间
+  保留误判为真实占用;解释型运行时误杀面更小),按 v2 统一层级探测降级。
+- 验收:corpus 全绿 + 与 prlimit 路径同 verdict。
+
+### P1 —— 平台与模糊面收口
+- darwin CI job(macos runner 跑 go test,激活 sysctl/ulimit/rusage 真实断言);
+- `forge doctor` 子命令:工具链/沙箱/计量/编译缓存一键诊断(把 judge doctor
+  从 CI 专属变成运维工具);
+- go fuzz:parseTestlibResult / parseLemonScore / tokenLineSeq / SafeFileName;
+- race 扩面:runner/checker 并发路径(现仅池/缓存/线束子集)。
+
+### P2 —— 运营观测与文档
+- per-verdict 计数与判题时长直方图进 /metrics;
+- docs/judge.md:三平台语义矩阵(墙类型/计量口径/沙箱能力/降级路径)。
+
+## 明确继续不做
+通信题、stop-on-error、cgroup v1、Qt/UI 层任何对齐(前端另有体系)。
