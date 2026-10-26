@@ -150,8 +150,19 @@ jobs:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
       - name: install Playwright browsers
-        run: npx playwright install --with-deps chromium firefox webkit
+        # Playwright CDN 偶发长时间挂起（曾整段吃满 25min 作业超时）：
+        # 每个浏览器独立安装并各重试一次，单浏览器失败不拖垮整批。
         working-directory: frontend
+        run: |
+          for browser in chromium firefox webkit; do
+            ok=0
+            for attempt in 1 2; do
+              if npx playwright install --with-deps "$browser"; then ok=1; break; fi
+              echo "::warning::$browser install attempt $attempt failed, retrying"
+              sleep 10
+            done
+            [ "$ok" = "1" ] || { echo "::error::$browser install failed twice"; exit 1; }
+          done
       - name: browser acceptance
         run: npm run test:e2e
         working-directory: frontend
