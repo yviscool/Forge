@@ -38,7 +38,6 @@ import { byteLength } from '../features/student/submissionFiles'
 import { contestProblemDraftKey } from '../store/useStore'
 import {
   applyResize,
-  detectSnapZone,
   isSnapped,
   snapRect,
   type ResizeDir,

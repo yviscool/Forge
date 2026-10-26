@@ -70,7 +70,7 @@ export function Scoreboard({
       </div>
 
       <div className="overflow-hidden rounded-xl border border-[#e4e7ec] bg-white">
-        <div className="overflow-x-auto">
+        <div tabIndex={0} className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-left text-sm">
             <thead className="border-b border-[#eaecf0] bg-[#fbfaf6] text-[11px] uppercase tracking-wider text-slate-500">
               <tr>

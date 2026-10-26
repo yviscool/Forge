@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   MIN_WINDOW_H,
   MIN_WINDOW_W,
-  TOP_BAR_H,
   applyResize,
   detectSnapZone,
   isSnapped,

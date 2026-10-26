@@ -16,7 +16,6 @@ import type {
   LemonSource,
   LemonTask,
   LemonTasksResponse,
-  LemonUploadFileInput,
   LemonUploadFolderResult,
 } from './types'
 

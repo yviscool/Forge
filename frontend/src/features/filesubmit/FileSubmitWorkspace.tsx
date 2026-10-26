@@ -80,6 +80,8 @@ export function FileSubmitWorkspace() {
   const [messagesOpen, setMessagesOpen] = useState(false)
   const [messages, setMessages] = useState<LemonMessage[]>([])
   const [latestMessageId, setLatestMessageId] = useState(0)
+  // "已读"水位:localStorage 持久化 + state 响应式,未读数随打开面板即时清零。
+  const [seenMessageId, setSeenMessageId] = useState(() => readNumber(MESSAGE_SEEN_KEY))
   const [scores, setScores] = useState<LemonScores | null>(null)
   const [codeTaskId, setCodeTaskId] = useState<number | null>(null)
   const [codeSource, setCodeSource] = useState<LemonSource | null>(null)
@@ -150,15 +152,16 @@ export function FileSubmitWorkspace() {
     }
   }, [])
 
-  const unreadCount = useMemo(() => {
-    const seen = readNumber(MESSAGE_SEEN_KEY)
-    return messages.filter((message) => message.id > seen).length
-  }, [messages, messagesOpen])
+  const unreadCount = useMemo(
+    () => messages.filter((message) => message.id > seenMessageId).length,
+    [messages, seenMessageId],
+  )
 
   const openMessages = () => {
     setMessagesOpen(true)
-    if (latestMessageId > readNumber(MESSAGE_SEEN_KEY)) {
+    if (latestMessageId > seenMessageId) {
       writeNumber(MESSAGE_SEEN_KEY, latestMessageId)
+      setSeenMessageId(latestMessageId)
     }
   }
 

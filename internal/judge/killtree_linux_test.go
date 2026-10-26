@@ -17,7 +17,7 @@ func TestKillTreeReapsGrandchild(t *testing.T) {
 	requireTool(t, "g++")
 	work := t.TempDir()
 	tc := Toolchain{}
-	comp, err := tc.Compile(context.Background(), "cpp", fixture(t, "killtree.cpp"), work, CompileOptions{})
+	comp, err := tc.Compile(context.Background(), "cpp", []byte(fixture(t, "killtree.cpp")), work, CompileOptions{})
 	if err != nil || !comp.OK {
 		t.Fatalf("compile: %v %+v", err, comp)
 	}

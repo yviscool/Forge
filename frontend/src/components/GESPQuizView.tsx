@@ -571,7 +571,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
           <div className="border-b border-[#eaecf0] bg-[#14283d] p-5 text-white">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/45">
+                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">
                   Answer sheet
                 </p>
                 <h2 className="mt-1 text-base font-extrabold">答题卡</h2>
@@ -582,7 +582,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
               <span className="text-xs text-white/55">已作答</span>
               <span className="font-mono text-sm font-black">
                 {answeredCount}
-                <span className="text-white/40"> / {questions.length}</span>
+                <span className="text-white/60"> / {questions.length}</span>
               </span>
             </div>
             <div

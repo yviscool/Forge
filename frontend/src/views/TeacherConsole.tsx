@@ -2193,7 +2193,7 @@ export function TeacherConsole() {
                 )}
 
                 {/* Users Table */}
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <div tabIndex={0} className="overflow-x-auto rounded-lg border border-slate-200">
                   <table className="w-full min-w-[1000px] text-left text-xs">
                     <thead className="whitespace-nowrap bg-slate-50 font-semibold text-slate-600 border-b border-slate-200">
                       <tr>
@@ -3197,7 +3197,7 @@ export function TeacherConsole() {
                           保存子任务配置
                         </Button>
                       </div>
-                      <div className="overflow-x-auto rounded-lg border border-slate-200">
+                      <div tabIndex={0} className="overflow-x-auto rounded-lg border border-slate-200">
                         <table className="w-full text-left text-[11px]">
                           <thead className="bg-slate-50 font-semibold text-slate-600">
                             <tr>
@@ -3489,7 +3489,7 @@ export function TeacherConsole() {
                     ))}
                   </div>
 
-                  <div className="overflow-x-auto rounded-xl border border-slate-200">
+                  <div tabIndex={0} className="overflow-x-auto rounded-xl border border-slate-200">
                     <table className="w-full text-left text-xs">
                       <thead className="bg-slate-50 font-semibold text-slate-600">
                         <tr>
@@ -3754,7 +3754,7 @@ export function TeacherConsole() {
                     “复核判定”录入真实分数、结论和编译信息；若部署了独立评测 worker，结果会自动回写。
                   </span>
                 </div>
-                <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <div tabIndex={0} className="overflow-x-auto rounded-lg border border-slate-200">
                 <table className="w-full text-left text-xs">
                   <thead className="bg-slate-50 font-semibold text-slate-600 border-b border-slate-200">
                     <tr>

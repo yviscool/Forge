@@ -79,7 +79,6 @@ export function TaskSubmitPanel({
   onBack,
   onSubmitted,
 }: TaskSubmitPanelProps) {
-  const toast = useToast()
   const outsideWindow = countdown.state === 'pre' || countdown.state === 'ended'
 
   // ---- 选择题走独立答题卡 ----

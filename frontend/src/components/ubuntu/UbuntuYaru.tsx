@@ -1919,7 +1919,6 @@ const EVINCE_ZOOM_STEPS = [0.6, 0.8, 1, 1.25, 1.5, 2]
 
 function EvinceWindowImpl({
   fileName,
-  title,
   pdfUrl,
   content,
   onMouseDown,

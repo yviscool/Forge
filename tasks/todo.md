@@ -94,3 +94,18 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
 - [x] P4-15 依赖方向归正:AutoJudgePool/EnqueueQueuedSubmissions/Reconciler
       迁入 internal/app,judge 包不再反向 import 应用层(符合 SPEC 分层约束)
 - [x] P4-16 CI race 门禁加 internal/judge 并发子集;README/architecture 同步
+
+# CI 清零(2026-10-27,四连败→全绿)
+
+- [x] go-ubuntu vet:linux 专用测试文件(killtree)缺 []byte 转换——Windows 本地
+      vet 不编译 build-tagged 文件而漏网;CI 新增 cross-vet 步骤
+      (GOOS=linux/darwin go vet)把平台测试文件纳入每个 runner 的类型检查
+- [x] frontend lint 六个既有错误:未用导入(detectSnapZone/TOP_BAR_H/
+      LemonUploadFileInput)、未用解构(title)、未用变量(toast)、
+      useMemo 多余依赖(messagesOpen → 改 seenMessageId state 真响应式,
+      未读徽标行为不变)
+- [x] e2e axe 无障碍(3 浏览器 × 教师台):横向滚动数据表补 tabIndex=0
+      (TeacherConsole 四处 + Scoreboard);学生答卷卡两处对比度
+      (white/45→60、white/40→60,4.2/3.62 → ≈6.2:1)
+- [x] 本地全量验证:eslint/tsc/vitest/build + Playwright 9/9
+      (chromium+firefox+webkit)+ go vet/test + GOOS=linux/darwin vet
