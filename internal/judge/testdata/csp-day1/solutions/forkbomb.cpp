@@ -41,9 +41,11 @@ int main() {
     return 3;
 }
 #else
+#include <cstdio>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <vector>
 int spawn_child() {
     pid_t pid = fork();
     if (pid < 0) return -1;
