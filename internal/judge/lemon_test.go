@@ -121,6 +121,9 @@ func TestForkbombContained(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertVerdicts(t, "forkbomb", verdictsOf(got), []domain.CaseVerdict{domain.CaseRE})
+	if oc.CompileMessage != "" {
+		t.Fatalf("forkbomb fixture must compile: %s", oc.CompileMessage)
+	}
 	if time.Since(start) > 8*time.Second {
 		t.Fatal("contained forkbomb must die fast, not by timeout")
 	}
