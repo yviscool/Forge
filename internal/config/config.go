@@ -28,6 +28,10 @@ type Config struct {
 	// filesystem/network sandbox. Both it and AutoJudge must be enabled before
 	// untrusted submissions are executed on the host.
 	AllowUnsafeLocalJudge bool
+	// WinSandbox Windows 评测沙箱模式(FORGE_WIN_SANDBOX;auto 缺省):
+	// auto = LowBox 令牌 + 工作目录 ACL(探测失败自动退回 Job-only),
+	// off = 仅 Job 资源墙。
+	WinSandbox string
 	// AdminPassword 种子管理员密码（FORGE_ADMIN_PASSWORD；缺省随机生成）。
 	AdminPassword string
 	// AdminPasswordGenerated indicates a one-time generated bootstrap password.
@@ -105,6 +109,10 @@ func Load() Config {
 	if err != nil {
 		parseErrs = append(parseErrs, err)
 	}
+	winSandbox := strings.TrimSpace(os.Getenv("FORGE_WIN_SANDBOX"))
+	if winSandbox == "" {
+		winSandbox = "auto"
+	}
 	minFreeDiskMiB := int64(512)
 	if raw := strings.TrimSpace(os.Getenv("FORGE_MIN_FREE_DISK_MIB")); raw != "" {
 		n, parseErr := strconv.ParseInt(raw, 10, 64)
@@ -126,6 +134,7 @@ func Load() Config {
 		Toolchains:             os.Getenv("FORGE_TOOLCHAINS"),
 		JudgeWorkers:           workers,
 		MinFreeDiskMiB:         minFreeDiskMiB,
+		WinSandbox:             winSandbox,
 		TrustProxy:             trustProxy,
 		loadErr:                errors.Join(parseErrs...),
 	}
@@ -168,6 +177,11 @@ func (c Config) Validate() error {
 	}
 	if c.AutoJudge && !c.AllowUnsafeLocalJudge {
 		return fmt.Errorf("FORGE_AUTOJUDGE requires FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1")
+	}
+	switch c.WinSandbox {
+	case "", "auto", "off":
+	default:
+		return fmt.Errorf("invalid FORGE_WIN_SANDBOX %q (want auto or off)", c.WinSandbox)
 	}
 	if c.MinFreeDiskMiB < 0 {
 		return fmt.Errorf("FORGE_MIN_FREE_DISK_MIB cannot be negative")

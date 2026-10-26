@@ -151,8 +151,13 @@ func main() {
 	var judgePool *judge.Pool
 	var compileCache *judge.CompileCache
 	if cfg.AutoJudge {
+		if err := judge.ConfigureWinSandbox(cfg.WinSandbox); err != nil {
+			log.Error("invalid FORGE_WIN_SANDBOX", "err", err)
+			os.Exit(1)
+		}
 		log.Warn("UNSAFE local judge enabled: submitted code will run on this host",
-			"protection", "process/memory walls only; no filesystem, network, or user isolation")
+			"protection", "process/memory walls; windows sandbox: "+judge.WinSandboxStatus(),
+			"note", "filesystem/network isolation requires the windows sandbox probe to pass")
 		tc := judge.Toolchain{Config: toolchainCfg}
 		if cc, err := judge.NewCompileCache(filepath.Join(os.TempDir(), "forge-ccache")); err == nil {
 			tc.Cache = cc

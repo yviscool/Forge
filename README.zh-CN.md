@@ -81,11 +81,16 @@ JavaScript 不接触、不持久化长期会话凭证。服务端数据库只保
 | `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE` | `false` | 明确确认本地评测器没有完整沙箱 |
 | `FORGE_JUDGE_WORKERS` | CPU 数 | 评测并发数，最小为 1 |
 | `FORGE_TOOLCHAINS` | 内置配置 | 工具链 JSON 路径 |
+| `FORGE_WIN_SANDBOX` | `auto` | Windows 评测沙箱:`auto` = LowBox 令牌 + 工作目录 ACL(探测失败自动退回 Job-only),`off` = 仅 Job 资源墙 |
 | `FORGE_TRUST_PROXY` | `false` | 仅可信反向代理后启用转发 IP 头 |
 
-`FORGE_AUTOJUDGE=1` 必须同时设置 `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1`。当前本地评测器
-只提供进程/内存/时间限制，不提供文件系统、网络和独立用户级隔离。生产环境若处理
-不可信代码，应接入独立的沙箱评测集群；否则保持自动评测关闭并采用人工评测流程。
+`FORGE_AUTOJUDGE=1` 必须同时设置 `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1`。
+Windows(教师机主力平台)下评测器额外把每次提交运行在 LowBox/AppContainer
+沙箱内:工作目录之外的文件系统访问被拒(按机器级包 SID 显式 ACL),未授予
+capability 时套接字被拒,Job 内存/进程墙叠加其上。沙箱启动时自探测,探测
+失败自动退回 Job-only 资源墙(`FORGE_WIN_SANDBOX=off` 可显式关闭)。Linux
+在有 bwrap 时以 `--unshare-all` 命名空间沙箱 + prlimit 墙运行。规模化处理
+不可信代码的生产部署仍建议使用独立评测集群。
 
 工具链 JSON（`FORGE_TOOLCHAINS`）除 `command/args/std/compileTimeoutSec/
 compileMemoryMiB` 外，还支持按语言的限额倍率（对标 LemonLime Compiler）：

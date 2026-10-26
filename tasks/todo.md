@@ -162,3 +162,25 @@ go-windows / e2e(3 浏览器 axe)/ contract / security。
 6. forkbomb fixture:三平台确定性拦截(500 连发 + 子进程先关 stdio + 
    spawn 失败收割),Linux 分支补 vector/cstdio/signal 头
 7. 判题可观测性:runner/interactor 基础设施故障的 RE 携带错误原文
+
+# 阶段三 P0:Windows LowBox 沙箱(2026-10-27 完成)
+
+- [x] LowBox(AppContainer 类)令牌:NtCreateLowBoxToken(Chromium 同路)从
+      当前令牌派生,经 SysProcAttr.Token 交给 os/exec——管道/等待/rusage/Job
+      全保留;包 SID 固定种子派生(S-1-15-2-<7 字 LE>,8 子授权;9 子授权被
+      内核拒收 0xC000A202 实测)
+- [x] 工作目录 ACL:包 SID GRANT + 继承传播覆盖既有子树;x/sys 类型化
+      EXPLICIT_ACCESS + SetEntriesInAclW/SetNamedSecurityInfo
+      (TRUSTEE_IS_SID=0 填错会 87;EA 结构体用官方类型防布局漂移)
+- [x] 运行时目录只读 ACL:编译器 bin / Python prefix(前缀经 -I -S 发现),
+      同步首调 + 按 command 去重(异步授权赶不上首次运行,解释型首跑即 RE)
+- [x] 探测:容器内自证 + 越界读必须失败;失败自动退回 Job-only 并记录原因;
+      FORGE_WIN_SANDBOX=auto/off,readiness 与启动日志可见
+- [x] 环境收口:TMP/TEMP 覆盖到工作目录(容器读不到用户 %TEMP%)
+- [x] 测试(全部真实沙箱内执行):探针机制、沙箱内 AC、用户目录读拒绝、
+      网络拒绝(ping 套接字)、Python 判题、off 回落 Job-only
+- [x] 全套既有评测测试(corpus/MLE/forkbomb/TLE/特判/交互/文件 IO)在
+      默认沙箱路径下全绿——最强的回归证明
+- [x] 修复过程中顺带:EXPLICIT_ACCESS 布局教训(勿手填,用 x/sys 类型)、
+      GetNamedSecurityInfoW 描述符释放语义(勿 free 内部 DACL 指针)、
+      SID 子授权小端

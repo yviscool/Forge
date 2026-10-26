@@ -103,13 +103,19 @@ database cannot replay valid sessions.
 | `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE` | `false` | Explicitly acknowledge that the local judge has no full sandbox |
 | `FORGE_JUDGE_WORKERS` | physical cores | Judge concurrency, minimum 1 |
 | `FORGE_TOOLCHAINS` | built-in config | Toolchain JSON path |
+| `FORGE_WIN_SANDBOX` | `auto` | Windows judge sandbox: `auto` = LowBox token + workdir ACL (falls back to Job-only walls when the probe fails), `off` = Job walls only |
 | `FORGE_TRUST_PROXY` | `false` | Only enable forwarded IP headers behind a trusted reverse proxy |
 
 `FORGE_AUTOJUDGE=1` must be paired with `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1`.
-The local judge provides process/memory/time walls only — no filesystem,
-network, or OS-user isolation. Production deployments handling untrusted code
-should attach an isolated judge cluster; otherwise keep auto judging off and
-use the manual grading flow.
+On Windows (the primary teacher-machine platform) the judge additionally runs
+every submission inside a LowBox/AppContainer sandbox: filesystem access is
+denied outside the working directory (explicit ACL for a per-machine package
+SID), network sockets are denied without capabilities, and the Job memory/
+process walls stack on top. The sandbox self-probes at startup and falls back
+to Job-only walls when the probe fails (`FORGE_WIN_SANDBOX=off` opts out).
+Linux runs submissions inside bwrap (`--unshare-all`) with prlimit walls when
+available. Even so, production deployments handling untrusted code at scale
+should still prefer an isolated judge cluster.
 
 The toolchain JSON (`FORGE_TOOLCHAINS`) supports, besides
 `command/args/std/compileTimeoutSec/compileMemoryMiB`, per-language limit

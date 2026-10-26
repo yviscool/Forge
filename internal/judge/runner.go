@@ -69,6 +69,13 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	cmd.Dir = workdir
 	cmd.Env = scrubEnv()
 	cmd.SysProcAttr = sysProcAttr()
+	// Windows 低权沙箱(LowBox 令牌 + 工作目录 ACL):可用则整体替换进程
+	// 属性并临时覆盖 TMP/TEMP 到工作目录;不可用(nil)按 Job-only 继续。
+	if attr, envOver, cleanup, err := sandboxSetup(workdir); err == nil && attr != nil {
+		cmd.SysProcAttr = attr
+		cmd.Env = append(cmd.Env, envOver...)
+		defer cleanup()
+	}
 
 	// 文件 IO 模式（OI 文件读写题）：输入落盘，输出从文件回读。
 	// 文件名强制 Base 净化：配置来自题目数据，../ 不得逃逸工作目录。

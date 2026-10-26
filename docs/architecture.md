@@ -127,8 +127,15 @@ flowchart TB
 - 请求体、测试文件上传和源文件各有独立上限。
 - CSP、`X-Frame-Options: DENY`、nosniff、CORP/COOP 和 no-store API 缓存策略默认开启。
 - `FORGE_TRUST_PROXY` 仅可在可信反向代理之后开启，否则机位 IP 可被伪造。
-- 当前本地评测器没有文件系统、网络或 OS 用户隔离。自动评测默认关闭，并要求
-  `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1` 明确确认风险。
+- Windows 评测沙箱:每次提交运行在 LowBox(AppContainer 类)令牌内——
+  工作目录按机器级包 SID 显式 ACL,目录外文件系统访问被拒;未授予
+  capability 时网络套接字被拒;Job 内存/单进程墙叠加其上。启动时自探测
+  (容器内自证 + 越界读必须失败),失败自动退回 Job-only 资源墙,
+  `FORGE_WIN_SANDBOX=off` 显式关闭。
+- Linux 评测沙箱:bwrap 可用且资源计量可穿透时,`--unshare-all` 命名空间
+  (断网/文件系统隔离)+ prlimit 墙;否则退回 prlimit-only。
+- 自动评测默认关闭,并要求 `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1` 明确确认风险;
+  规模化不可信负载仍建议独立评测集群。
 
 ## 7. 可观测性与运维
 

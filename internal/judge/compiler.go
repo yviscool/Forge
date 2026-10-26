@@ -133,6 +133,8 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 			cc, file = "gcc", "main.c"
 		}
 		cc = sp.Command
+		// Windows 沙箱:编译器目录(含运行 DLL)需对包 SID 只读可执行。
+		prepareRuntimeDir(lang, cc)
 		srcPath := filepath.Join(workdir, file)
 		exePath := filepath.Join(workdir, "main.exe")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
@@ -161,6 +163,8 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 				return t.runCompiler(ctx, append([]string{sp.Command}, args...), workdir, sp.CompileMemoryMiB, out)
 			})
 	case "python", "python3", "py":
+		// Windows 沙箱:解释器前缀(Lib/ 标准库)需对包 SID 只读。
+		prepareRuntimeDir(lang, sp.Command)
 		srcPath := filepath.Join(workdir, "main.py")
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
