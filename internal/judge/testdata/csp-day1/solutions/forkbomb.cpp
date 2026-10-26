@@ -41,6 +41,7 @@ int main() {
     return 3;
 }
 #else
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 int spawn_child() {

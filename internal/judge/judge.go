@@ -294,7 +294,7 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 			}
 			ir, err := RunInteraction(ctx, o.Compiler, *req.Interactor, compile.Argv(), resolveIO(c.Input), cl, workdir, caseFull)
 			if err != nil {
-				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+				out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE, Message: err.Error()}
 				if c.Subtask > 0 {
 					failedSubtasks[c.Subtask] = true
 				}
@@ -311,7 +311,9 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		}
 		run, err := o.Runner.Run(ctx, compile.Argv(), resolveIO(c.Input), cl, workdir)
 		if err != nil {
-			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE}
+			// runner 基础设施故障(启动失败等):附错误原文,评测端不可诊断的 RE
+			// 只会变成悬案。
+			out[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseRE, Message: err.Error()}
 			if c.Subtask > 0 {
 				failedSubtasks[c.Subtask] = true
 			}
