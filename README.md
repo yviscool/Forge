@@ -1,44 +1,64 @@
-# Forge 竞赛工坊
+# Forge Contest Workshop
 
-Forge 是面向学校、集训队和竞赛机构的现代信息学竞赛平台。后端使用 Go
-单二进制提供 API、SQLite 持久化、评测调度、SSE 实时事件和嵌入式 SPA；前端使用
-React 19、TypeScript、Vite、Tailwind CSS 与 Monaco Editor 构建。
+[English](README.md) | [简体中文](README.zh-CN.md)
 
-## 产品能力
+Forge is a modern competitive-programming platform for schools, training teams,
+and contest organizations. A single Go binary serves the API, SQLite
+persistence, judging orchestration, real-time SSE events, and an embedded SPA;
+the frontend is built with React 19, TypeScript, Vite, Tailwind CSS, and the
+Monaco Editor.
 
-- 多比赛并行管理：草稿、进行中、已结束生命周期相互隔离。
-- 用户与编组：独立账号体系、批量 CSV 导入、临时准考证、密码重置。
-- 多种题型：传统编程题、只交答案题、交互题、GESP 单选/多选/判断题。
-- 题面与数据：Markdown/KaTeX、双语题面、测试数据文件仓、子任务 DAG 与限额。
-- 评测：工具链探测、编译缓存、逐点结果、OI/ACM 榜单、重判与人工复核。
-- 考场安全：严格时间窗、IP 机位绑定、试卷口令、定向广播、提交硬截止。
-- 交付：CCF A4 PDF/HTML、成绩 CSV、完整比赛包导入导出。
-- 可观测性：健康/就绪探针、请求 Trace ID、SSE 实时状态、结构化日志。
+## Capabilities
 
-## 快速启动
+- Concurrent contest management: `draft`, `running`, and `finished` lifecycles
+  are fully isolated.
+- Users and groups: an independent account system, bulk CSV import, temporary
+  exam tickets, and password resets.
+- Multiple problem types: traditional programming, answer-only, interactive,
+  and GESP single/multiple-choice questions.
+- Statements and data: Markdown/KaTeX, bilingual statements, a test-data file
+  repository, subtask DAGs with per-case limits.
+- Judging: toolchain probing, a compile cache, per-case results, OI/ACM
+  scoreboards, rejudging, and manual review.
+- Exam-room safety: strict time windows, IP seat binding, paper passphrases,
+  targeted broadcasts, and hard submission cutoffs.
+- Delivery: CCF A4 PDF/HTML papers, score CSV exports, and full contest bundle
+  import/export.
+- Observability: health/readiness probes, request trace IDs, real-time SSE
+  status, and structured logs.
 
-要求 Go 1.27.3+（含标准库安全修复）。仅在需要重新构建前端时需要 Node.js 24.15+（仓库固定为 24.21.0）。
+## Quick Start
 
-### 桌面模式（教师机推荐）
+Requires Go 1.27.3+ (including stdlib security fixes). Node.js 24.15+ is only
+needed to rebuild the frontend (the repo pins 24.21.0).
+
+### Desktop Mode (recommended for teacher machines)
 
 ```powershell
 go build -tags "desktop wails" -ldflags="-H windowsgui" -o forge-desktop.exe ./cmd/forge
 ./forge-desktop.exe
 ```
 
-桌面模式基于 Wails v3（与 magpie 同技术栈，教师端真原生窗口）：
+Desktop mode is built on Wails v3 (the same stack as magpie — a truly native
+window for the teacher's machine):
 
-- **主窗口**即教师台（WebView 直连本机 HTTP 服务，SSE/Cookie 与学生端同链路）；
-- **托盘左键**弹出锚定在图标旁的无边框速览面板：比赛倒计时、在线/提交/评测队列、
-  机位冲突告警、最近提交动态；右键菜单可直达教师台/学生大厅/扫码页；
-- **关闭主窗口 = 隐藏到托盘**；退出走托盘菜单或速览面板的「退出服务」（优雅停机）；
-- 单实例：重复启动自动唤起已运行实例。
+- The **main window** is the teacher console (WebView connected to the local
+  HTTP service; SSE/cookies share the same channel as the student side).
+- **Tray left-click** pops a frameless quick-view panel anchored to the icon:
+  contest countdown, online users/submissions/judge queue, seat-conflict
+  alerts, and recent submissions; the right-click menu jumps straight to the
+  teacher console, student lobby, or the QR page.
+- **Closing the main window hides to tray**; exit goes through the tray menu
+  or the quick-view panel's "Exit service" (graceful shutdown).
+- Single instance: launching again wakes the running instance.
 
-学生端不受影响（浏览器访问 LAN 地址）。双击默认进桌面模式，`--server` 强制 headless；
-`-tags desktop`（不带 wails）为无 WebView 依赖的托盘降级版（浏览器打开教师台），
-Linux/Darwin 服务器部署继续使用 headless 方式。
+Students are unaffected (they use a browser against the LAN address). Double
+-clicking starts desktop mode by default; `--server` forces headless.
+`-tags desktop` (without `wails`) builds a tray-only fallback without WebView
+dependencies (the teacher console opens in a browser). Linux/Darwin server
+deployments keep using headless mode.
 
-### 服务模式（服务器 / 机房主机）
+### Server Mode (server / lab host)
 
 ```powershell
 cd frontend
@@ -50,45 +70,53 @@ $env:FORGE_ADMIN_PASSWORD = "change-this-before-first-start"
 go run ./cmd/forge
 ```
 
-打开：
+Open:
 
-- 学生比赛大厅：`http://localhost:8080/`
-- 教师控制台：`http://localhost:8080/teacher`
-- 健康探针：`http://localhost:8080/healthz`
-- 就绪探针：`http://localhost:8080/readyz`
+- Student lobby: `http://localhost:8080/`
+- Teacher console: `http://localhost:8080/teacher`
+- Health probe: `http://localhost:8080/healthz`
+- Readiness probe: `http://localhost:8080/readyz`
 
-首次启动若未设置 `FORGE_ADMIN_PASSWORD`，服务会生成一次性随机管理员密码并写入
-`FORGE_DATA_DIR/bootstrap-admin-password.txt`（权限 0600），启动日志只输出文件路径。
-该密码只应在首次登录时使用；修改密码后应立即删除该文件。
+On first start without `FORGE_ADMIN_PASSWORD`, the service generates a one
+-time random administrator password and writes it to
+`FORGE_DATA_DIR/bootstrap-admin-password.txt` (mode 0600); the startup log only
+prints the file path. That password should be used once for the first login
+and the file deleted right after changing the password.
 
-开发前端时可单独运行 Vite；生产环境应由 Go 服务托管 `internal/web/dist` 中的构建产物。
-登录成功后浏览器只保存 `HttpOnly`、`SameSite=Strict` 的 `forge_session` Cookie；
-JavaScript 不接触、不持久化长期会话凭证。服务端数据库只保存会话 token 的 SHA-256
-摘要，泄露数据库也不能直接重放有效会话。
+While developing the frontend you can run Vite standalone; in production the
+Go service hosts the build output embedded from `internal/web/dist`. After
+login the browser only keeps an `HttpOnly`, `SameSite=Strict` `forge_session`
+cookie; JavaScript never touches or persists long-lived credentials. The
+database only stores the SHA-256 digest of session tokens, so a leaked
+database cannot replay valid sessions.
 
-## 配置
+## Configuration
 
-| 环境变量 | 默认值 | 说明 |
+| Environment variable | Default | Description |
 |---|---|---|
-| `FORGE_ADDR` | `127.0.0.1:8080` | HTTP 监听地址（局域网部署需显式改为可访问地址） |
-| `FORGE_DATA_DIR` | `./data` | SQLite 与测试数据目录 |
-| `FORGE_STORE` | `sqlite` | `sqlite` 或 `memory` |
-| `FORGE_ADMIN_PASSWORD` | 随机生成 | 首次创建管理员时使用的密码 |
-| `FORGE_LOCALE` | `zh-CN` | 服务端默认区域 |
-| `FORGE_AUTOJUDGE` | `false` | 是否启用本地自动评测 |
-| `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE` | `false` | 明确确认本地评测器没有完整沙箱 |
-| `FORGE_JUDGE_WORKERS` | CPU 数 | 评测并发数，最小为 1 |
-| `FORGE_TOOLCHAINS` | 内置配置 | 工具链 JSON 路径 |
-| `FORGE_TRUST_PROXY` | `false` | 仅可信反向代理后启用转发 IP 头 |
+| `FORGE_ADDR` | `127.0.0.1:8080` | HTTP listen address (set explicitly for LAN access) |
+| `FORGE_DATA_DIR` | `./data` | SQLite and test-data directory |
+| `FORGE_STORE` | `sqlite` | `sqlite` or `memory` |
+| `FORGE_ADMIN_PASSWORD` | random | Password used to create the first admin |
+| `FORGE_LOCALE` | `zh-CN` | Server default locale |
+| `FORGE_AUTOJUDGE` | `false` | Enable the local auto judge |
+| `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE` | `false` | Explicitly acknowledge that the local judge has no full sandbox |
+| `FORGE_JUDGE_WORKERS` | physical cores | Judge concurrency, minimum 1 |
+| `FORGE_TOOLCHAINS` | built-in config | Toolchain JSON path |
+| `FORGE_TRUST_PROXY` | `false` | Only enable forwarded IP headers behind a trusted reverse proxy |
 
-`FORGE_AUTOJUDGE=1` 必须同时设置 `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1`。当前本地评测器
-只提供进程/内存/时间限制，不提供文件系统、网络和独立用户级隔离。生产环境若处理
-不可信代码，应接入独立的沙箱评测集群；否则保持自动评测关闭并采用人工评测流程。
+`FORGE_AUTOJUDGE=1` must be paired with `FORGE_ALLOW_UNSAFE_LOCAL_JUDGE=1`.
+The local judge provides process/memory/time walls only — no filesystem,
+network, or OS-user isolation. Production deployments handling untrusted code
+should attach an isolated judge cluster; otherwise keep auto judging off and
+use the manual grading flow.
 
-工具链 JSON（`FORGE_TOOLCHAINS`）除 `command/args/std/compileTimeoutSec/
-compileMemoryMiB` 外，还支持按语言的限额倍率（对标 LemonLime Compiler）：
-`timeLimitRatio`（运行时限倍率，解释型语言建议 2~3）、`memoryLimitRatio`（内存限制
-倍率）、`disableMemoryLimitCheck`（对自带内存管理的运行时关闭硬内存墙）。示例：
+The toolchain JSON (`FORGE_TOOLCHAINS`) supports, besides
+`command/args/std/compileTimeoutSec/compileMemoryMiB`, per-language limit
+ratios (mirroring LemonLime's Compiler settings): `timeLimitRatio` (2~3 is
+recommended for interpreted languages), `memoryLimitRatio`, and
+`disableMemoryLimitCheck` (turn off the hard memory wall for runtimes with
+their own memory management). Example:
 
 ```json
 {
@@ -96,28 +124,35 @@ compileMemoryMiB` 外，还支持按语言的限额倍率（对标 LemonLime Com
 }
 ```
 
-题目级覆盖（对标 LemonLime 每题每编译器配置，可与工具链倍率叠加）：
-`compileStd`（仅 C/C++，如 `"c++17"`）、`timeLimitRatio`、`memoryLimitRatio`、
-`disableMemoryLimitCheck`。比较模式 `external_tool` 另需 `diffCommand`/
-`diffArgs`（对标 LemonLime 外部 diff 工具，缺省参数
-`--ignore-space-change --text --brief`）。
+Per-problem overrides (mirroring LemonLime's per-task compiler configuration,
+stacked multiplicatively with toolchain ratios): `compileStd` (C/C++ only,
+e.g. `"c++17"`), `timeLimitRatio`, `memoryLimitRatio`, and
+`disableMemoryLimitCheck`. The `external_tool` comparison mode additionally
+takes `diffCommand`/`diffArgs` (mirroring LemonLime's external diff tool;
+defaults to `--ignore-space-change --text --brief`).
 
-评测基石平台口径：比较模式 `ignore_space` 对标 LemonLime 的 token 比较语义——
-token 相同但换行位置不同记 `PE`，多出尾部内容记 `OLE`；时间软限按 wall 或
-CPU 任一超限判定，硬杀墙 = 时限 + max(2s, 2×时限)×25%，软硬墙之间的边界
-抖动自动重测；内存墙 Windows 走 Job Object、Linux 走 prlimit（可选 bwrap
-命名空间沙箱）、macOS 降级 sh ulimit，均可从 BSS 静态足迹起跑前判 MLE；
-交互器与特判程序运行在独立资源墙内，交互器可在 exit 0 时向 stderr 写
-testlib 打分标记（`ok` / `partially correct (N)` / `points X`）给出部分分；
-编译产物按（源码, 生效工具链, 编译器版本, 平台）缓存并 LRU 淘汰，worker
-缺省取物理核数（`FORGE_JUDGE_WORKERS` 显式配置优先），评测期间 Windows
-教师机阻止系统休眠。
+Judge foundation platform semantics: the `ignore_space` comparison mode
+mirrors LemonLime's token comparison — identical tokens with different line
+layout yield `PE`, extra trailing tokens yield `OLE`. The soft time limit hits
+when wall clock or CPU time exceeds it; the hard kill wall is
+limit + max(2s, 2×limit) × 25%, and borderline runs between the two walls are
+re-run automatically. The memory wall uses a Job Object on Windows, prlimit on
+Linux (optionally wrapped in a bwrap namespace sandbox), and a degraded
+`sh ulimit` on macOS; oversized BSS images are rejected as MLE before the run
+via static footprint analysis. Interactors and checkers run inside their own
+resource walls with a minimal environment; an interactor may write testlib
+score markers to stderr on exit 0 (`ok` / `partially correct (N)` /
+`points X`) to award partial credit. Compiled artifacts are cached by
+(source, effective toolchain, compiler version, platform) with LRU eviction;
+workers default to physical core count (an explicit `FORGE_JUDGE_WORKERS`
+wins), and Windows teacher machines suppress system sleep while judging.
 
-特判支持三种协议：`special_judge`（退出码 0=AC/1=WA/2=PE）、`lemon_special_judge`
-（Lemon scoreFile 协议，支持 0..满分 部分分）、`testlib_special_judge`（testlib
-stderr 协议，`ok` / `partially correct (N)` / `points X` 支持部分分）。
+Special judges support three protocols: `special_judge` (exit code
+0=AC/1=WA/2=PE), `lemon_special_judge` (the Lemon scoreFile protocol, partial
+credit 0..full), and `testlib_special_judge` (the testlib stderr protocol:
+`ok` / `partially correct (N)` / `points X` with partial credit).
 
-## 测试与验收
+## Testing & Acceptance
 
 ```powershell
 gofmt -l internal cmd
@@ -138,17 +173,22 @@ cd ..
 npx.cmd --yes @redocly/cli@2.67.1 lint api/openapi.yaml --format=stylish
 ```
 
-当前前端测试覆盖登录门禁、会话恢复、SSE 重连、倒计时、选择答题卡、教师题面与数据
-工作流、答案题、比赛包导入、安全设置、Markdown/KaTeX 与可访问性组件。
+The current frontend tests cover the login gate, session restore, SSE
+reconnect, countdown, the answer-sheet flow, teacher statement/data workflows,
+answer-only problems, contest bundle import, security settings,
+Markdown/KaTeX, and accessibility components.
 
-## 运维与文档
+## Operations & Docs
 
-- [系统规格](SPEC.md)
-- [架构说明](docs/architecture.md)
-- [部署手册](docs/deployment.md)
-- [CCF 试卷排版](docs/pdf.md)
-- [OpenAPI 契约](api/openapi.yaml)
-- [开发守则](AGENTS.md)
+- [System specification](SPEC.md) (Chinese)
+- [Architecture](docs/architecture.md) (Chinese)
+- [Deployment manual](docs/deployment.md) (Chinese)
+- [CCF paper layout](docs/pdf.md) (Chinese)
+- [OpenAPI contract](api/openapi.yaml)
+- [Developer guide](AGENTS.md) (Chinese)
+- [简体中文说明](README.zh-CN.md)
 
-API 统一位于 `/api/v1`。项目尚未承诺预发布兼容性，升级前请先备份 `FORGE_DATA_DIR`，
-并在测试库完成比赛包导入、开赛预检和完整提交链路验证。
+APIs live under `/api/v1`. The project makes no pre-launch backwards
+-compatibility promise: back up `FORGE_DATA_DIR` before upgrading and verify
+bundle import, the start-contest precheck, and the full submission pipeline on
+a throwaway database first.
