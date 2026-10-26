@@ -125,3 +125,43 @@
 
 ## 明确继续不做
 通信题、stop-on-error、cgroup v1、Qt/UI 层任何对齐(前端另有体系)。
+
+---
+
+# 阶段三第二轮:cgroup v2 资源墙(2026-10-27 开工)
+
+背景:Windows LowBox 沙箱已落地(119219c);Linux 的 RLIMIT_AS 把虚拟地址
+空间保留当真实占用,对解释型语言误杀面大,且无 OOM 精确定性。cgroup v2 是
+上游自己标注 TODO 的正事。
+
+## 设计(探测降级,绝不破坏 prlimit-only 绿线)
+
+- 挂载探测:/sys/fs/cgroup/cgroup.controllers 存在(v2);
+- 授权探测:读 /proc/self/cgroup 得本进程 cgroup 路径,检查父目录
+  cgroup.controllers 是否含 memory+pids(systemd 对 user slice 的
+  Delegate 预置),并实际 mkdir+写 memory.max 试一次;任一失败 → 标记
+  不可用,维持 prlimit-only(零风险降级);
+- 墙体:mkdir forge-<pid> 子组,写 memory.max=限额、pids.max=64
+  (防 fork 炸弹,与 prlimit nproc 同量级),Start 后立即写 cgroup.procs
+  (子进程天然继承,fork 炸弹无逃逸窗口的放大面);
+- 判定:memory.events 的 oom_kill 计数(确定性 MLE)替代"峰值贴墙启发";
+  memory.peak(内核 6.7+)供峰值上报,缺失则依赖既有 rusage 回填;
+- 杀树:超时路径写 cgroup.kill=1(5.14+)整组收割,叠加既有组杀;
+- 清理:Wait 后 kill+rmdir,探针组同理;
+- 接入点:unix jobLimiter 升级为接口,cgroup 实现优先,无探测通过退回
+  现有 no-op(rusage 路径不变);编译器路径(maxProcs=0)不进 cgroup,
+  维持 prlimit。
+
+## 验收
+- linux CI:探测失败时全量绿(零回归);探测通过时 corpus 全绿 + 新增
+  cgroup OOM→MLE 断言(Skip-if-unavailable);
+- 本机 WSL2(若可用)实测 OOM 判定;文档入 docs/judge.md(P2)。
+
+## 第二轮其余事项(P1,设计要点)
+- darwin CI job:macos runner 跑 `go test ./internal/judge/ -run 'TestDefaultWorkers|TestIntegrationAC_Python|...'`,
+  激活 sysctl/ulimit/rusage 路径的真实断言;fixture 已平台无关;
+- `forge doctor` 子命令:探测矩阵(工具链/prlimit/bwrap 计量/LowBox/
+  cgroup v2/编译缓存可写)一键输出,readiness 复用同一探针集;
+- go fuzz:parseTestlibResult/parseLemonScore/tokenLineSeq/SafeFileName
+  四个纯函数(fuzz 目标纯、无 IO,可直接进 CI 快档);
+- race 扩面:runner 的 stdin goroutine/cappedWriter 并发路径。
