@@ -184,3 +184,18 @@ go-windows / e2e(3 浏览器 axe)/ contract / security。
 - [x] 修复过程中顺带:EXPLICIT_ACCESS 布局教训(勿手填,用 x/sys 类型)、
       GetNamedSecurityInfoW 描述符释放语义(勿 free 内部 DACL 指针)、
       SID 子授权小端
+
+# 阶段三 P0:Linux cgroup v2 资源墙(2026-10-27 完成)
+
+- [x] 探测降级:v2 挂载 + memory/pids 控制器委任 + 探针子组实写验证;
+      任一失败退回 prlimit-only(零回归),原因可观测(CgroupStatus)
+- [x] 墙体:子组 memory.max + pids.max(64,防 fork 炸弹),Start 后立即
+      cgroup.procs 迁入(后代天然继承,fork 无逃逸放大面)
+- [x] 判定:memory.events oom_kill → 确定性 MLE(替代贴墙启发);
+      memory.peak 峰值上报(旧内核自动落回 rusage 回填)
+- [x] 杀树:cgroup.kill=1(5.14+)整组收割,叠加既有组杀;Close 杀组+清理
+- [x] 接入:unixLimiter 接口(跨平台),cgroup 实现优先于 no-op;
+      编译器路径(maxProcs=0)不进 cgroup 维持 prlimit;
+      解释型语言在 cgroup 下获得 RSS 口径的内存墙(修复 AS 墙误杀缺口)
+- [x] 测试:linux 探测不可用即跳过(零 CI 风险);可用时 OOM→MLE 断言 +
+      正常判题不受扰

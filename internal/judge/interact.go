@@ -217,7 +217,7 @@ func RunInteraction(ctx context.Context, comp Compiler, inter InteractorSpec, so
 }
 
 // interactPeakKiB 交互双方峰值内存取 max（Windows 用 Job 汇总，Unix 用 rusage）。
-func interactPeakKiB(limiter *jobLimiter, states ...*os.ProcessState) int {
+func interactPeakKiB(limiter unixLimiter, states ...*os.ProcessState) int {
 	peak := limiter.PeakBytes()
 	for _, ps := range states {
 		if b := processPeakBytes(ps); b > peak {

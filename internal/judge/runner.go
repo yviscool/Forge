@@ -40,6 +40,16 @@ type RunResult struct {
 	CpuMs int
 }
 
+// unixLimiter 平台资源墙接口(Linux cgroup/prlimit、Windows Job 都实现)。
+// Runner 在 Start 后 Attach,负责 PeakBytes/OutOfMemory 读取与 Terminate/Close。
+type unixLimiter interface {
+	Attach(pid int) error
+	Terminate()
+	PeakBytes() uint64
+	OutOfMemory() bool
+	Close()
+}
+
 // Runner 运行器抽象（可 fake 单测）。
 type Runner interface {
 	Run(ctx context.Context, argv []string, input string, lim Limits, workdir string) (RunResult, error)
@@ -179,6 +189,10 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	// Unix 补充：RLIMIT_AS 拒绝分配触发的致命信号（bad_alloc abort 等）
 	// 判 MLE 而非 RE（对标 LemonLime watcher 的信号映射口径）。
 	if !res.OutOfMemory && crashedOnMemoryWall(cmd.ProcessState, res.Stderr, limitBytes(lim.MemoryMiB)) {
+		res.OutOfMemory = true
+	}
+	// cgroup v2:memory.events 的 oom_kill 是确定性 MLE(无启发式)。
+	if !res.OutOfMemory && limiter.OutOfMemory() {
 		res.OutOfMemory = true
 	}
 	return res, nil

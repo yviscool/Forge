@@ -93,9 +93,18 @@ func waitForBwrapProbe(d time.Duration) {
 //     用量测量走 wait4 rusage（见 processPeakBytes）。
 //     解释型运行时（Interpreted）跳过地址空间墙（ulimit -v / RLIMIT_AS 会误杀
 //     自带内存管理的运行时），保留 CPU 与进程数墙。
+//  4. cgroup v2 可委任时（见 cgroup_linux.go）：memory.max/pids.max/cgroup.kill
+//     资源墙优先——OOM 确定性判定替代贴墙启发，解释型零误杀。
 type jobLimiter struct{}
 
-func newJobLimiter(_, _ int) (*jobLimiter, error) { return &jobLimiter{}, nil }
+// newJobLimiter 按探测结果选墙:cgroup v2 可委任 → cgroup 墙;否则 no-op
+// (资源墙由 confineArgv 的 prlimit/ulimit 承担,峰值走 rusage 回填)。
+func newJobLimiter(memMiB, maxProcs int) (unixLimiter, error) {
+	if lim := tryCgroupWall(memMiB, maxProcs); lim != nil {
+		return lim, nil
+	}
+	return &jobLimiter{}, nil
+}
 
 func confineArgv(argv []string, lim Limits, workdir string) []string {
 	if len(argv) == 0 {
@@ -141,6 +150,8 @@ func (l *jobLimiter) Attach(_ int) error { return nil }
 func (l *jobLimiter) Terminate() {}
 
 func (l *jobLimiter) PeakBytes() uint64 { return 0 }
+
+func (l *jobLimiter) OutOfMemory() bool { return false }
 
 func (l *jobLimiter) Close() {}
 

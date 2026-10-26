@@ -96,6 +96,9 @@ func (l *jobLimiter) Terminate() {
 	_ = windows.TerminateJobObject(l.job, 1)
 }
 
+// OutOfMemory Windows 的 OOM 判定走 Job 峰值贴墙路径(runner.go)。
+func (l *jobLimiter) OutOfMemory() bool { return false }
+
 // PeakBytes 进程峰值物理内存（用于用量上报与 MLE 贴墙判定）。
 func (l *jobLimiter) PeakBytes() uint64 {
 	var info windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION
