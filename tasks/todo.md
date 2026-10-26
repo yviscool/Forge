@@ -135,3 +135,12 @@ Phase 1（品牌与领域重构）、Phase 2（PDF 引擎 + SQLite 适配器 + �
       退出码上报,一并识别(SIGABRT/BUS/KILL/SEGV)
 - [x] 教训固化为 CI 门禁:cross-vet(GOOS=linux/darwin go vet)已入 go job;
       judge doctor 纯诊断步骤容错化,不再挡住后续步骤
+
+# NPROC 配额修正(2026-10-27,ubuntu 第三轮)
+
+- [x] prlimit --nproc 64→256:RLIMIT_NPROC 按同真实 UID 全局计,CI/多租户
+      宿主上 runner 账号常驻进程已达几十个,64 的配额让 cc1plus fork、
+      std::thread、交互 fork 随机 EAGAIN(Cc1plus CE / parallel RE /
+      killtree fork=-1 / checker 间歇 RE,doctor 单跑能过、测试并发即撞墙)。
+      256 仍防 fork 炸弹(forkbomb fixture 连发 500 必然撞墙),Windows
+      ActiveProcessLimit=1 单进程墙不变

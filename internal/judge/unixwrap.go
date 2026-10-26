@@ -59,6 +59,9 @@ func BwrapArgv(bwrap string, inner []string, workdir string) []string {
 
 // PrlimitArgv 用 util-linux prlimit 包一层（Linux 首选资源墙）：
 // RLIMIT_AS（地址空间）+ RLIMIT_CPU（秒，+2 宽限）+ RLIMIT_NPROC（防 fork 炸弹）。
+// NPROC 按"同真实 UID 的进程总数"计——CI/多租户宿主上 runner 账号自身
+// 常驻进程就有几十个，配额必须留足余量（256），否则 cc1plus/std::thread
+// 会随机 EAGAIN，把资源墙变成评测抖动源（ubuntu-26.04 实测）。
 func PrlimitArgv(argv []string, lim Limits, prlimit string) []string {
 	if prlimit == "" || len(argv) == 0 {
 		return argv
@@ -70,6 +73,6 @@ func PrlimitArgv(argv []string, lim Limits, prlimit string) []string {
 	if lim.TimeMs > 0 {
 		wrapped = append(wrapped, fmt.Sprintf("--cpu=%d", lim.TimeMs/1000+2))
 	}
-	wrapped = append(wrapped, "--nproc=64", "--")
+	wrapped = append(wrapped, "--nproc=256", "--")
 	return append(wrapped, argv...)
 }

@@ -120,7 +120,7 @@ func TestUnixWrapBuilders(t *testing.T) {
 
 	pr := PrlimitArgv([]string{"prog"}, Limits{TimeMs: 1000, MemoryMiB: 128}, "/usr/bin/prlimit")
 	joined = strings.Join(pr, " ")
-	for _, want := range []string{"--as=134217728", "--cpu=3", "--nproc=64"} {
+	for _, want := range []string{"--as=134217728", "--cpu=3", "--nproc=256"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("prlimit 参数缺 %q: %v", want, pr)
 		}
