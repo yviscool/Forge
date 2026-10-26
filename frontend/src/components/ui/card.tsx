@@ -7,7 +7,7 @@ export function Card({ className, children, ...props }: React.HTMLAttributes<HTM
     <div
       className={twMerge(
         clsx(
-          'rounded-2xl border border-[#e4e7ec] bg-[#fffefa] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_18px_40px_-30px_rgba(16,24,40,0.25)]',
+          'rounded-2xl border border-[#e3e8ee] bg-white shadow-[0_1px_2px_rgba(19,28,43,0.04),0_14px_36px_-28px_rgba(19,28,43,0.22)]',
           className
         )
       )}
@@ -37,7 +37,7 @@ export function CardTitle({
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={twMerge(clsx('text-base font-extrabold tracking-tight text-[#14283d]', className))}
+      className={twMerge(clsx('text-base font-extrabold tracking-tight text-[#0f2233]', className))}
       {...props}
     >
       {children}
@@ -65,7 +65,7 @@ export function CardFooter({
   return (
     <div
       className={twMerge(
-        clsx('flex items-center gap-2 border-t border-[#eaecf0] px-5 py-3.5', className)
+        clsx('flex items-center gap-2 border-t border-[#e6ebf0] px-5 py-3.5', className)
       )}
       {...props}
     >

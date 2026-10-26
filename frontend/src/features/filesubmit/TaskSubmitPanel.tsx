@@ -249,18 +249,18 @@ function TraditionalPanel({
           返回
         </Button>
         <div className="min-w-0">
-          <h2 className="font-display text-2xl font-semibold tracking-[-0.03em] text-[#14283d]">
+          <h2 className="font-display text-2xl font-semibold tracking-[-0.03em] text-[#0f2233]">
             <span className="mr-2 text-base font-bold text-slate-400">第 {taskIndex + 1} 题</span>
             {task.title}
           </h2>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+            <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
               分值 <b className="text-slate-800">{task.totalScore}</b>
             </span>
-            <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+            <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
               时限 <b className="text-slate-800">{timeLimitLabel}</b>
             </span>
-            <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+            <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
               源文件 <b className="font-mono text-slate-800">{task.sourceFileName || '—'}</b>
             </span>
             {task.taskType === 'answers_only' && <Badge variant="info">答案提交</Badge>}
@@ -303,7 +303,7 @@ function TraditionalPanel({
 
       {/* 双模式切换 */}
       {data.submitMode === 'both' && (
-        <div className="flex w-fit gap-1 rounded-2xl border border-[#e4e7ec] bg-white/80 p-1.5">
+        <div className="flex w-fit gap-1 rounded-2xl border border-[#e3e8ee] bg-white/80 p-1.5">
           {(['editor', 'file'] as const).map((mode) => (
             <button
               key={mode}
@@ -319,7 +319,7 @@ function TraditionalPanel({
               aria-pressed={answerMode === mode}
               className={
                 answerMode === mode
-                  ? 'flex h-9 items-center gap-1.5 rounded-xl bg-[#14283d] px-4 text-xs font-bold text-white'
+                  ? 'flex h-9 items-center gap-1.5 rounded-xl bg-[#0f2233] px-4 text-xs font-bold text-white'
                   : 'flex h-9 items-center gap-1.5 rounded-xl px-4 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
               }
             >
@@ -332,7 +332,7 @@ function TraditionalPanel({
 
       {answerMode === 'editor' ? (
         <section className="app-surface overflow-hidden rounded-2xl" aria-label="在线编辑">
-          <div className="flex flex-wrap items-center gap-3 border-b border-[#e4e7ec] bg-[#fbfaf6] px-4 py-2.5">
+          <div className="flex flex-wrap items-center gap-3 border-b border-[#e3e8ee] bg-[#f7f9fb] px-4 py-2.5">
             <label className="flex items-center gap-2 text-xs font-semibold text-slate-500">
               语言
               <Select
@@ -380,7 +380,7 @@ function TraditionalPanel({
         </section>
       ) : (
         <section className="app-surface rounded-2xl p-5" aria-label="上传文件">
-          <h3 className="text-sm font-bold text-[#14283d]">
+          <h3 className="text-sm font-bold text-[#0f2233]">
             {isAnswersOnly ? '上传答案文件' : '上传源码文件'}
           </h3>
           <p className="mt-1 text-xs leading-5 text-slate-500">
@@ -418,7 +418,7 @@ function TraditionalPanel({
                 ? 'mt-4 flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-forge-500 bg-forge-50 px-6 py-10 transition'
                 : uploaded
                   ? 'mt-4 flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-solid border-emerald-300 bg-emerald-50/60 px-6 py-10 transition hover:border-forge-400'
-                  : 'mt-4 flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#d0d5dd] bg-[#fbfaf6] px-6 py-10 transition hover:border-forge-400 hover:bg-forge-50'
+                  : 'mt-4 flex w-full flex-col items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#ccd5df] bg-[#f7f9fb] px-6 py-10 transition hover:border-forge-400 hover:bg-forge-50'
             }
             aria-label="选择或拖入源码文件"
           >
@@ -449,7 +449,7 @@ function TraditionalPanel({
       )}
 
       {/* 提交条 */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e4e7ec] bg-[#fffefa] px-4 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[#e3e8ee] bg-[#ffffff] px-4 py-3">
         <p className="text-[11px] leading-5 text-slate-400">
           在线编辑内容自动保存草稿；Ctrl + Enter 快捷提交。
           <br />

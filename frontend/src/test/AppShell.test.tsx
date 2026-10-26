@@ -54,10 +54,11 @@ describe('AppShell', () => {
 
     expect(screen.getByRole('navigation', { name: '主导航' })).toBeInTheDocument()
     expect(screen.getByText('Teacher One')).toBeInTheDocument()
-    const teacherLinks = screen.getAllByRole('link', { name: '教师工作台' })
-    await user.click(teacherLinks[0])
+    // 导航项与移动端图标都可到达教师台，取第一个即可。
+    await user.click(screen.getAllByRole('link', { name: '教师工作台' })[0])
     expect(screen.getByTestId('current-path')).toHaveTextContent('/teacher')
-    expect(screen.getByRole('link', { name: /选手视角/ })).toBeInTheDocument()
+    // 选手大厅与教师工作台在分段导航中互为回路，替代旧的「选手视角」快捷键。
+    expect(screen.getByRole('link', { name: '选手大厅' })).toBeInTheDocument()
 
     await user.click(screen.getByTestId('change-password-button'))
     const dialog = screen.getByRole('dialog', { name: '修改登录密码' })

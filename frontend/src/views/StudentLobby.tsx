@@ -73,7 +73,7 @@ function ContestCard({
     <Card
       data-testid="contest-card"
       data-contest-id={contest.id}
-      className="group flex h-full flex-col overflow-hidden transition duration-300 hover:-translate-y-0.5 hover:border-forge-300 hover:shadow-lift"
+      className="group flex h-full flex-col overflow-hidden transition duration-200 hover:border-[#aab6c2] hover:shadow-lift"
     >
       <CardHeader className="gap-3 pb-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -85,7 +85,7 @@ function ContestCard({
             {contest.rankingMode === 'acm' ? 'ACM' : 'OI'}
           </span>
         </div>
-        <CardTitle className="text-xl leading-7 transition-colors group-hover:text-forge-800">
+        <CardTitle className="text-lg leading-7 transition-colors group-hover:text-forge-800">
           {contest.name}
         </CardTitle>
         <p className="line-clamp-2 min-h-10 text-xs leading-5 text-slate-500">
@@ -94,7 +94,7 @@ function ContestCard({
       </CardHeader>
 
       <CardContent className="flex flex-1 flex-col justify-end gap-4 pt-0">
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#fbfaf6] p-3 text-[11px] text-slate-500">
+        <div className="grid grid-cols-2 gap-2 rounded-xl bg-[#f7f9fb] p-3 text-[11px] text-slate-500">
           <span className="flex items-center gap-1.5">
             <BookOpenCheck className="h-3.5 w-3.5 text-forge-600" />
             {problemCount} 道试题
@@ -119,7 +119,7 @@ function ContestCard({
           <Button
             data-testid="enter-contest"
             onClick={onEnter}
-            variant={contest.status === 'running' ? 'primary' : 'outline'}
+            variant={contest.status === 'running' ? 'accent' : 'outline'}
             className="w-full justify-between"
           >
             {contest.status === 'running' ? '进入考场' : '查看比赛'}
@@ -181,36 +181,37 @@ export function StudentLobby() {
   const runningCount = contests.filter((contest) => contest.status === 'running').length
 
   return (
-    <div className="space-y-6">
-      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e4e7ec] bg-[#14283d] px-6 py-8 text-white shadow-[0_24px_60px_-38px_rgba(20,40,61,0.55)] sm:px-9 sm:py-10">
-        <div className="absolute inset-0 forge-grid opacity-[0.14]" aria-hidden="true" />
+    <div className="space-y-5">
+      <section className="relative overflow-hidden rounded-2xl border border-[#132a3e] bg-navy-900 px-6 py-7 text-white sm:px-8">
+        <div className="absolute inset-0 forge-grid opacity-[0.12]" aria-hidden="true" />
         <div
-          className="absolute -right-20 -top-28 h-80 w-80 rounded-full bg-forge-500/25 blur-3xl"
+          className="absolute -right-16 -top-24 h-64 w-64 rounded-full bg-forge-600/15 blur-3xl"
           aria-hidden="true"
         />
-        <div className="relative flex flex-col gap-7 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-[10px] font-bold uppercase tracking-[0.22em] text-white/45">
-              Contest lobby
-            </p>
-            <h1 className="font-display mt-2 max-w-full break-words text-[clamp(2.25rem,10vw,3rem)] font-semibold leading-[1.05] tracking-[-0.04em] [overflow-wrap:anywhere] sm:text-5xl">
+        <div className="relative flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+          <div className="min-w-0">
+            <h1 className="font-display max-w-full break-words text-[clamp(1.6rem,6vw,2.2rem)] leading-[1.1] [overflow-wrap:anywhere]">
               你好，{session?.name || session?.username || '选手'}
             </h1>
-            <p className="mt-3 max-w-xl text-sm leading-7 text-white/60">
-              选择一场比赛进入作答。你的代码草稿会保存在当前浏览器，评测结果与榜单实时更新。
+            <p className="mt-2 max-w-xl text-[13px] leading-6 text-white/55">
+              选择一场比赛进入作答。代码草稿保存在本机，评测结果与榜单实时更新。
             </p>
           </div>
-          <div className="flex items-center gap-5 rounded-2xl border border-white/10 bg-white/[0.06] px-5 py-4 backdrop-blur-sm">
+          <div className="flex shrink-0 items-center gap-5 rounded-xl border border-white/10 bg-white/[0.06] px-5 py-3.5">
             <div>
-              <p className="font-mono text-3xl font-bold text-forge-200">{runningCount}</p>
-              <p className="mt-0.5 text-[10px] uppercase tracking-[0.16em] text-white/40">
+              <p className="font-mono text-2xl font-bold leading-none text-forge-200">
+                {runningCount}
+              </p>
+              <p className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
                 进行中
               </p>
             </div>
-            <span className="h-10 w-px bg-white/10" />
+            <span className="h-9 w-px bg-white/10" />
             <div>
-              <p className="font-mono text-3xl font-bold text-white">{contests.length}</p>
-              <p className="mt-0.5 text-[10px] uppercase tracking-[0.16em] text-white/40">
+              <p className="font-mono text-2xl font-bold leading-none text-white">
+                {contests.length}
+              </p>
+              <p className="mt-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-white/40">
                 全部赛事
               </p>
             </div>
@@ -219,7 +220,11 @@ export function StudentLobby() {
       </section>
 
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div className="flex flex-wrap gap-1 rounded-2xl border border-[#e4e7ec] bg-white/75 p-1.5">
+        <div
+          className="flex w-fit flex-wrap gap-0.5 rounded-[11px] bg-slate-100/90 p-1"
+          role="group"
+          aria-label="按状态筛选比赛"
+        >
           {FILTERS.map((item) => (
             <button
               key={item.key}
@@ -228,8 +233,8 @@ export function StudentLobby() {
               onClick={() => setFilter(item.key)}
               className={
                 filter === item.key
-                  ? 'h-9 rounded-xl bg-[#14283d] px-4 text-xs font-bold text-white'
-                  : 'h-9 rounded-xl px-4 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
+                  ? 'h-8 rounded-lg bg-white px-3.5 text-xs font-bold text-ink shadow-[0_1px_2px_rgba(19,28,43,0.08)]'
+                  : 'h-8 rounded-lg px-3.5 text-xs font-bold text-slate-500 transition hover:text-slate-900'
               }
             >
               {item.label}

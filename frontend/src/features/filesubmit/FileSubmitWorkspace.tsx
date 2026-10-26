@@ -58,7 +58,7 @@ function ScoreCellText({ task }: { task: LemonScores['tasks'][number] }) {
   if (task.judged) {
     return (
       <span>
-        <b className="font-mono text-sm text-[#14283d]">{task.score}</b>
+        <b className="font-mono text-sm text-[#0f2233]">{task.score}</b>
         <span className="ml-1 text-[11px] text-slate-400">/ {task.totalScore}</span>
       </span>
     )
@@ -266,7 +266,7 @@ export function FileSubmitWorkspace() {
   return (
     <div className="space-y-6">
       {/* 比赛横幅：标题 + 元信息 + 倒计时 + 本机时钟 */}
-      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e4e7ec] bg-[#14283d] px-6 py-7 text-white shadow-[0_24px_60px_-38px_rgba(20,40,61,0.55)] sm:px-9">
+      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e3e8ee] bg-[#0f2233] px-6 py-7 text-white shadow-[0_24px_60px_-38px_rgba(15,34,51,0.55)] sm:px-9">
         <div className="absolute inset-0 forge-grid opacity-[0.12]" aria-hidden="true" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -300,8 +300,8 @@ export function FileSubmitWorkspace() {
             <section className="app-surface rounded-2xl p-5" data-testid="lemon-scores">
               <div className="flex flex-wrap items-center gap-3">
                 <Trophy className="h-5 w-5 text-amber-500" />
-                <h2 className="text-sm font-bold text-[#14283d]">您的成绩</h2>
-                <span className="ml-auto font-mono text-2xl font-bold text-[#14283d]">
+                <h2 className="text-sm font-bold text-[#0f2233]">您的成绩</h2>
+                <span className="ml-auto font-mono text-2xl font-bold text-[#0f2233]">
                   {scores.totalScore}
                   <span className="text-sm font-medium text-slate-400"> / {scores.totalPossible}</span>
                 </span>
@@ -310,7 +310,7 @@ export function FileSubmitWorkspace() {
                 {scores.tasks.map((task, index) => (
                   <li
                     key={task.id}
-                    className="flex items-center gap-3 rounded-xl border border-[#e4e7ec] bg-[#fbfaf6] px-3 py-2 text-sm"
+                    className="flex items-center gap-3 rounded-xl border border-[#e3e8ee] bg-[#f7f9fb] px-3 py-2 text-sm"
                   >
                     <span className="font-mono text-xs font-bold text-slate-400">{index + 1}.</span>
                     <span className="min-w-0 flex-1 truncate font-semibold text-slate-700">{task.title}</span>
@@ -326,7 +326,7 @@ export function FileSubmitWorkspace() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[820px] text-left text-sm" data-testid="lemon-task-table">
                 <thead>
-                  <tr className="border-b border-[#e4e7ec] bg-[#fbfaf6] text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
+                  <tr className="border-b border-[#e3e8ee] bg-[#f7f9fb] text-[11px] font-bold uppercase tracking-[0.08em] text-slate-400">
                     <th className="w-14 px-4 py-3 text-center">序号</th>
                     <th className="px-4 py-3">试题名称</th>
                     <th className="w-16 px-4 py-3 text-center">分值</th>
@@ -364,7 +364,7 @@ export function FileSubmitWorkspace() {
                             setSelectedTaskId(task.id)
                           }
                         }}
-                        className="cursor-pointer border-b border-[#eef0f3] transition last:border-b-0 hover:bg-[#fbfaf6] focus-visible:bg-[#fbfaf6] focus-visible:outline-none"
+                        className="cursor-pointer border-b border-[#e8edf2] transition last:border-b-0 hover:bg-[#f7f9fb] focus-visible:bg-[#f7f9fb] focus-visible:outline-none"
                       >
                         <td className="px-4 py-3 text-center font-mono text-xs font-bold text-slate-400">
                           {index + 1}
@@ -372,7 +372,7 @@ export function FileSubmitWorkspace() {
                         <td className="px-4 py-3">
                           <div className="flex flex-wrap items-center gap-2">
                             {badge && <Badge variant={badge.variant}>{badge.label}</Badge>}
-                            <span className="font-semibold text-[#14283d]">{task.title}</span>
+                            <span className="font-semibold text-[#0f2233]">{task.title}</span>
                           </div>
                           {task.samples.length > 0 && (
                             <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px]">
@@ -533,7 +533,7 @@ function LemonChrome({
             target="_blank"
             rel="noopener noreferrer"
             download
-            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#e4e7ec] bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-[#d0d5dd] hover:text-slate-900"
+            className="inline-flex h-9 items-center gap-1.5 rounded-xl border border-[#e3e8ee] bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-[#ccd5df] hover:text-slate-900"
           >
             <Download className="h-3.5 w-3.5" />
             {compact ? '试题下载' : statement.name}
@@ -640,7 +640,7 @@ function FolderUploadCard({
       <div className="flex flex-wrap items-center gap-3">
         <FolderUp className="h-5 w-5 text-forge-700" />
         <div className="min-w-0">
-          <h2 className="text-sm font-bold text-[#14283d]">整包上传选手文件夹</h2>
+          <h2 className="text-sm font-bold text-[#0f2233]">整包上传选手文件夹</h2>
           <p className="mt-0.5 text-xs text-slate-500">
             选择以准考证号命名的文件夹（{examFolder}/bracket/bracket.cpp 这类 CSP 收题结构）。
             限制：≤ {MAX_FOLDER_FILES} 个文件、≤ {formatBytes(MAX_FOLDER_BYTES)}。
@@ -681,7 +681,7 @@ function FolderUploadCard({
         </Button>
       </div>
       {result && (
-        <div className="mt-4 rounded-xl border border-[#e4e7ec] bg-[#fbfaf6] p-4" data-testid="lemon-folder-result">
+        <div className="mt-4 rounded-xl border border-[#e3e8ee] bg-[#f7f9fb] p-4" data-testid="lemon-folder-result">
           <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-slate-600">
             <BookOpenCheck className="h-3.5 w-3.5 text-emerald-600" />
             <b className="font-mono">{result.contestant}</b>
@@ -770,7 +770,7 @@ function WorkspaceDialogs({
             {[...messages]
               .sort((a, b) => b.id - a.id)
               .map((message) => (
-                <article key={message.id} className="rounded-xl border border-[#e4e7ec] bg-[#fbfaf6] p-3.5">
+                <article key={message.id} className="rounded-xl border border-[#e3e8ee] bg-[#f7f9fb] p-3.5">
                   <header className="flex items-center gap-2 text-[11px]">
                     <Badge variant={message.target === '@all' ? 'info' : 'accent'}>
                       {message.target === '@all' ? '全体' : message.target}
@@ -811,17 +811,17 @@ function WorkspaceDialogs({
         ) : (
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+              <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
                 文件 <b className="font-mono">{codeSource.filename}</b>
               </span>
-              <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+              <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
                 提交于 <b className="font-mono">{fmtDateTime(codeSource.submittedAt)}</b>
               </span>
-              <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+              <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
                 <b className="font-mono">{codeSource.bytes}</b> 字节
               </span>
             </div>
-            <pre className="mt-3 max-h-[50vh] overflow-auto rounded-xl bg-[#14283d] p-4 font-mono text-xs leading-5 text-slate-100">
+            <pre className="mt-3 max-h-[50vh] overflow-auto rounded-xl bg-[#0f2233] p-4 font-mono text-xs leading-5 text-slate-100">
               {codeSource.content}
             </pre>
           </>

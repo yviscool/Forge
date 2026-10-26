@@ -77,10 +77,10 @@ export const ContestTimer: React.FC<ContestTimerProps> = ({ contest, userId }) =
 
   if (!contest.windowEnabled || !contest.endTime) {
     return (
-      <div className="inline-flex items-center gap-2 rounded-xl border border-[#e4e7ec] bg-[#fffefa] px-3 py-1.5 text-xs shadow-sm">
+      <div className="inline-flex items-center gap-2 rounded-xl border border-[#e3e8ee] bg-[#ffffff] px-3 py-1.5 text-xs shadow-sm">
         <Clock3 className="h-3.5 w-3.5 text-slate-400" />
         <span className="font-semibold text-slate-500">考场时间</span>
-        <span className="font-mono font-bold text-[#14283d]">{formatClock(now)}</span>
+        <span className="font-mono font-bold text-[#0f2233]">{formatClock(now)}</span>
       </div>
     )
   }
@@ -96,7 +96,7 @@ export const ContestTimer: React.FC<ContestTimerProps> = ({ contest, userId }) =
   const urgent = !finished && !notStarted && remainingMs < 15 * 60_000
 
   const timerTone = finished
-    ? 'border-[#e4e7ec] bg-[#f9fafb] text-slate-500'
+    ? 'border-[#e3e8ee] bg-[#f7f9fb] text-slate-500'
     : notStarted
       ? 'border-sky-200 bg-sky-50 text-sky-700'
       : urgent

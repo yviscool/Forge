@@ -255,7 +255,7 @@ export function ChoiceAnswerPanel({
           <Button variant="ghost" onClick={onBack} aria-label="返回题目列表">
             <ArrowLeft className="h-4 w-4" />
           </Button>
-          <h2 className="font-display text-xl font-semibold text-[#14283d]">{task.title}</h2>
+          <h2 className="font-display text-xl font-semibold text-[#0f2233]">{task.title}</h2>
         </div>
         <InlineError message={loadError} />
       </div>
@@ -271,7 +271,7 @@ export function ChoiceAnswerPanel({
           <ArrowLeft className="h-4 w-4" />
           返回
         </Button>
-        <h2 className="font-display text-xl font-semibold tracking-[-0.02em] text-[#14283d]">
+        <h2 className="font-display text-xl font-semibold tracking-[-0.02em] text-[#0f2233]">
           {task.title}
         </h2>
         <Badge variant="accent">选择题</Badge>
@@ -345,7 +345,7 @@ export function ChoiceAnswerPanel({
                         className={
                           checked
                             ? 'flex cursor-pointer items-start gap-3 rounded-xl border border-forge-300 bg-forge-50 px-3.5 py-2.5 transition'
-                            : 'flex cursor-pointer items-start gap-3 rounded-xl border border-[#e4e7ec] bg-white px-3.5 py-2.5 transition hover:border-forge-200 hover:bg-[#fbfaf6]'
+                            : 'flex cursor-pointer items-start gap-3 rounded-xl border border-[#e3e8ee] bg-white px-3.5 py-2.5 transition hover:border-forge-200 hover:bg-[#f7f9fb]'
                         }
                       >
                         <input
@@ -369,7 +369,7 @@ export function ChoiceAnswerPanel({
                           }}
                           className="mt-0.5 h-4 w-4 accent-[#c2410c]"
                         />
-                        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[#14283d] font-mono text-[10px] font-bold text-white">
+                        <span className="grid h-5 w-5 shrink-0 place-items-center rounded-md bg-[#0f2233] font-mono text-[10px] font-bold text-white">
                           {value}
                         </span>
                         {text && <MarkdownView source={text} className="min-w-0 text-sm leading-6 text-slate-700" />}
@@ -384,7 +384,7 @@ export function ChoiceAnswerPanel({
       </div>
 
       {/* 底部递交栏：进度 + 题号网格 + 递交按钮（sticky 跟随滚动，不遮页脚） */}
-      <div className="sticky bottom-4 z-30 rounded-2xl border border-[#e4e7ec] bg-[#fffefa]/95 shadow-lift backdrop-blur-xl">
+      <div className="sticky bottom-4 z-30 rounded-2xl border border-[#e3e8ee] bg-[#ffffff]/95 shadow-lift backdrop-blur-xl">
         <div className="flex w-full flex-wrap items-center gap-4 px-4 py-3 sm:px-5">
           <div className="min-w-40 flex-1">
             <div className="flex items-center justify-between text-[11px] font-semibold text-slate-500">
@@ -408,8 +408,8 @@ export function ChoiceAnswerPanel({
                 onClick={() => scrollToQuestion(question.id)}
                 className={
                   answers[question.id]
-                    ? 'h-8 w-8 rounded-lg bg-[#14283d] font-mono text-xs font-bold text-white transition'
-                    : 'h-8 w-8 rounded-lg border border-[#e4e7ec] bg-white font-mono text-xs font-bold text-slate-400 transition hover:border-forge-300 hover:text-slate-700'
+                    ? 'h-8 w-8 rounded-lg bg-[#0f2233] font-mono text-xs font-bold text-white transition'
+                    : 'h-8 w-8 rounded-lg border border-[#e3e8ee] bg-white font-mono text-xs font-bold text-slate-400 transition hover:border-forge-300 hover:text-slate-700'
                 }
                 aria-label={`跳到第 ${question.id} 题`}
               >

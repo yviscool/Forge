@@ -2,12 +2,9 @@ import React from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 import {
-  ArrowUpRight,
   BookOpenCheck,
-  Command,
   GraduationCap,
   KeyRound,
-  Landmark,
   LayoutDashboard,
   LogOut,
   ShieldCheck,
@@ -20,12 +17,12 @@ import { ChangePasswordDialog } from '../components/ChangePasswordDialog'
 
 const educatorRoles = new Set(['admin', 'teacher'])
 
+/* 仪器级 chrome：52px 高度、发丝线、无装饰。
+   品牌只出现一次（这里），导航用分段控制，页面不再有 footer。 */
 function BrandMark() {
   return (
-    <span className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-[#14283d] text-white shadow-[0_10px_24px_-12px_rgba(20,40,61,0.9)]">
-      <Command className="h-4 w-4" strokeWidth={2.4} />
-      <span className="absolute -right-2 -top-2 h-5 w-5 rounded-full bg-forge-500/80 blur-[1px]" />
-      <span className="absolute bottom-1 left-1 h-1 w-1 rounded-full bg-emerald-300" />
+    <span className="grid h-7 w-7 place-items-center rounded-lg bg-navy-900 text-[13px] font-black text-white">
+      F
     </span>
   )
 }
@@ -52,29 +49,28 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="no-print sticky top-0 z-50 border-b border-[#e4e7ec]/80 bg-[#fffefa]/88 backdrop-blur-xl">
-        <div className="flex h-16 w-full items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-6">
-            <Link to="/" className="group flex min-w-0 items-center gap-3">
+      <header className="no-print sticky top-0 z-50 border-b border-[#e3e8ee] bg-white/90 backdrop-blur-xl">
+        <div className="flex h-13 w-full items-center justify-between gap-4 pl-4 pr-4 sm:pl-6 sm:pr-6 lg:pl-8 lg:pr-8">
+          <div className="flex min-w-0 items-center gap-5">
+            <Link to="/" className="group flex min-w-0 items-center gap-2.5">
               <BrandMark />
-              <span className="min-w-0">
-                <span className="font-display block truncate text-[21px] font-semibold leading-none tracking-[-0.03em] text-[#14283d]">
-                  Forge
-                </span>
-                <span className="mt-1 hidden text-[9px] font-extrabold uppercase tracking-[0.22em] text-slate-400 sm:block">
-                  Contest atelier
-                </span>
+              <span className="font-display truncate text-[17px] font-semibold tracking-[-0.02em] text-navy-900">
+                Forge
               </span>
               <span className="sr-only">首页</span>
             </Link>
 
-            <nav className="hidden items-center gap-1 md:flex" aria-label="主导航">
+            <nav
+              className="hidden items-center gap-0.5 rounded-xl bg-slate-100/80 p-0.5 md:flex"
+              aria-label="主导航"
+            >
               <Link
                 to="/"
+                aria-current={!inTeacher ? 'page' : undefined}
                 className={
                   !inTeacher
-                    ? 'flex h-9 items-center gap-1.5 rounded-xl bg-[#14283d] px-3 text-xs font-bold text-white'
-                    : 'flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
+                    ? 'flex h-8 items-center gap-1.5 rounded-[10px] bg-white px-3.5 text-xs font-bold text-ink shadow-[0_1px_2px_rgba(19,28,43,0.08)]'
+                    : 'flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-bold text-slate-500 transition hover:text-slate-900'
                 }
               >
                 <BookOpenCheck className="h-3.5 w-3.5" />
@@ -83,10 +79,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {isTeacher && (
                 <Link
                   to="/teacher"
+                  aria-current={inTeacher ? 'page' : undefined}
                   className={
                     inTeacher
-                      ? 'flex h-9 items-center gap-1.5 rounded-xl bg-[#14283d] px-3 text-xs font-bold text-white'
-                      : 'flex h-9 items-center gap-1.5 rounded-xl px-3 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
+                      ? 'flex h-8 items-center gap-1.5 rounded-[10px] bg-white px-3.5 text-xs font-bold text-ink shadow-[0_1px_2px_rgba(19,28,43,0.08)]'
+                      : 'flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-bold text-slate-500 transition hover:text-slate-900'
                   }
                 >
                   <LayoutDashboard className="h-3.5 w-3.5" />
@@ -96,16 +93,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             {session ? (
               <>
-                <div className="hidden items-center gap-2 rounded-xl border border-[#e4e7ec] bg-white/70 px-3 py-1.5 sm:flex">
+                <div className="mr-1 hidden items-center gap-2 rounded-[10px] border border-[#e3e8ee] bg-white px-2.5 py-1.5 sm:flex">
                   {isTeacher ? (
                     <ShieldCheck className="h-4 w-4 text-forge-700" />
                   ) : (
                     <GraduationCap className="h-4 w-4 text-teal-700" />
                   )}
-                  <span className="max-w-[10rem] truncate text-xs font-bold text-slate-800">
+                  <span className="max-w-[9rem] truncate text-xs font-bold text-slate-800">
                     {session.name || session.username}
                   </span>
                   <Badge variant={isTeacher ? 'accent' : 'info'}>
@@ -116,7 +113,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   data-testid="change-password-button"
                   type="button"
                   onClick={() => setPasswordOpen(true)}
-                  className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 transition hover:bg-slate-100 hover:text-slate-700"
+                  className="grid h-9 w-9 place-items-center rounded-[10px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-900"
                   title="修改密码"
                   aria-label="修改密码"
                 >
@@ -126,7 +123,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   data-testid="logout-button"
                   type="button"
                   onClick={() => void handleLogout()}
-                  className="grid h-9 w-9 place-items-center rounded-xl text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
+                  className="grid h-9 w-9 place-items-center rounded-[10px] text-slate-500 transition hover:bg-rose-50 hover:text-rose-600"
                   title="退出登录"
                   aria-label="退出登录"
                 >
@@ -136,7 +133,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             ) : (
               <Link
                 to="/login"
-                className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#14283d] px-4 text-xs font-bold text-white transition hover:bg-[#1f3a52]"
+                className="inline-flex h-9 items-center gap-2 rounded-[10px] bg-ink px-4 text-xs font-bold text-white transition hover:bg-[#0f2233]"
               >
                 <UserRound className="h-3.5 w-3.5" />
                 登录
@@ -146,38 +143,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {isTeacher && (
               <Link
                 to="/teacher"
-                className="grid h-9 w-9 place-items-center rounded-xl text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 md:hidden"
+                className="grid h-9 w-9 place-items-center rounded-[10px] text-slate-500 transition hover:bg-slate-100 hover:text-slate-900 md:hidden"
                 aria-label="教师工作台"
                 title="教师工作台"
               >
                 <LayoutDashboard className="h-4 w-4" />
               </Link>
             )}
-
-            {isTeacher && (
-              <Link
-                to={inTeacher ? '/' : '/teacher'}
-                className="hidden h-9 items-center gap-1.5 rounded-xl border border-[#e4e7ec] bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-[#d0d5dd] hover:text-slate-900 sm:inline-flex"
-              >
-                <Landmark className="h-3.5 w-3.5" />
-                {inTeacher ? '选手视角' : '教师工作台'}
-                <ArrowUpRight className="h-3 w-3 opacity-50" />
-              </Link>
-            )}
           </div>
         </div>
       </header>
 
-      <main className="flex w-full flex-1 flex-col px-4 py-6 sm:px-6 lg:px-8 lg:py-8">
+      <main className="flex w-full flex-1 flex-col px-4 py-5 sm:px-6 lg:px-8 lg:py-6">
         {children}
       </main>
 
-      <footer className="no-print border-t border-[#e4e7ec]/80 bg-transparent">
-        <div className="flex w-full flex-col gap-2 px-4 py-5 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <p>Forge Contest Atelier · Built for serious practice.</p>
-          <p className="font-mono tracking-wide">CSP / NOIP / GESP · local-first judging</p>
-        </div>
-      </footer>
       <ChangePasswordDialog open={passwordOpen} onClose={() => setPasswordOpen(false)} />
     </div>
   )

@@ -118,11 +118,11 @@ export const BroadcastBanner: React.FC<BroadcastBannerProps> = ({
           {messages.map((message) => (
             <article
               key={message.id}
-              className="rounded-xl border border-[#e4e7ec] bg-white p-4"
+              className="rounded-xl border border-[#e3e8ee] bg-white p-4"
             >
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <p className="text-sm font-extrabold text-[#14283d]">
+                  <p className="text-sm font-extrabold text-[#0f2233]">
                     {message.title || '考场通知'}
                   </p>
                   <Badge

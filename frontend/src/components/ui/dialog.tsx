@@ -100,7 +100,7 @@ export function Dialog({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#14283d]/45 p-4 backdrop-blur-[3px] animate-fade"
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-[#0f2233]/45 p-4 backdrop-blur-[3px] animate-fade"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget && dismissible) onClose()
@@ -113,14 +113,14 @@ export function Dialog({
         aria-labelledby={titleId}
         tabIndex={-1}
         className={clsx(
-          'my-auto w-full overflow-hidden rounded-3xl border border-white/50 bg-[#fffefa] shadow-[0_32px_80px_-24px_rgba(20,40,61,0.5)] animate-rise',
+          'my-auto w-full overflow-hidden rounded-3xl border border-white/50 bg-[#ffffff] shadow-[0_32px_80px_-24px_rgba(15,34,51,0.5)] animate-rise',
           widths[width]
         )}
       >
-        <header className="flex items-start justify-between gap-4 border-b border-[#eaecf0] px-6 py-5">
+        <header className="flex items-start justify-between gap-4 border-b border-[#e6ebf0] px-6 py-5">
           <div>
             {eyebrow && <p className="app-eyebrow mb-1.5">{eyebrow}</p>}
-            <h2 id={titleId} className="text-xl font-extrabold tracking-tight text-[#14283d]">
+            <h2 id={titleId} className="text-xl font-extrabold tracking-tight text-[#0f2233]">
               {title}
             </h2>
           </div>
@@ -137,7 +137,7 @@ export function Dialog({
         </header>
         <div className="max-h-[calc(100vh-14rem)] overflow-y-auto px-6 py-5">{children}</div>
         {footer && (
-          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-[#eaecf0] bg-[#fbfaf6] px-6 py-4">
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-[#e6ebf0] bg-[#f7f9fb] px-6 py-4">
             {footer}
           </footer>
         )}

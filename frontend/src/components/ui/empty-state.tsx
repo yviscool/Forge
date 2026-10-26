@@ -13,13 +13,13 @@ export function EmptyState({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#d0d5dd] bg-white/60 px-6 py-14 text-center">
+    <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-[#ccd5df] bg-white/60 px-6 py-14 text-center">
       {Icon && (
         <div className="mb-4 grid h-12 w-12 place-items-center rounded-2xl bg-forge-50 text-forge-700">
           <Icon className="h-6 w-6" />
         </div>
       )}
-      <h3 className="text-base font-extrabold text-[#14283d]">{title}</h3>
+      <h3 className="text-base font-extrabold text-[#0f2233]">{title}</h3>
       {description && <p className="mt-1.5 max-w-md text-sm leading-6 text-slate-500">{description}</p>}
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -28,7 +28,7 @@ export function EmptyState({
 
 export function LoadingBlock({ label = '正在加载...' }: { label?: string }) {
   return (
-    <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-[#e4e7ec] bg-white/70 py-14 text-sm font-medium text-slate-500">
+    <div className="flex items-center justify-center gap-2.5 rounded-2xl border border-[#e3e8ee] bg-white/70 py-14 text-sm font-medium text-slate-500">
       <Loader2 className="h-4 w-4 animate-spin text-forge-700" />
       {label}
     </div>

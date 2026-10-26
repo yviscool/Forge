@@ -77,7 +77,7 @@ describe('session gate and route protection', () => {
       new ApiError('login required', 401, 'unauthorized')
     )
     renderApp('/')
-    await waitFor(() => expect(screen.getByText('返回你的工作台')).toBeInTheDocument())
+    await waitFor(() => expect(screen.getByText('登录工作台')).toBeInTheDocument())
   })
 
   it('commits a verified session on login and returns to the original page', async () => {
@@ -132,7 +132,7 @@ describe('session gate and route protection', () => {
 
     await waitFor(() => expect(useStore.getState().session).toBeNull())
     await waitFor(() =>
-      expect(screen.getByText('返回你的工作台')).toBeInTheDocument()
+      expect(screen.getByText('登录工作台')).toBeInTheDocument()
     )
     expect(api.me).toHaveBeenCalled()
   })

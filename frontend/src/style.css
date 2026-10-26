@@ -1,25 +1,41 @@
 @import 'tailwindcss';
 @config "../tailwind.config.js";
 
+/*
+ * Forge 设计语言 v2 ——「仪」
+ *
+ * 考场不是杂志，是仪器。整套视觉只为三件事服务：
+ *   1. 冷静的中性底：冷灰纸面 + 白面板 + 发丝线，信息自己是主角。
+ *   2. 有纪律的色彩：墨色承担操作，锻造橙只给「活着的东西」
+ *      （进行中、唯一主 CTA、品牌时刻），语义色只在状态出现。
+ *   3. 仪器的动效：160ms、快进快出、无弹性；按压即反馈。
+ *
+ * 字体走系统栈（Segoe UI Variable / Segoe UI 领衔），离线机房零加载、
+ * 与操作系统同源，天然「原生」。代码一律 JetBrains Mono。
+ */
+
 :root {
   color-scheme: light;
-  --forge-ink: #101828;
-  --forge-muted: #667085;
-  --forge-line: #e4e7ec;
-  --forge-paper: #f7f5ef;
-  --forge-panel: #fffefa;
+  --forge-ink: #131c2b;
+  --forge-muted: #5f6b7a;
+  --forge-line: #e3e8ee;
+  --forge-paper: #f3f5f8;
+  --forge-panel: #ffffff;
   --forge-accent: #c2410c;
   --forge-accent-dark: #9a3412;
-  --forge-navy: #14283d;
-  --forge-mint: #0f766e;
-  font-family: 'Manrope Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  --forge-navy: #0f2233;
+  --forge-mint: #0e7a5f;
+  --forge-ease: cubic-bezier(0.25, 0, 0, 1);
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', 'Manrope Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   font-synthesis: weight;
   text-rendering: optimizeLegibility;
 }
 
+/* 展示级标题：不再借衬线装点，用字重与紧排立住仪器感。 */
 .font-display {
-  font-family: 'Fraunces Variable', Georgia, 'Times New Roman', serif;
-  font-variation-settings: 'SOFT' 40, 'WONK' 1, 'opsz' 32;
+  font-family: 'Segoe UI Variable Display', 'Segoe UI', 'Manrope Variable', 'Noto Sans SC', 'Microsoft YaHei', sans-serif;
+  font-weight: 650;
+  letter-spacing: -0.022em;
 }
 
 html {
@@ -30,10 +46,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  background:
-    radial-gradient(1200px 600px at 8% -10%, rgba(194, 65, 12, 0.09), transparent 65%),
-    radial-gradient(900px 500px at 100% 0%, rgba(15, 118, 110, 0.08), transparent 58%),
-    linear-gradient(180deg, #fbfaf6 0%, #f5f2e9 100%);
+  background: var(--forge-paper);
   color: var(--forge-ink);
   -webkit-font-smoothing: antialiased;
 }
@@ -46,7 +59,7 @@ kbd,
 }
 
 ::selection {
-  background: rgba(194, 65, 12, 0.2);
+  background: rgba(194, 65, 12, 0.18);
 }
 
 *:focus-visible {
@@ -56,56 +69,56 @@ kbd,
 
 @layer components {
   .app-surface {
-    @apply border border-[#e4e7ec] bg-[#fffefa] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_12px_32px_-16px_rgba(16,24,40,0.16)];
+    @apply border border-[#e3e8ee] bg-white shadow-[0_1px_2px_rgba(19,28,43,0.04),0_10px_28px_-18px_rgba(19,28,43,0.14)];
   }
 
   .app-panel {
-    @apply rounded-2xl border border-[#e4e7ec] bg-white/90 shadow-[0_1px_2px_rgba(16,24,40,0.03)];
+    @apply rounded-2xl border border-[#e3e8ee] bg-white shadow-[0_1px_2px_rgba(19,28,43,0.03)];
   }
 
   .app-eyebrow {
-    @apply text-[11px] font-bold uppercase tracking-[0.16em] text-[#667085];
+    @apply text-[11px] font-bold uppercase tracking-[0.14em] text-[#5f6b7a];
   }
 
   .app-field {
-    @apply h-10 w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 text-sm text-slate-800 shadow-[0_1px_1px_rgba(16,24,40,0.03)] transition placeholder:text-slate-400 hover:border-[#b8c0cc] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+    @apply h-10 w-full rounded-[10px] border border-[#ccd5df] bg-white px-3.5 text-sm text-slate-800 transition placeholder:text-slate-400 hover:border-[#aab6c2] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
   }
 
   .app-select {
-    @apply h-10 w-full cursor-pointer appearance-none rounded-xl border border-[#d0d5dd] bg-white bg-[linear-gradient(45deg,transparent_50%,#667085_50%),linear-gradient(135deg,#667085_50%,transparent_50%)] bg-[length:5px_5px,5px_5px] bg-[position:calc(100%-16px)_50%,calc(100%-11px)_50%] bg-no-repeat px-3.5 pr-9 text-sm text-slate-800 shadow-[0_1px_1px_rgba(16,24,40,0.03)] transition placeholder:text-slate-400 hover:border-[#b8c0cc] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
+    @apply h-10 w-full cursor-pointer appearance-none rounded-[10px] border border-[#ccd5df] bg-white bg-[linear-gradient(45deg,transparent_50%,#5f6b7a_50%),linear-gradient(135deg,#5f6b7a_50%,transparent_50%)] bg-[length:5px_5px,5px_5px] bg-[position:calc(100%-16px)_50%,calc(100%-11px)_50%] bg-no-repeat px-3.5 pr-9 text-sm text-slate-800 transition placeholder:text-slate-400 hover:border-[#aab6c2] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400;
   }
 
   .app-textarea {
-    @apply w-full rounded-xl border border-[#d0d5dd] bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-[0_1px_1px_rgba(16,24,40,0.03)] transition placeholder:text-slate-400 hover:border-[#b8c0cc] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10;
+    @apply w-full rounded-[10px] border border-[#ccd5df] bg-white px-3.5 py-2.5 text-sm text-slate-800 transition placeholder:text-slate-400 hover:border-[#aab6c2] focus:border-[#c2410c] focus:outline-none focus:ring-4 focus:ring-[#c2410c]/10;
   }
 
   .forge-grid {
     background-image:
-      linear-gradient(rgba(16, 40, 61, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(16, 40, 61, 0.035) 1px, transparent 1px);
+      linear-gradient(rgba(15, 34, 51, 0.04) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(15, 34, 51, 0.04) 1px, transparent 1px);
     background-size: 30px 30px;
   }
 }
 
 @layer utilities {
   .animate-rise {
-    animation: forge-rise 480ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+    animation: forge-rise 360ms var(--forge-ease) both;
   }
 
   .animate-fade {
-    animation: forge-fade 240ms ease-out both;
+    animation: forge-fade 180ms var(--forge-ease) both;
   }
 
   .scrollbar-slim {
     scrollbar-width: thin;
-    scrollbar-color: #cbd5e1 transparent;
+    scrollbar-color: #c3cdd8 transparent;
   }
 }
 
 @keyframes forge-rise {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(6px);
   }
   to {
     opacity: 1;
@@ -153,8 +166,8 @@ kbd,
 .prose-forge h2,
 .prose-forge h3,
 .prose-forge h4 {
-  color: #14283d;
-  font-weight: 800;
+  color: #0f2233;
+  font-weight: 700;
   line-height: 1.35;
   margin: 1.4em 0 0.55em;
 }
@@ -195,7 +208,7 @@ kbd,
 
 .prose-forge code {
   border-radius: 0.35rem;
-  background: #f1f3f7;
+  background: #eef2f6;
   padding: 0.12rem 0.35rem;
   font-size: 0.86em;
   color: #b42318;
@@ -204,8 +217,8 @@ kbd,
 .prose-forge pre {
   overflow-x: auto;
   border-radius: 0.75rem;
-  border: 1px solid #e4e7ec;
-  background: #101828;
+  border: 1px solid #e3e8ee;
+  background: #131c2b;
   padding: 1rem;
   color: #e6e9ef;
 }
@@ -233,13 +246,13 @@ kbd,
 
 .prose-forge th,
 .prose-forge td {
-  border: 1px solid #e4e7ec;
+  border: 1px solid #e3e8ee;
   padding: 0.5rem 0.65rem;
   text-align: left;
 }
 
 .prose-forge th {
-  background: #f8fafc;
+  background: #f6f8fa;
   font-weight: 700;
 }
 

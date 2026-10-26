@@ -213,11 +213,11 @@ function NoticeDrawer({
                 ? 'rounded-2xl border border-rose-200 bg-rose-50/70 p-4'
                 : message.level === 'warning'
                   ? 'rounded-2xl border border-amber-200 bg-amber-50/60 p-4'
-                  : 'rounded-2xl border border-[#e4e7ec] bg-white p-4'
+                  : 'rounded-2xl border border-[#e3e8ee] bg-white p-4'
             }
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-extrabold text-[#14283d]">
+              <p className="text-sm font-extrabold text-[#0f2233]">
                 {message.title || '考场通知'}
               </p>
               <span className="font-mono text-[11px] text-slate-400">
@@ -264,12 +264,12 @@ function ProblemStatement({
   submitLabel: string
 }) {
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#fffefa]">
-      <header className="border-b border-[#eaecf0] px-5 py-4 sm:px-6">
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#e3e8ee] bg-[#ffffff]">
+      <header className="border-b border-[#e6ebf0] px-5 py-4 sm:px-6">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="app-eyebrow">Problem {problem.code}</p>
-            <h1 className="mt-1.5 text-xl font-extrabold tracking-tight text-[#14283d] sm:text-2xl">
+            <p className="app-eyebrow">题目 {problem.code}</p>
+            <h1 className="mt-1.5 text-xl font-extrabold tracking-tight text-[#0f2233] sm:text-2xl">
               {problem.title}
             </h1>
           </div>
@@ -285,7 +285,7 @@ function ProblemStatement({
               type="button"
               onClick={onDownloadPdf}
               disabled={exporting != null}
-              className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#e4e7ec] bg-white px-2 text-[10px] font-bold text-slate-500 transition hover:border-[#cfd6df] hover:text-slate-800 disabled:opacity-50"
+              className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#e3e8ee] bg-white px-2 text-[10px] font-bold text-slate-500 transition hover:border-[#ccd5df] hover:text-slate-800 disabled:opacity-50"
               title="下载认证版 A4 PDF"
             >
               <Download className="h-3 w-3" />
@@ -295,7 +295,7 @@ function ProblemStatement({
               type="button"
               onClick={onDownloadHtml}
               disabled={exporting != null}
-              className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#e4e7ec] bg-white px-2 text-[10px] font-bold text-slate-500 transition hover:border-[#cfd6df] hover:text-slate-800 disabled:opacity-50"
+              className="inline-flex h-7 items-center gap-1 rounded-lg border border-[#e3e8ee] bg-white px-2 text-[10px] font-bold text-slate-500 transition hover:border-[#ccd5df] hover:text-slate-800 disabled:opacity-50"
               title="下载 CCF 排版 HTML"
             >
               <Download className="h-3 w-3" />
@@ -319,7 +319,7 @@ function ProblemStatement({
               <h2 className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-400">
                 输入格式
               </h2>
-              <div className="rounded-xl border border-[#eaecf0] bg-[#fbfaf6] px-4 py-3 text-sm leading-6 text-slate-700">
+              <div className="rounded-xl border border-[#e6ebf0] bg-[#f7f9fb] px-4 py-3 text-sm leading-6 text-slate-700">
                 <MarkdownView source={problem.input} />
               </div>
             </div>
@@ -330,7 +330,7 @@ function ProblemStatement({
               <h2 className="mb-2 text-[11px] font-extrabold uppercase tracking-[0.16em] text-slate-400">
                 输出格式
               </h2>
-              <div className="rounded-xl border border-[#eaecf0] bg-[#fbfaf6] px-4 py-3 text-sm leading-6 text-slate-700">
+              <div className="rounded-xl border border-[#e6ebf0] bg-[#f7f9fb] px-4 py-3 text-sm leading-6 text-slate-700">
                 <MarkdownView source={problem.output} />
               </div>
             </div>
@@ -355,7 +355,7 @@ function ProblemStatement({
                   {copied ? '已复制' : '复制样例'}
                 </button>
               </div>
-              <pre className="overflow-x-auto rounded-xl border border-[#1f3247] bg-[#101f2e] p-4 font-mono text-xs leading-6 text-slate-200">
+              <pre className="overflow-x-auto rounded-xl border border-[#1a3549] bg-[#0f2233] p-4 font-mono text-xs leading-6 text-slate-200">
                 {problem.examples}
               </pre>
             </div>
@@ -377,7 +377,7 @@ function ProblemStatement({
         </div>
       </div>
 
-      <footer className="flex items-center justify-between gap-3 border-t border-[#eaecf0] bg-[#fbfaf6] px-5 py-3">
+      <footer className="flex items-center justify-between gap-3 border-t border-[#e6ebf0] bg-[#f7f9fb] px-5 py-3">
         <p className="hidden text-[11px] text-slate-400 sm:block">
           草稿自动保存在本机；切换试题不会丢失。
         </p>
@@ -412,11 +412,11 @@ function HistoryPanel({
       {submissions.map((submission, index) => (
         <article
           key={submission.id}
-          className="rounded-xl border border-[#e4e7ec] bg-white p-3.5 transition hover:border-[#cfd6df]"
+          className="rounded-xl border border-[#e3e8ee] bg-white p-3.5 transition hover:border-[#ccd5df]"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="rounded-md bg-[#f2f4f7] px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-600">
+              <span className="rounded-md bg-[#f0f4f8] px-1.5 py-0.5 font-mono text-[10px] font-bold text-slate-600">
                 #{submissions.length - index}
               </span>
               <VerdictBadge submission={submission} />
@@ -1085,8 +1085,8 @@ export function StudentWorkspace() {
   if (zipLocked) {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-xl items-center px-4">
-        <section className="w-full overflow-hidden rounded-[1.75rem] border border-amber-200 bg-[#fffefa] shadow-[0_24px_60px_-38px_rgba(120,53,15,0.45)]">
-          <div className="relative bg-[#14283d] px-6 py-7 text-white">
+        <section className="w-full overflow-hidden rounded-[1.75rem] border border-amber-200 bg-[#ffffff] shadow-[0_24px_60px_-38px_rgba(120,53,15,0.45)]">
+          <div className="relative bg-[#0f2233] px-6 py-7 text-white">
             <div className="absolute inset-0 forge-grid opacity-15" aria-hidden="true" />
             <div className="relative">
               <Link
@@ -1101,7 +1101,7 @@ export function StudentWorkspace() {
                   <LockKeyhole className="h-5 w-5" />
                 </span>
                 <div>
-                  <p className="app-eyebrow text-white/40">Encrypted paper</p>
+                  <p className="app-eyebrow text-white/40">考场试卷</p>
                   <h1 className="font-display mt-0.5 text-2xl font-semibold">
                     {contest?.name || '考场试卷已加密'}
                   </h1>
@@ -1283,12 +1283,12 @@ export function StudentWorkspace() {
           }}
         />
 
-      <section className="overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#fffefa] shadow-[0_1px_2px_rgba(16,24,40,0.04),0_18px_40px_-30px_rgba(16,24,40,0.25)]">
+      <section className="overflow-hidden rounded-2xl border border-[#e3e8ee] bg-[#ffffff] shadow-[0_1px_2px_rgba(19,28,43,0.04),0_18px_40px_-30px_rgba(19,28,43,0.25)]">
         <div
           className={
             examSkin
               ? 'relative overflow-hidden border-b border-slate-200 bg-white px-5 py-5 text-slate-900 sm:px-6'
-              : 'relative overflow-hidden bg-[#14283d] px-5 py-5 text-white sm:px-6'
+              : 'relative overflow-hidden bg-[#0f2233] px-5 py-5 text-white sm:px-6'
           }
         >
           {!examSkin && (
@@ -1577,8 +1577,8 @@ export function StudentWorkspace() {
                 aria-current={selected ? 'page' : undefined}
                 className={
                   selected
-                    ? 'group flex min-w-[9.5rem] shrink-0 items-center gap-2.5 rounded-xl border border-[#14283d] bg-[#14283d] px-3 py-2.5 text-left text-white shadow-sm'
-                    : 'group flex min-w-[9.5rem] shrink-0 items-center gap-2.5 rounded-xl border border-[#e4e7ec] bg-[#fffefa] px-3 py-2.5 text-left transition hover:border-[#cfd6df] hover:bg-white'
+                    ? 'group flex min-w-[9.5rem] shrink-0 items-center gap-2.5 rounded-xl border border-[#0f2233] bg-[#0f2233] px-3 py-2.5 text-left text-white shadow-sm'
+                    : 'group flex min-w-[9.5rem] shrink-0 items-center gap-2.5 rounded-xl border border-[#e3e8ee] bg-[#ffffff] px-3 py-2.5 text-left transition hover:border-[#ccd5df] hover:bg-white'
                 }
               >
                 <span
@@ -1587,7 +1587,7 @@ export function StudentWorkspace() {
                       ? 'grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-white/15 font-mono text-xs font-extrabold'
                       : solved
                         ? 'grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-emerald-100 font-mono text-xs font-extrabold text-emerald-700'
-                        : 'grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#f2f4f7] font-mono text-xs font-extrabold text-slate-500'
+                        : 'grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#f0f4f8] font-mono text-xs font-extrabold text-slate-500'
                   }
                 >
                   {problem.code}
@@ -1669,9 +1669,9 @@ export function StudentWorkspace() {
             submitLabel={answerOnly ? '提交答案' : '提交代码'}
           />
 
-          <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#fffefa] xl:sticky xl:top-20 xl:h-[calc(100vh-6.5rem)]">
-            <div className="flex items-center justify-between gap-3 border-b border-[#eaecf0] px-3 py-2.5">
-              <div className="flex rounded-xl bg-[#f2f4f7] p-1">
+          <section className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-[#e3e8ee] bg-[#ffffff] xl:sticky xl:top-20 xl:h-[calc(100vh-6.5rem)]">
+            <div className="flex items-center justify-between gap-3 border-b border-[#e6ebf0] px-3 py-2.5">
+              <div className="flex rounded-xl bg-[#f0f4f8] p-1">
                 {[
                   {
                     id: 'editor' as const,
@@ -1691,7 +1691,7 @@ export function StudentWorkspace() {
                     onClick={() => setActivePanel(id)}
                     className={
                       activePanel === id
-                        ? 'inline-flex h-8 items-center gap-1.5 rounded-lg bg-white px-2.5 text-[11px] font-extrabold text-[#14283d] shadow-sm'
+                        ? 'inline-flex h-8 items-center gap-1.5 rounded-lg bg-white px-2.5 text-[11px] font-extrabold text-[#0f2233] shadow-sm'
                         : 'inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-[11px] font-bold text-slate-600 transition hover:text-slate-800'
                     }
                   >
@@ -1732,7 +1732,7 @@ export function StudentWorkspace() {
 
             {activePanel === 'editor' && (
               <div className="flex min-h-0 flex-1 flex-col">
-                <div className="flex flex-wrap items-center gap-2 border-b border-[#eaecf0] bg-[#fbfaf6] px-3 py-2">
+                <div className="flex flex-wrap items-center gap-2 border-b border-[#e6ebf0] bg-[#f7f9fb] px-3 py-2">
                   {answerOnly ? (
                     <Badge variant="accent">纯文本答案 · 不编译</Badge>
                   ) : languageOptions.length === 0 ? (
@@ -1769,7 +1769,7 @@ export function StudentWorkspace() {
                 >
                   {answerOnly ? (
                     <div className="flex h-full min-h-[22rem] flex-col">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#eaecf0] px-3 py-2 text-[11px] text-slate-500">
+                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#e6ebf0] px-3 py-2 text-[11px] text-slate-500">
                         <span>直接输入最终答案，或载入本地文本答案文件。</span>
                         <div>
                           <input
@@ -1800,7 +1800,7 @@ export function StudentWorkspace() {
                         onChange={(event) => setCode(event.target.value)}
                         placeholder="在此输入标准答案对应的最终提交内容…"
                         spellCheck={false}
-                        className="min-h-0 flex-1 resize-none border-0 bg-[#fffefa] p-4 font-mono text-sm leading-6 text-[#14283d] outline-none placeholder:text-slate-300"
+                        className="min-h-0 flex-1 resize-none border-0 bg-[#ffffff] p-4 font-mono text-sm leading-6 text-[#0f2233] outline-none placeholder:text-slate-300"
                       />
                     </div>
                   ) : (
@@ -1827,7 +1827,7 @@ export function StudentWorkspace() {
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2 border-t border-[#eaecf0] bg-[#fbfaf6] px-3 py-3">
+                <div className="flex flex-wrap items-center gap-2 border-t border-[#e6ebf0] bg-[#f7f9fb] px-3 py-3">
                   <div className="hidden min-w-0 flex-1 items-center gap-1.5 text-[10px] text-slate-400 sm:flex">
                     <CloudUpload className="h-3.5 w-3.5" />
                     {answerOnly ? '答案自动保存于本机草稿' : '自动保存于本机草稿'}
@@ -1887,12 +1887,12 @@ export function StudentWorkspace() {
             )}
 
             {activePanel === 'history' && (
-              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#fbfaf6] p-3 scrollbar-slim">
+              <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-[#f7f9fb] p-3 scrollbar-slim">
                 <HistoryPanel submissions={problemSubmissions} onLoad={loadSubmission} />
 
                 {activeTaskType !== 'choice' && (
-                  <section className="rounded-xl border border-[#e4e7ec] bg-white p-3">
-                    <h3 className="mb-2 text-xs font-bold text-[#14283d]">
+                  <section className="rounded-xl border border-[#e3e8ee] bg-white p-3">
+                    <h3 className="mb-2 text-xs font-bold text-[#0f2233]">
                       代码版本（保存/提交即版本，共 {versions.length} 个）
                     </h3>
                     {versions.length === 0 ? (
@@ -1966,7 +1966,7 @@ export function StudentWorkspace() {
             )}
 
             {activePanel === 'ranking' && (
-              <div className="min-h-0 flex-1 overflow-y-auto bg-[#fbfaf6] p-3 scrollbar-slim">
+              <div className="min-h-0 flex-1 overflow-y-auto bg-[#f7f9fb] p-3 scrollbar-slim">
                 {noiMasked && (
                   <p className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
                     NOI 全真模拟：排名区在比赛结束后开放。
@@ -2011,13 +2011,13 @@ export function StudentWorkspace() {
         <div className="space-y-4 text-sm leading-6 text-slate-600">
           <p>
             这是你第{' '}
-            <span className="font-mono font-extrabold text-[#14283d]">
+            <span className="font-mono font-extrabold text-[#0f2233]">
               {problemSubmissions.length + 1}
             </span>{' '}
             次提交
-            <span className="font-bold text-[#14283d]"> {activeProblem?.title}</span>。
+            <span className="font-bold text-[#0f2233]"> {activeProblem?.title}</span>。
           </p>
-          <div className="rounded-xl border border-[#e4e7ec] bg-[#fbfaf6] px-4 py-3 text-xs">
+          <div className="rounded-xl border border-[#e3e8ee] bg-[#f7f9fb] px-4 py-3 text-xs">
             <p>
               {activeProblem?.taskType === 'answers_only'
                 ? '提交类型 · 纯文本答案'
@@ -2056,12 +2056,12 @@ export function StudentWorkspace() {
             <button
               type="button"
               onClick={() => singleFileRef.current?.click()}
-              className="group rounded-2xl border border-[#e4e7ec] bg-white p-5 text-left transition hover:border-forge-300 hover:bg-forge-50/30"
+              className="group rounded-2xl border border-[#e3e8ee] bg-white p-5 text-left transition hover:border-forge-300 hover:bg-forge-50/30"
             >
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-forge-50 text-forge-700">
                 <FileCode2 className="h-5 w-5" />
               </span>
-              <p className="mt-3 text-sm font-extrabold text-[#14283d]">选择单个源文件</p>
+              <p className="mt-3 text-sm font-extrabold text-[#0f2233]">选择单个源文件</p>
               <p className="mt-1 text-[11px] leading-5 text-slate-500">
                 读取 .cpp / .c / .py / .go，自动识别语言并映射到当前试题。单文件不超过 64 KB。
               </p>
@@ -2069,12 +2069,12 @@ export function StudentWorkspace() {
             <button
               type="button"
               onClick={() => folderFileRef.current?.click()}
-              className="group rounded-2xl border border-[#e4e7ec] bg-white p-5 text-left transition hover:border-teal-300 hover:bg-teal-50/30"
+              className="group rounded-2xl border border-[#e3e8ee] bg-white p-5 text-left transition hover:border-teal-300 hover:bg-teal-50/30"
             >
               <span className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50 text-teal-700">
                 <FolderOpen className="h-5 w-5" />
               </span>
-              <p className="mt-3 text-sm font-extrabold text-[#14283d]">选择整个考试文件夹</p>
+              <p className="mt-3 text-sm font-extrabold text-[#0f2233]">选择整个考试文件夹</p>
               <p className="mt-1 text-[11px] leading-5 text-slate-500">
                 仅在浏览器本地解析，不提交服务器。按目录 / 文件名对应题目，最多 512 个文件、8 MB。
               </p>
@@ -2106,7 +2106,7 @@ export function StudentWorkspace() {
             }}
           />
 
-          <div className="rounded-2xl border border-dashed border-[#d0d5dd] bg-[#fbfaf6] p-4">
+          <div className="rounded-2xl border border-dashed border-[#ccd5df] bg-[#f7f9fb] p-4">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-xs font-extrabold text-slate-700">文件夹预览</p>
@@ -2122,7 +2122,7 @@ export function StudentWorkspace() {
             </div>
 
             {!folder ? (
-              <div className="mt-4 flex items-center gap-2 rounded-xl border border-[#eaecf0] bg-white px-3 py-6 text-xs text-slate-400">
+              <div className="mt-4 flex items-center gap-2 rounded-xl border border-[#e6ebf0] bg-white px-3 py-6 text-xs text-slate-400">
                 <FolderOpen className="h-4 w-4" />
                 尚未选择文件夹
               </div>
@@ -2139,7 +2139,7 @@ export function StudentWorkspace() {
                   {folderMatches.map((match) => (
                     <div
                       key={match.path}
-                      className="flex flex-wrap items-center gap-2 rounded-xl border border-[#eaecf0] bg-white px-3 py-2"
+                      className="flex flex-wrap items-center gap-2 rounded-xl border border-[#e6ebf0] bg-white px-3 py-2"
                     >
                       <FileCode2 className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                       <span className="min-w-0 flex-1 truncate font-mono text-[10px] text-slate-600">

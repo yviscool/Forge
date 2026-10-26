@@ -63,16 +63,16 @@ export function Scoreboard({
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="查找选手"
-              className="h-8 w-full rounded-lg border border-[#e4e7ec] bg-white pl-8 pr-2 text-xs outline-none transition focus:border-forge-600"
+              className="h-8 w-full rounded-lg border border-[#e3e8ee] bg-white pl-8 pr-2 text-xs outline-none transition focus:border-forge-600"
             />
           </label>
         )}
       </div>
 
-      <div className="overflow-hidden rounded-xl border border-[#e4e7ec] bg-white">
+      <div className="overflow-hidden rounded-xl border border-[#e3e8ee] bg-white">
         <div tabIndex={0} className="overflow-x-auto">
           <table className="w-full min-w-[520px] text-left text-sm">
-            <thead className="border-b border-[#eaecf0] bg-[#fbfaf6] text-[11px] uppercase tracking-wider text-slate-500">
+            <thead className="border-b border-[#e6ebf0] bg-[#f7f9fb] text-[11px] uppercase tracking-wider text-slate-500">
               <tr>
                 <th className="w-16 px-3 py-3 text-center">#</th>
                 <th className="px-4 py-3">选手</th>
@@ -99,14 +99,14 @@ export function Scoreboard({
                 )}
               </tr>
             </thead>
-            <tbody className="divide-y divide-[#f2f4f7]">
+            <tbody className="divide-y divide-[#f0f4f8]">
               {rows.map(({ entry, rank }) => {
                 const acm = isACMEntry(entry)
                 const highlighted = entry.userId === highlightUserId
                 return (
                   <tr
                     key={entry.userId}
-                    className={highlighted ? 'bg-forge-50/70' : 'transition-colors hover:bg-[#fbfaf6]'}
+                    className={highlighted ? 'bg-forge-50/70' : 'transition-colors hover:bg-[#f7f9fb]'}
                   >
                     <td className="px-3 py-3 text-center">
                       <span
@@ -125,7 +125,7 @@ export function Scoreboard({
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-2">
-                        <span className="font-bold text-[#14283d]">{entry.userName}</span>
+                        <span className="font-bold text-[#0f2233]">{entry.userName}</span>
                         {highlighted && (
                           <span className="rounded bg-forge-100 px-1.5 py-0.5 text-[10px] font-bold text-forge-800">
                             我

@@ -1326,21 +1326,15 @@ export function TeacherConsole() {
   }, [users])
 
   return (
-    <div className="flex min-h-screen items-stretch bg-[#f7f6f1]">
-      {/* 桌面壳：左侧导航栏（magpie 式布局） */}
-      <aside className="sticky top-0 flex h-screen w-52 shrink-0 flex-col border-r border-[#e4e7ec] bg-white">
-        <div className="flex items-center gap-2 px-4 pb-3 pt-5">
-          <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#14283d] text-sm font-black text-white">F</span>
-          <div>
-            <p className="text-sm font-extrabold leading-4 text-[#14283d]">Forge</p>
-            <p className="text-[10px] font-semibold text-slate-400">教师工作台</p>
-          </div>
-        </div>
+    <div className="flex min-h-screen items-stretch bg-[#f3f5f8]">
+      {/* 桌面壳：左侧导航栏（magpie 式布局）。品牌只由 AppShell 头部承担，
+          侧栏只做导航与状态灯，避免双重品牌。 */}
+      <aside className="sticky top-13 flex h-[calc(100vh-3.25rem)] w-52 shrink-0 flex-col border-r border-[#e3e8ee] bg-white">
         <nav
           role="tablist"
           aria-label="教师工作台分区"
           aria-orientation="vertical"
-          className="scrollbar-slim flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-2"
+          className="scrollbar-slim flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2.5 py-3"
         >
           {TAB_ITEMS.map(({ key, label, icon: Icon }, index) => {
             const selected = activeTab === key
@@ -1357,7 +1351,7 @@ export function TeacherConsole() {
                 onKeyDown={(event) => handleTabKeyDown(event, index)}
                 className={
                   selected
-                    ? 'flex h-9 items-center gap-2 rounded-lg bg-[#14283d] px-3 text-xs font-bold text-white'
+                    ? 'flex h-9 items-center gap-2 rounded-lg bg-ink px-3 text-xs font-bold text-white'
                     : 'flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-bold text-slate-500 transition hover:bg-slate-100 hover:text-slate-900'
                 }
               >
@@ -1367,7 +1361,7 @@ export function TeacherConsole() {
             )
           })}
         </nav>
-        <div className="border-t border-[#e4e7ec] px-4 py-3 text-[10px] leading-4 text-slate-400">
+        <div className="border-t border-[#e3e8ee] px-4 py-3 text-[10px] leading-4 text-slate-400">
           <p className="flex items-center gap-1.5">
             <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" aria-hidden="true" />
             服务 127.0.0.1:8080
@@ -1378,13 +1372,12 @@ export function TeacherConsole() {
 
       {/* 主内容列 */}
       <div className="scrollbar-slim min-w-0 flex-1 space-y-5 overflow-y-auto px-5 py-5">
-      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e4e7ec] bg-[#fffefa] px-5 py-6 shadow-[0_20px_50px_-36px_rgba(20,40,61,0.35)] sm:px-7">
-        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 forge-grid opacity-40" />
-        <div className="relative flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+      <section className="relative overflow-hidden rounded-2xl border border-[#e3e8ee] bg-white px-5 py-5 shadow-[0_1px_2px_rgba(19,28,43,0.04)] sm:px-6">
+        <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 forge-grid opacity-30" />
+        <div className="relative flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div className="min-w-0">
-            <p className="app-eyebrow">Instructor command room</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2.5">
-              <h1 className="font-display text-3xl font-semibold tracking-[-0.04em] text-[#14283d] sm:text-[2.35rem]">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <h1 className="font-display text-[22px] leading-tight text-navy-900">
                 教师工作台
               </h1>
               {currentContest && (
@@ -1406,7 +1399,7 @@ export function TeacherConsole() {
                 </Badge>
               )}
             </div>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+            <p className="mt-1.5 max-w-2xl text-[13px] leading-6 text-slate-500">
               编排试题、管理考场身份，并在同一条时间线上完成评测复核与安全调度。
             </p>
           </div>
@@ -1423,7 +1416,8 @@ export function TeacherConsole() {
             )}
             {currentContest?.status === 'running' && (
               <Button
-                variant="danger"
+                variant="outline"
+                className="border-rose-200 text-rose-700 hover:border-rose-300 hover:bg-rose-50"
                 onClick={() => void handleFinishContest()}
                 loading={pending === 'finish-contest'}
               >
@@ -1433,13 +1427,13 @@ export function TeacherConsole() {
             <Button variant="outline" onClick={() => setShowImportBundle(true)}>
               <Upload className="h-4 w-4" /> 导入比赛包
             </Button>
-            <Button onClick={() => setShowCreateContest(true)}>
+            <Button variant="accent" onClick={() => setShowCreateContest(true)}>
               <Plus className="h-4 w-4" /> 新建比赛
             </Button>
           </div>
         </div>
 
-        <div className="relative mt-6 flex flex-col gap-3 border-t border-[#eaecf0] pt-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="relative mt-5 flex flex-col gap-3 border-t border-[#e6ebf0] pt-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center">
             <label htmlFor="teacher-contest" className="shrink-0 text-xs font-bold text-slate-500">
               当前比赛
@@ -1678,10 +1672,10 @@ export function TeacherConsole() {
           <button
             type="button"
             onClick={() => bundleInputRef.current?.click()}
-            className="flex w-full flex-col items-center rounded-2xl border border-dashed border-[#cfd6df] bg-[#fbfaf6] px-5 py-8 text-center transition hover:border-forge-300 hover:bg-forge-50/40"
+            className="flex w-full flex-col items-center rounded-2xl border border-dashed border-[#ccd5df] bg-[#f7f9fb] px-5 py-8 text-center transition hover:border-forge-300 hover:bg-forge-50/40"
           >
             <FolderArchive className="h-8 w-8 text-forge-600" />
-            <span className="mt-2 text-sm font-extrabold text-[#14283d]">
+            <span className="mt-2 text-sm font-extrabold text-[#0f2233]">
               {bundleName || '选择 .json 比赛包'}
             </span>
             <span className="mt-1 text-[11px] text-slate-500">
@@ -4175,7 +4169,7 @@ export function TeacherConsole() {
               type="button"
               aria-pressed={seatMode === 'csp'}
               onClick={() => setSeatMode('csp')}
-              className={seatMode === 'csp' ? 'text-xs border-[#14283d] bg-[#14283d] text-white' : 'text-xs'}
+              className={seatMode === 'csp' ? 'text-xs border-[#0f2233] bg-[#0f2233] text-white' : 'text-xs'}
             >
               CSP 准考证号（省份-组别+序号）
             </Button>
@@ -4185,7 +4179,7 @@ export function TeacherConsole() {
               type="button"
               aria-pressed={seatMode === 'prefix'}
               onClick={() => setSeatMode('prefix')}
-              className={seatMode === 'prefix' ? 'text-xs border-[#14283d] bg-[#14283d] text-white' : 'text-xs'}
+              className={seatMode === 'prefix' ? 'text-xs border-[#0f2233] bg-[#0f2233] text-white' : 'text-xs'}
             >
               自定义前缀学号
             </Button>

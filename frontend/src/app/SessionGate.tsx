@@ -105,12 +105,12 @@ export function SessionGate({ children }: { children: React.ReactNode }) {
       <div className="mx-auto flex min-h-[60vh] max-w-xl items-center justify-center px-4">
         <section
           role="alert"
-          className="w-full rounded-3xl border border-amber-200 bg-[#fffefa] p-8 text-center shadow-[0_24px_80px_-48px_rgba(20,40,61,0.45)]"
+          className="w-full rounded-3xl border border-amber-200 bg-[#ffffff] p-8 text-center shadow-[0_24px_80px_-48px_rgba(15,34,51,0.45)]"
         >
           <span className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-amber-50 text-amber-700">
             <ServerCrash className="h-6 w-6" />
           </span>
-          <h1 className="font-display mt-5 text-2xl font-semibold tracking-[-0.03em] text-[#14283d]">
+          <h1 className="font-display mt-5 text-2xl font-semibold tracking-[-0.03em] text-[#0f2233]">
             暂时无法确认登录状态
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-500">

@@ -126,13 +126,13 @@ function SectionHeading({
   action?: React.ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#eaecf0] bg-[#fbfaf6]/60 px-5 py-4">
+    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[#e6ebf0] bg-[#f7f9fb]/60 px-5 py-4">
       <div className="flex min-w-0 items-start gap-3">
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[#e4e7ec] bg-white text-[#14283d] shadow-sm">
+        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl border border-[#e3e8ee] bg-white text-[#0f2233] shadow-sm">
           <Icon className="h-4 w-4" />
         </span>
         <div className="min-w-0">
-          <h3 className="text-sm font-extrabold tracking-tight text-[#14283d]">{title}</h3>
+          <h3 className="text-sm font-extrabold tracking-tight text-[#0f2233]">{title}</h3>
           <p className="mt-0.5 text-[11px] leading-5 text-slate-500">{description}</p>
         </div>
       </div>
@@ -484,7 +484,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
 
   return (
     <div className="space-y-6">
-      <div className="overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#14283d] text-white shadow-[0_20px_50px_-36px_rgba(20,40,61,0.8)]">
+      <div className="overflow-hidden rounded-2xl border border-[#e3e8ee] bg-[#0f2233] text-white shadow-[0_20px_50px_-36px_rgba(15,34,51,0.8)]">
         <div className="relative p-5 sm:p-6">
           <div
             className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-forge-500/20 blur-3xl"
@@ -608,7 +608,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
               <Loader2 className="h-4 w-4 animate-spin" /> 正在读取机位绑定...
             </div>
           ) : boundEntries.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#d0d5dd] bg-[#fbfaf6]/60 px-6 py-10 text-center">
+            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-[#ccd5df] bg-[#f7f9fb]/60 px-6 py-10 text-center">
               <Globe2 className="h-6 w-6 text-slate-300" />
               <p className="mt-3 text-sm font-bold text-slate-600">尚无机位锁定记录</p>
               <p className="mt-1 max-w-md text-xs leading-5 text-slate-400">
@@ -618,21 +618,21 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
               </p>
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl border border-[#e4e7ec]">
-              <div className="hidden grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto_auto] gap-3 border-b border-[#eaecf0] bg-[#f9fafb] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 sm:grid">
+            <div className="overflow-hidden rounded-xl border border-[#e3e8ee]">
+              <div className="hidden grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto_auto] gap-3 border-b border-[#e6ebf0] bg-[#f7f9fb] px-4 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400 sm:grid">
                 <span>考生</span>
                 <span>锁定 IP</span>
                 <span>状态</span>
                 <span className="text-right">操作</span>
               </div>
-              <div className="divide-y divide-[#eaecf0]">
+              <div className="divide-y divide-[#e6ebf0]">
                 {boundEntries.map(({ userId, user, ip }) => (
                   <div
                     key={userId}
                     className="grid gap-2 px-4 py-3 text-xs sm:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_auto_auto] sm:items-center sm:gap-3"
                   >
                     <div className="min-w-0">
-                      <p className="truncate font-bold text-[#14283d]">
+                      <p className="truncate font-bold text-[#0f2233]">
                         {user?.name || '未知考生'}
                       </p>
                       <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
@@ -680,7 +680,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
           />
           <CardContent className="p-5">
             <form onSubmit={handleSaveWindow} className="space-y-4">
-              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#e4e7ec] bg-[#fbfaf6]/60 p-3.5">
+              <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[#e3e8ee] bg-[#f7f9fb]/60 p-3.5">
                 <input
                   type="checkbox"
                   checked={windowForm.windowEnabled}
@@ -690,7 +690,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
                       windowEnabled: event.target.checked,
                     }))
                   }
-                  className="mt-0.5 h-4 w-4 rounded border-[#d0d5dd] accent-forge-700"
+                  className="mt-0.5 h-4 w-4 rounded border-[#ccd5df] accent-forge-700"
                 />
                 <span>
                   <span className="block text-xs font-bold text-slate-700">
@@ -825,7 +825,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
                     key={minutes}
                     type="button"
                     onClick={() => setExtensionMinutes(String(minutes))}
-                    className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 transition hover:border-forge-300 hover:text-forge-700"
+                    className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 text-[11px] font-bold text-slate-500 transition hover:border-forge-300 hover:text-forge-700"
                   >
                     +{minutes} 分钟
                   </button>
@@ -833,8 +833,8 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
               </div>
             </form>
 
-            <div className="rounded-xl border border-[#e4e7ec]">
-              <div className="border-b border-[#eaecf0] bg-[#f9fafb] px-3.5 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
+            <div className="rounded-xl border border-[#e3e8ee]">
+              <div className="border-b border-[#e6ebf0] bg-[#f7f9fb] px-3.5 py-2.5 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-400">
                 当前加时名单
               </div>
               {extensionEntries.length === 0 ? (
@@ -842,14 +842,14 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
                   暂无单独加时考生
                 </p>
               ) : (
-                <div className="max-h-52 divide-y divide-[#eaecf0] overflow-y-auto scrollbar-slim">
+                <div className="max-h-52 divide-y divide-[#e6ebf0] overflow-y-auto scrollbar-slim">
                   {extensionEntries.map(({ userId, user, minutes }) => (
                     <div
                       key={userId}
                       className="flex items-center justify-between gap-3 px-3.5 py-3"
                     >
                       <div className="min-w-0">
-                        <p className="truncate text-xs font-bold text-[#14283d]">
+                        <p className="truncate text-xs font-bold text-[#0f2233]">
                           {user?.name || userId}
                         </p>
                         <p className="mt-0.5 text-[10px] text-slate-400">
@@ -911,7 +911,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
               </div>
             </div>
 
-            <div className="border-t border-[#eaecf0] pt-4">
+            <div className="border-t border-[#e6ebf0] pt-4">
               <Field
                 label="试卷包 Zip 解锁口令"
                 hint={
@@ -1048,7 +1048,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
               </Button>
             </form>
 
-            <div className="border-t border-[#eaecf0] pt-4">
+            <div className="border-t border-[#e6ebf0] pt-4">
               <div className="mb-2.5 flex items-center justify-between">
                 <p className="text-xs font-bold text-slate-600">最近广播</p>
                 <Badge variant="default">{messages.length} 条</Badge>
@@ -1062,7 +1062,7 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
                   <Loader2 className="h-3.5 w-3.5 animate-spin" /> 正在读取广播...
                 </div>
               ) : sortedMessages.length === 0 ? (
-                <p className="rounded-xl border border-dashed border-[#d0d5dd] px-4 py-7 text-center text-xs text-slate-400">
+                <p className="rounded-xl border border-dashed border-[#ccd5df] px-4 py-7 text-center text-xs text-slate-400">
                   还没有下发过广播
                 </p>
               ) : (
@@ -1074,14 +1074,14 @@ export const TeacherSecurityPanel: React.FC<TeacherSecurityPanelProps> = ({
                         ? 'border-rose-200 bg-rose-50/70'
                         : message.level === 'warning'
                           ? 'border-amber-200 bg-amber-50/60'
-                          : 'border-[#e4e7ec] bg-[#fbfaf6]'
+                          : 'border-[#e3e8ee] bg-[#f7f9fb]'
                     return (
                       <div
                         key={message.id}
                         className={`rounded-xl border px-3.5 py-3 ${levelStyle}`}
                       >
                         <div className="flex items-start justify-between gap-2">
-                          <p className="min-w-0 text-xs font-bold text-[#14283d]">
+                          <p className="min-w-0 text-xs font-bold text-[#0f2233]">
                             {message.title || '无标题广播'}
                           </p>
                           <Badge

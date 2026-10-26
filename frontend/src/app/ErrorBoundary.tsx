@@ -22,11 +22,11 @@ export class ErrorBoundary extends React.Component<React.PropsWithChildren, Stat
     if (!this.state.failed) return this.props.children
     return (
       <main className="grid min-h-[70vh] place-items-center px-4 py-12">
-        <section className="w-full max-w-xl rounded-3xl border border-rose-200 bg-[#fffefa] p-7 text-center shadow-[0_24px_60px_-38px_rgba(20,40,61,0.45)]">
+        <section className="w-full max-w-xl rounded-3xl border border-rose-200 bg-[#ffffff] p-7 text-center shadow-[0_24px_60px_-38px_rgba(15,34,51,0.45)]">
           <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl bg-rose-50 text-rose-700">
             <AlertTriangle className="h-7 w-7" />
           </div>
-          <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-[#14283d]">
+          <h1 className="mt-5 text-2xl font-extrabold tracking-tight text-[#0f2233]">
             页面遇到意外错误
           </h1>
           <p className="mt-2 text-sm leading-6 text-slate-500">

@@ -3,22 +3,26 @@ import { clsx } from 'clsx'
 import { twMerge } from 'tailwind-merge'
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: 'primary' | 'secondary' | 'outline' | 'danger' | 'ghost' | 'success'
+  /** accent 只给一屏内唯一的主动作（进入考场 / 提交答题卡 / 新建比赛）；
+      其余操作一律 primary（墨色）或更轻的变体，橙色不是装饰是信号。 */
+  variant?: 'primary' | 'accent' | 'secondary' | 'outline' | 'danger' | 'ghost' | 'success'
   size?: 'sm' | 'md' | 'lg' | 'icon'
   loading?: boolean
 }
 
 const base =
-  'inline-flex select-none items-center justify-center whitespace-nowrap rounded-xl font-semibold transition-[background-color,color,border-color,box-shadow,transform] duration-150 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-forge-700/15 disabled:pointer-events-none disabled:opacity-50 active:translate-y-px'
+  'inline-flex select-none items-center justify-center whitespace-nowrap rounded-[10px] font-semibold transition-[background-color,color,border-color,box-shadow,transform] duration-150 ease-[cubic-bezier(0.25,0,0,1)] focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-forge-700/15 disabled:pointer-events-none disabled:opacity-50 active:scale-[0.985]'
 
 const variants = {
   primary:
-    'bg-forge-700 text-white shadow-[0_1px_2px_rgba(16,24,40,0.08),0_8px_18px_-10px_rgba(194,65,12,0.65)] hover:bg-forge-800',
+    'bg-ink text-white shadow-[0_1px_2px_rgba(19,28,43,0.10)] hover:bg-[#0f2233]',
+  accent:
+    'bg-forge-700 text-white shadow-[0_1px_2px_rgba(19,28,43,0.10),0_8px_18px_-10px_rgba(194,65,12,0.55)] hover:bg-forge-800',
   secondary: 'bg-navy-50 text-navy-900 hover:bg-navy-100',
   outline:
-    'border border-[#d0d5dd] bg-white text-slate-700 shadow-[0_1px_1px_rgba(16,24,40,0.03)] hover:border-[#b8c0cc] hover:bg-slate-50',
+    'border border-[#ccd5df] bg-white text-slate-700 shadow-[0_1px_1px_rgba(19,28,43,0.03)] hover:border-[#aab6c2] hover:bg-slate-50',
   danger: 'bg-[#b42318] text-white shadow-sm hover:bg-[#912018]',
-  success: 'bg-[#087443] text-white shadow-sm hover:bg-[#075c37]',
+  success: 'bg-[#0e7a5f] text-white shadow-sm hover:bg-[#0a614c]',
   ghost: 'text-slate-600 hover:bg-slate-100 hover:text-slate-900',
 }
 

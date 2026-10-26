@@ -285,7 +285,7 @@ export function HenanWorkspace() {
   return (
     <div className="space-y-5">
       {/* 比赛头卡：名称 + 阶段 + 时间窗 + 倒计时 + 进度条 */}
-      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e4e7ec] bg-[#14283d] px-6 py-7 text-white shadow-[0_24px_60px_-38px_rgba(20,40,61,0.55)] sm:px-9">
+      <section className="relative overflow-hidden rounded-[1.75rem] border border-[#e3e8ee] bg-[#0f2233] px-6 py-7 text-white shadow-[0_24px_60px_-38px_rgba(15,34,51,0.55)] sm:px-9">
         <div className="absolute inset-0 forge-grid opacity-[0.12]" aria-hidden="true" />
         <div className="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="min-w-0">
@@ -381,14 +381,14 @@ export function HenanWorkspace() {
         <section className="app-surface rounded-2xl p-5" data-testid="henan-scores">
           <div className="flex flex-wrap items-center gap-3">
             <Trophy className="h-5 w-5 text-amber-500" />
-            <h2 className="text-sm font-bold text-[#14283d]">比赛成绩</h2>
+            <h2 className="text-sm font-bold text-[#0f2233]">比赛成绩</h2>
             <Badge variant="accent">成绩已发布</Badge>
             <span className="ml-auto flex items-center gap-4">
               <span className="flex items-center gap-1.5 text-xs font-bold text-slate-500">
                 <Award className="h-3.5 w-3.5 text-teal-700" />
                 总排名 第 {score.rank} 名
               </span>
-              <span className="font-mono text-2xl font-bold text-[#14283d]">
+              <span className="font-mono text-2xl font-bold text-[#0f2233]">
                 {totalScore}
                 <span className="text-sm font-medium text-slate-400"> / {totalPossible}</span>
               </span>
@@ -399,15 +399,15 @@ export function HenanWorkspace() {
             {Object.entries(score.score).map(([name, item]) => {
               const open = scoreOpenProblem === name
               return (
-                <div key={name} className="overflow-hidden rounded-xl border border-[#e4e7ec]">
+                <div key={name} className="overflow-hidden rounded-xl border border-[#e3e8ee]">
                   <button
                     type="button"
                     onClick={() => setScoreOpenProblem(open ? null : name)}
                     aria-expanded={open}
-                    className="flex w-full items-center gap-3 bg-[#fbfaf6] px-4 py-3 text-left transition hover:bg-[#f5f2e9]"
+                    className="flex w-full items-center gap-3 bg-[#f7f9fb] px-4 py-3 text-left transition hover:bg-[#f0f4f8]"
                   >
                     <FileCode2 className="h-4 w-4 text-forge-700" />
-                    <span className="font-mono text-sm font-bold text-[#14283d]">{name}</span>
+                    <span className="font-mono text-sm font-bold text-[#0f2233]">{name}</span>
                     <Badge variant={item.score === item.totalScore ? 'success' : item.score > 0 ? 'warning' : 'danger'}>
                       {item.score} / {item.totalScore}
                     </Badge>
@@ -418,13 +418,13 @@ export function HenanWorkspace() {
                     <span className="ml-auto text-xs font-bold text-slate-400">{open ? '收起' : '评测详情'}</span>
                   </button>
                   {open && (
-                    <div className="border-t border-[#e4e7ec] bg-white px-4 py-3">
+                    <div className="border-t border-[#e3e8ee] bg-white px-4 py-3">
                       {item.cases && item.cases.length > 0 ? (
                         <ul className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
                           {item.cases.map((testCase) => (
                             <li
                               key={testCase.index}
-                              className="flex items-center gap-2 rounded-lg bg-[#fbfaf6] px-2.5 py-1.5 font-mono text-[11px]"
+                              className="flex items-center gap-2 rounded-lg bg-[#f7f9fb] px-2.5 py-1.5 font-mono text-[11px]"
                             >
                               <span className="text-slate-400">#{testCase.index + 1}</span>
                               <span
@@ -457,7 +457,7 @@ export function HenanWorkspace() {
 
       {/* 开考前 / 未配置 */}
       {(phase === 'before' || phase === 'waiting') && (
-        <div className="flex flex-col items-center gap-3 rounded-2xl border border-[#e4e7ec] bg-white px-6 py-14 text-center">
+        <div className="flex flex-col items-center gap-3 rounded-2xl border border-[#e3e8ee] bg-white px-6 py-14 text-center">
           <Clock3 className="h-8 w-8 text-slate-300" />
           <p className="text-base font-bold text-slate-700">
             {phase === 'waiting' ? '等待管理员配置' : '比赛尚未开始'}
@@ -475,7 +475,7 @@ export function HenanWorkspace() {
         <div className="grid gap-5 xl:grid-cols-[1fr_340px]">
           <section className="space-y-3" aria-label="题目提交">
             <div className="flex flex-wrap items-center gap-3">
-              <h2 className="text-sm font-bold text-[#14283d]">题目提交</h2>
+              <h2 className="text-sm font-bold text-[#0f2233]">题目提交</h2>
               <span className="text-xs text-slate-400">以每道题最新一次提交作为最终代码</span>
               <span className="ml-auto flex items-center gap-2">
                 {confirmed ? (
@@ -492,7 +492,7 @@ export function HenanWorkspace() {
               </span>
             </div>
             {problems.length === 0 && (
-              <div className="rounded-2xl border border-[#e4e7ec] bg-white px-6 py-10 text-center text-sm text-slate-400">
+              <div className="rounded-2xl border border-[#e3e8ee] bg-white px-6 py-10 text-center text-sm text-slate-400">
                 管理员尚未发布题目
               </div>
             )}
@@ -506,15 +506,15 @@ export function HenanWorkspace() {
                   data-problem={problem.name}
                 >
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#14283d] font-mono text-xs font-bold text-white">
+                    <span className="grid h-9 w-9 place-items-center rounded-xl bg-[#0f2233] font-mono text-xs font-bold text-white">
                       {problem.displayName.slice(0, 2).toUpperCase()}
                     </span>
                     <div className="min-w-0">
-                      <p className="font-mono text-sm font-bold text-[#14283d]">{problem.displayName}</p>
+                      <p className="font-mono text-sm font-bold text-[#0f2233]">{problem.displayName}</p>
                       <p className="mt-0.5 text-[11px] text-slate-400">
-                        题目英文名 <code className="rounded bg-[#f1f0ea] px-1 py-0.5 font-mono">{problem.name}</code>
+                        题目英文名 <code className="rounded bg-[#eef2f6] px-1 py-0.5 font-mono">{problem.name}</code>
                         ，提交文件必须为{' '}
-                        <code className="rounded bg-[#f1f0ea] px-1 py-0.5 font-mono">{problem.name}.cpp</code>
+                        <code className="rounded bg-[#eef2f6] px-1 py-0.5 font-mono">{problem.name}.cpp</code>
                       </p>
                     </div>
                     <span className="ml-auto flex items-center gap-2">
@@ -539,8 +539,8 @@ export function HenanWorkspace() {
                       )}
                     </span>
                   </div>
-                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[#eef0f3] pt-3">
-                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-[#e4e7ec] bg-white px-4 text-sm font-bold text-slate-600 transition hover:border-[#d0d5dd] hover:text-slate-900">
+                  <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-[#e8edf2] pt-3">
+                    <label className="inline-flex h-10 cursor-pointer items-center gap-2 rounded-xl border border-[#e3e8ee] bg-white px-4 text-sm font-bold text-slate-600 transition hover:border-[#ccd5df] hover:text-slate-900">
                       <FileCode2 className="h-4 w-4" />
                       选择 {problem.name}.cpp
                       <input
@@ -580,7 +580,7 @@ export function HenanWorkspace() {
           {/* 侧栏：附件 + 最终确认 */}
           <div className="space-y-5">
             <section className="app-surface rounded-2xl p-5" aria-label="比赛附件">
-              <h2 className="flex items-center gap-2 text-sm font-bold text-[#14283d]">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-[#0f2233]">
                 <Paperclip className="h-4 w-4 text-forge-700" />
                 比赛附件
               </h2>
@@ -594,7 +594,7 @@ export function HenanWorkspace() {
                     key={file.name}
                     href={file.url}
                     download
-                    className="flex items-center gap-2 rounded-xl border border-[#e4e7ec] bg-[#fbfaf6] px-3 py-2 text-xs transition hover:border-forge-300"
+                    className="flex items-center gap-2 rounded-xl border border-[#e3e8ee] bg-[#f7f9fb] px-3 py-2 text-xs transition hover:border-forge-300"
                   >
                     <Download className="h-3.5 w-3.5 text-forge-700" />
                     <span className="min-w-0 flex-1 truncate font-semibold text-slate-700">{file.name}</span>
@@ -605,14 +605,14 @@ export function HenanWorkspace() {
             </section>
 
             <section className="app-surface rounded-2xl border-amber-200/70 p-5" aria-label="最终确认">
-              <h2 className="flex items-center gap-2 text-sm font-bold text-[#14283d]">
+              <h2 className="flex items-center gap-2 text-sm font-bold text-[#0f2233]">
                 <Lock className="h-4 w-4 text-amber-600" />
                 最终确认
               </h2>
               <p className="mt-1 text-[11px] leading-5 text-slate-400">确认后将无法继续更新任何题目</p>
-              <div className="mt-3 flex items-center justify-between rounded-xl bg-[#fbfaf6] px-3 py-2.5 text-xs font-semibold text-slate-600">
+              <div className="mt-3 flex items-center justify-between rounded-xl bg-[#f7f9fb] px-3 py-2.5 text-xs font-semibold text-slate-600">
                 已提交题目
-                <span className="font-mono text-base font-bold text-[#14283d]">
+                <span className="font-mono text-base font-bold text-[#0f2233]">
                   {submittedCount} / {totalCount}
                 </span>
               </div>
@@ -659,17 +659,17 @@ export function HenanWorkspace() {
         {codeProblem?.record ? (
           <>
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+              <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
                 文件 <b className="font-mono">{codeProblem.record.filename}</b>
               </span>
-              <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+              <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
                 提交于 <b className="font-mono">{fmtClock(codeProblem.record.submittedAt)}</b>
               </span>
-              <span className="rounded-lg border border-[#e4e7ec] bg-white px-2.5 py-1 font-semibold">
+              <span className="rounded-lg border border-[#e3e8ee] bg-white px-2.5 py-1 font-semibold">
                 已提交 <b className="font-mono">{codeProblem.record.submitCount}</b> 次
               </span>
             </div>
-            <pre className="mt-3 max-h-[55vh] overflow-auto rounded-xl bg-[#14283d] p-4 font-mono text-xs leading-5 text-slate-100">
+            <pre className="mt-3 max-h-[55vh] overflow-auto rounded-xl bg-[#0f2233] p-4 font-mono text-xs leading-5 text-slate-100">
               {codeProblem.record.code}
             </pre>
           </>
@@ -699,7 +699,7 @@ export function HenanWorkspace() {
         <p className="text-sm leading-6 text-slate-600">
           确认后将不能再次选择或提交代码，请检查所有题目均已提交正确文件。
         </p>
-        <p className="mt-3 rounded-xl bg-[#fbfaf6] px-3 py-2.5 text-xs font-semibold text-slate-600">
+        <p className="mt-3 rounded-xl bg-[#f7f9fb] px-3 py-2.5 text-xs font-semibold text-slate-600">
           已提交题目 {submittedCount} / {totalCount}
         </p>
       </Dialog>

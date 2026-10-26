@@ -336,7 +336,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
           <FileQuestion className="h-6 w-6" />
         </div>
         <div>
-          <h2 className="text-lg font-extrabold text-[#14283d]">答题卡尚未配置</h2>
+          <h2 className="text-lg font-extrabold text-[#0f2233]">答题卡尚未配置</h2>
           <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
             监考教师还没有为这道题录入客观题。请刷新题目，或举手联系监考教师。
           </p>
@@ -370,7 +370,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
             </div>
           </div>
         )}
-        <header className="relative overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#fffefa] p-5 shadow-[0_1px_2px_rgba(16,24,40,0.04)] sm:p-6">
+        <header className="relative overflow-hidden rounded-2xl border border-[#e3e8ee] bg-[#ffffff] p-5 shadow-[0_1px_2px_rgba(19,28,43,0.04)] sm:p-6">
           <div
             className="pointer-events-none absolute -right-14 -top-20 h-52 w-52 rounded-full bg-forge-100/70 blur-3xl"
             aria-hidden="true"
@@ -387,25 +387,25 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                   </Badge>
                 )}
               </div>
-              <h1 className="mt-3 text-2xl font-black tracking-[-0.03em] text-[#14283d] sm:text-3xl">
+              <h1 className="mt-3 text-2xl font-black tracking-[-0.03em] text-[#0f2233] sm:text-3xl">
                 {problem.title}
               </h1>
               <p className="mt-2 text-xs leading-6 text-slate-500">
                 共 {questions.length} 题，满分 {totalScore} 分。选择会在本机自动保存，交卷后立即判分。
               </p>
             </div>
-            <div className="rounded-2xl border border-[#eaecf0] bg-[#fbfaf6] px-4 py-3 text-right">
+            <div className="rounded-2xl border border-[#e6ebf0] bg-[#f7f9fb] px-4 py-3 text-right">
               <p className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">
                 作答进度
               </p>
-              <p className="mt-1 font-mono text-xl font-black text-[#14283d]">
+              <p className="mt-1 font-mono text-xl font-black text-[#0f2233]">
                 {answeredCount}
                 <span className="text-sm font-bold text-slate-400"> / {questions.length}</span>
               </p>
             </div>
           </div>
           {problem.statement && (
-            <div className="relative mt-5 border-t border-[#eaecf0] pt-4">
+            <div className="relative mt-5 border-t border-[#e6ebf0] pt-4">
               <MarkdownView source={problem.statement} className="text-[13px] leading-6" />
             </div>
           )}
@@ -445,14 +445,14 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                 id={`choice-question-${question.id}`}
                 tabIndex={-1}
                 aria-labelledby={`choice-question-title-${question.id}`}
-                className={`scroll-mt-28 rounded-2xl border bg-[#fffefa] p-5 shadow-[0_1px_2px_rgba(16,24,40,0.035)] transition sm:p-6 ${
+                className={`scroll-mt-28 rounded-2xl border bg-[#ffffff] p-5 shadow-[0_1px_2px_rgba(19,28,43,0.035)] transition sm:p-6 ${
                   correct
                     ? 'border-emerald-300 ring-1 ring-emerald-100'
                     : wrong
                       ? 'border-rose-300 ring-1 ring-rose-100'
                       : activeQuestion === question.id
                         ? 'border-forge-300 ring-4 ring-forge-700/5'
-                        : 'border-[#e4e7ec] hover:border-[#d0d5dd]'
+                        : 'border-[#e3e8ee] hover:border-[#ccd5df]'
                 }`}
                 onFocus={() => setActiveQuestion(question.id)}
               >
@@ -464,7 +464,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                           ? 'bg-emerald-100 text-emerald-800'
                           : wrong
                             ? 'bg-rose-100 text-rose-800'
-                            : 'bg-[#14283d] text-white'
+                            : 'bg-[#0f2233] text-white'
                       }`}
                     >
                       {String(index + 1).padStart(2, '0')}
@@ -473,7 +473,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                       <div className="flex flex-wrap items-center gap-2">
                         <h2
                           id={`choice-question-title-${question.id}`}
-                          className="text-sm font-extrabold text-[#14283d]"
+                          className="text-sm font-extrabold text-[#0f2233]"
                         >
                           第 {index + 1} 题
                         </h2>
@@ -522,7 +522,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                         className={`group flex min-h-12 w-full items-center gap-3 rounded-xl border px-3.5 py-3 text-left text-[13px] font-semibold leading-6 transition focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-forge-700/15 disabled:cursor-not-allowed disabled:opacity-75 ${
                           checked
                             ? 'border-forge-600 bg-forge-50 text-forge-950 shadow-[inset_0_0_0_1px_rgba(194,65,12,0.12)]'
-                            : 'border-[#e4e7ec] bg-white text-slate-700 hover:border-forge-300 hover:bg-[#fffaf5]'
+                            : 'border-[#e3e8ee] bg-white text-slate-700 hover:border-forge-300 hover:bg-[#fff7ed]'
                         }`}
                       >
                         <span
@@ -531,7 +531,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                           } ${
                             checked
                               ? 'border-forge-600 bg-forge-600 text-white'
-                              : 'border-[#d0d5dd] bg-[#fbfaf6] text-slate-500 group-hover:border-forge-300'
+                              : 'border-[#ccd5df] bg-[#f7f9fb] text-slate-500 group-hover:border-forge-300'
                           }`}
                         >
                           {checked ? <Check className="h-3.5 w-3.5" /> : option.key}
@@ -567,14 +567,11 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
       </main>
 
       <aside className="min-w-0 xl:sticky xl:top-24 xl:self-start">
-        <div className="overflow-hidden rounded-2xl border border-[#e4e7ec] bg-[#fffefa] shadow-[0_20px_50px_-36px_rgba(16,24,40,0.4)]">
-          <div className="border-b border-[#eaecf0] bg-[#14283d] p-5 text-white">
+        <div className="overflow-hidden rounded-2xl border border-[#e3e8ee] bg-[#ffffff] shadow-[0_20px_50px_-36px_rgba(19,28,43,0.4)]">
+          <div className="border-b border-[#e6ebf0] bg-[#0f2233] p-5 text-white">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-white/60">
-                  Answer sheet
-                </p>
-                <h2 className="mt-1 text-base font-extrabold">答题卡</h2>
+                <h2 className="text-base font-extrabold">答题卡</h2>
               </div>
               <ClipboardCheck className="h-5 w-5 text-forge-200" />
             </div>
@@ -628,7 +625,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                             ? 'border-rose-500 bg-rose-500 text-white'
                             : answered
                               ? 'border-forge-600 bg-forge-600 text-white'
-                              : 'border-[#e4e7ec] bg-white text-slate-400 hover:border-forge-300 hover:text-forge-700'
+                              : 'border-[#e3e8ee] bg-white text-slate-400 hover:border-forge-300 hover:text-forge-700'
                       } ${
                         activeQuestion === question.id
                           ? 'ring-2 ring-forge-700/25 ring-offset-1'
@@ -646,7 +643,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                   已答
                 </span>
                 <span className="flex items-center gap-1">
-                  <i className="h-2 w-2 rounded-sm border border-[#d0d5dd] bg-white" />
+                  <i className="h-2 w-2 rounded-sm border border-[#ccd5df] bg-white" />
                   未答
                 </span>
                 {lastSubmission && (
@@ -665,7 +662,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
             </div>
 
             {lastSubmission && (
-              <div className="rounded-xl border border-[#e4e7ec] bg-[#fbfaf6] p-3.5">
+              <div className="rounded-xl border border-[#e3e8ee] bg-[#f7f9fb] p-3.5">
                 <div className="flex items-center justify-between gap-2">
                   <p className="text-xs font-bold text-slate-700">最近一次判分</p>
                   <SubmissionResultBadge submission={lastSubmission} />
@@ -679,7 +676,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                   </div>
                   <div className="rounded-lg border border-white bg-white px-2 py-2">
                     <dt className="text-[10px] text-slate-400">总分</dt>
-                    <dd className="mt-0.5 font-mono text-base font-black text-[#14283d]">
+                    <dd className="mt-0.5 font-mono text-base font-black text-[#0f2233]">
                       {lastSubmission.score}
                       <span className="text-[10px] text-slate-400"> / {totalScore}</span>
                     </dd>
@@ -706,6 +703,7 @@ export const GESPQuizView: React.FC<GESPQuizViewProps> = ({
                 data-testid="submit-choice-sheet"
                 type="button"
                 size="lg"
+                variant="accent"
                 className="w-full"
                 loading={submitting}
                 onClick={handleSubmit}
