@@ -37,6 +37,8 @@ jobs:
           # 这本身就是有价值的观测输出,用 || echo 吞掉退出码。
           g++ --version | head -1
           which prlimit && prlimit --version | head -1 || echo "NO prlimit"
+          command -v bwrap && bwrap --version || echo "NO bwrap"
+          sysctl kernel.apparmor_restrict_unprivileged_userns 2>/dev/null || echo "no userns restriction sysctl"
           nproc; free -m | head -2
           g++ -O2 -std=c++14 -o /tmp/par.exe internal/judge/testdata/csp-day1/solutions/parallel.cpp
           echo "--- direct run:"; /tmp/par.exe || echo "exit=$?"

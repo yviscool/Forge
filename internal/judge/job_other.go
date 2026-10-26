@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 )
 
 var toolOnce sync.Once
@@ -25,20 +26,41 @@ func toolPaths() (prlimit, bwrap string) {
 var bwrapProbeOnce sync.Once
 var bwrapUsable bool
 
-// bwrapAvailable 探测 bwrap 是否真的可用：Ubuntu 23.10+ 默认限制非特权
-// user namespaces（AppArmor），bwrap --unshare-all 会被拒。探测失败时
-// 退回 prlimit-only 资源墙（对标 LemonLime "bwrap 缺失 → 不强化" 的降级），
-// 决不能让沙箱封装本身变成选手程序的 RE。
+// bwrapAvailable 探测 bwrap 是否真的可用于判题：两个条件都必须成立——
+//  1. --unshare-all 能建命名空间（Ubuntu 23.10+ 默认限制非特权 user
+//     namespaces，AppArmor 会拒绝）；
+//  2. CPU 计量能穿透包装层：判题的软时限按 wall 或 user-CPU 双口径判定
+//     （CCF 口径），沙箱内烧 CPU 而 wait4 的 utime 不涨的内核上，包装层
+//     会让所有 CPU 判定失明（ubuntu-26.04 实测 CpuMs 恒为 1ms）。
+//
+// 任一不满足都退回 prlimit-only 资源墙——沙箱封装本身决不能变成选手
+// 程序的 RE 或误判（对标 LemonLime "bwrap 缺失 → 不强化" 的降级）。
 func bwrapAvailable() bool {
 	toolPaths()
 	bwrapProbeOnce.Do(func() {
 		if bwrapPath == "" {
 			return
 		}
-		probe := exec.Command(bwrapPath, "--unshare-all", "--ro-bind", "/", "/", "--", "/bin/true")
-		bwrapUsable = probe.Run() == nil
+		probe := exec.Command(
+			bwrapPath, "--unshare-all", "--ro-bind", "/", "/", "--",
+			"/bin/sh", "-c", "i=0; while [ $i -lt 10000000 ]; do i=$((i+1)); done",
+		)
+		probe.Stdout, probe.Stderr = nil, nil
+		if err := probe.Run(); err != nil {
+			return
+		}
+		if ps := probe.ProcessState; ps != nil &&
+			ps.UserTime()+ps.SystemTime() >= 10*time.Millisecond {
+			bwrapUsable = true
+		}
 	})
 	return bwrapUsable
+}
+
+// bwrapSandboxActive 报告选手程序当前是否真的在 bwrap 沙箱内运行
+// （测试用：PID namespace 内的进程无法从外部按 PID 探测）。
+func bwrapSandboxActive() bool {
+	return bwrapAvailable()
 }
 
 // Unix 资源墙层级（对标 LemonLime processrunner_unix）：

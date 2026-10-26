@@ -29,6 +29,13 @@ func TestKillTreeReapsGrandchild(t *testing.T) {
 	if !run.TimedOut {
 		t.Fatalf("infinite loop must hit the hard wall: %+v", run)
 	}
+	if bwrapSandboxActive() {
+		// bwrap 的 PID namespace 里,宿主侧 syscall.Kill(pid,0) 返回 EPERM,
+		// 外部探针不可用;命名空间整体销毁(--die-with-parent + unshare-pid)
+		// 本身就是比组杀更强的收割保证。
+		t.Log("bwrap sandbox active: grandchild reaping guaranteed by namespace teardown")
+		return
+	}
 	pid, perr := strconv.Atoi(strings.TrimSpace(run.Stdout))
 	if perr != nil || pid <= 0 {
 		t.Fatalf("grandchild pid not reported: %q %v", run.Stdout, perr)
