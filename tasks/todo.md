@@ -199,3 +199,34 @@ go-windows / e2e(3 浏览器 axe)/ contract / security。
       解释型语言在 cgroup 下获得 RSS 口径的内存墙(修复 AS 墙误杀缺口)
 - [x] 测试:linux 探测不可用即跳过(零 CI 风险);可用时 OOM→MLE 断言 +
       正常判题不受扰
+
+# 阶段三第三轮:review 修正 + P1/P2 全量落地(2026-10-27 完成)
+
+## 第一批 review 修正
+- [x] cgroup 子组命名加原子序号(forge-<pid>-<seq>)——多 worker 并发撞名
+      会让 cgroup 墙只对第一个评测生效;并发互异断言测试
+- [x] runner cmd.WaitDelay=5s:选手退出但孤儿子进程握住 stdout 时 Wait
+      阻塞在管道排空(Unix 组杀/Windows Job 都排在 Wait 之后);pipeholder
+      fixture 回归(Windows 下 Job 单进程墙直接拦 spawn=RE,unix 下
+      WaitDelay 放行=AC,20s 上限断言)
+- [x] 沙箱进程 HideWindow(教师机 GUI 提交不闪窗)
+- [x] SPEC.md/AGENTS.md 过时安全表述刷新(三平台沙箱矩阵入文档)
+
+## 第二批 P1
+- [x] `forge doctor` 子命令:工具链/prlimit/bwrap(计量穿透)/cgroup 委任/
+      LowBox/编译缓存一键矩阵;readiness 与 doctor 共用探针集;
+      BwrapStatus/EnsureProbes 可观测化(失败原因带出)
+- [x] CI go matrix 扩 macos-latest:激活动理核 sysctl/ulimit 降级墙/
+      rusage 的 darwin 真实断言(重 corpus 留 linux/windows,clang 编
+      bits 头过慢);race 子集扩 judge 判定/交互/特判/fuzz
+- [x] go fuzz 四解析器:parseTestlibResult/parseLemonScore/tokenLineSeq
+      (domain)/SafeFileName;深 fuzz 实抓两案:
+      SafeFileName("..")→Join 逃父目录、SafeFileName("0:0:")→Windows
+      盘符相对路径/ADS 逃逸——补 ".." 特例、冒号、尾点空格、保留设备名
+      (CON/COM¹⁻⁹/LPT¹⁻⁹)五类拒绝;fuzz 不变式同步
+
+## 第三批 P2
+- [x] /metrics 增判题观测:forge_judge_verdict_cases_total{verdict}、
+      forge_judge_duration_{count,sum_ms};池 SetMetricsSink → main 注入
+      observability.RecordJudgeVerdicts(包级原子计数,池/HTTP 实例共享)
+- [x] docs/judge.md:三平台语义矩阵(资源墙/沙箱/判定口径/诊断/已证边界)

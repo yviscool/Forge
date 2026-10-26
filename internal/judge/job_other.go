@@ -27,8 +27,24 @@ func toolPaths() (prlimit, bwrap string) {
 var (
 	bwrapProbeOnce sync.Once
 	bwrapUsable    atomic.Bool
+	bwrapWhy       atomic.Value // string
 	bwrapProbeDone = make(chan struct{})
 )
+
+// BwrapStatus 返回 bwrap 沙箱状态(观测/doctor 用):
+// off:<原因> / probing / available。
+func BwrapStatus() string {
+	toolPaths()
+	select {
+	case <-bwrapProbeDone:
+		if bwrapUsable.Load() {
+			return "available"
+		}
+		return "off:" + bwrapWhy.Load().(string)
+	default:
+		return "probing"
+	}
+}
 
 // bwrapAvailable 探测 bwrap 是否真的可用于判题：两个条件都必须成立——
 //  1. --unshare-all 能建命名空间（Ubuntu 23.10+ 默认限制非特权 user
@@ -55,6 +71,7 @@ func bwrapAvailable() bool {
 
 func bwrapProbeBody() {
 	if bwrapPath == "" {
+		bwrapWhy.Store("bwrap not found")
 		return
 	}
 	probe := exec.Command(
@@ -63,11 +80,14 @@ func bwrapProbeBody() {
 	)
 	probe.Stdout, probe.Stderr = nil, nil
 	if err := probe.Run(); err != nil {
+		bwrapWhy.Store("probe run: " + err.Error())
 		return
 	}
 	if ps := probe.ProcessState; ps != nil &&
 		ps.UserTime()+ps.SystemTime() >= 10*time.Millisecond {
 		bwrapUsable.Store(true)
+	} else {
+		bwrapWhy.Store("cpu accounting does not pass through the wrapper")
 	}
 }
 

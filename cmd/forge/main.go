@@ -37,6 +37,13 @@ var (
 )
 
 func main() {
+	// `forge doctor`:评测基石探针矩阵一键诊断,独立于服务启动。
+	for _, arg := range os.Args[1:] {
+		if arg == "doctor" {
+			runDoctor()
+			return
+		}
+	}
 	// 桌面构建（-tags desktop）双击即桌面应用；--server 强制 headless。
 	// 服务构建反之，--desktop 显式开启桌面体验。
 	desktopMode := desktop.DefaultDesktopMode
@@ -143,6 +150,11 @@ func main() {
 		log.Error("invalid judge toolchain configuration", "err", err)
 		os.Exit(1)
 	}
+	_ = judge.ConfigureWinSandbox(cfg.WinSandbox) // 非法模式由 Validate 拒绝;doctor 需要探测就绪
+
+	if cfg.AutoJudge {
+		log.Info("windows judge sandbox", "status", judge.WinSandboxStatus())
+	}
 
 	// 自动评测 worker：Submit → 入队 → JudgeOne → JudgeCases 回写。
 	// 无测试点的题目跳过自动评测（保留教师手动判题）。
@@ -164,6 +176,7 @@ func main() {
 			compileCache = cc
 		}
 		judgePool = app.AutoJudgePool(svc, tc)
+		judgePool.SetMetricsSink(observability.RecordJudgeVerdicts)
 		judgePool.Start(workerCtx, cfg.JudgeWorkers)
 		defer judgePool.Wait()
 		srv.AddReadinessCheck("judge_workers", func(context.Context) error {
@@ -394,4 +407,19 @@ func pruneExpiredSessions(ctx context.Context, store ports.Store, log *slog.Logg
 			prune()
 		}
 	}
+}
+
+// runDoctor 执行 `forge doctor`:评测基石探针矩阵一键诊断,
+// 独立于服务启动(不建库、不开监听、不写数据目录)。
+func runDoctor() {
+	cfg := config.Load()
+	toolchainCfg, err := judge.ParseToolchainConfig(cfg.Toolchains)
+	if err != nil {
+		fmt.Printf("toolchain config: INVALID: %v\n", err)
+		toolchainCfg = judge.DefaultToolchainConfig()
+	}
+	_ = judge.ConfigureWinSandbox(cfg.WinSandbox)
+	judge.WaitForProbes(45 * time.Second)
+	fmt.Println("forge doctor — judge foundation probe matrix")
+	fmt.Println(judge.FormatDoctorRows(judge.DoctorChecks(toolchainCfg)))
 }

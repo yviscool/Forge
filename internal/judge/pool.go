@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"time"
 
 	"github.com/yviscool/forge/internal/domain"
 )
@@ -26,6 +27,8 @@ type Pool struct {
 	judge     func(context.Context, Request) (domain.JudgeOutcome, error)
 	report    ReportFunc
 	inhibitor *sleepInhibitor
+	// metricsSink 可选:每单评测后回传分点 verdict 计数与耗时(观测用)。
+	metricsSink func(verdicts map[string]int, durationMs int64)
 
 	mu      sync.Mutex
 	queue   chan Job
@@ -146,11 +149,17 @@ func (p *Pool) loop(ctx context.Context) {
 	}
 }
 
+// SetMetricsSink 注册评测观测回传(启动期调用一次)。
+func (p *Pool) SetMetricsSink(fn func(verdicts map[string]int, durationMs int64)) {
+	p.metricsSink = fn
+}
+
 func (p *Pool) do(ctx context.Context, j Job) {
 	defer p.release(j.SubID)
 	// 评测期间阻止系统休眠（Windows 实装；其余平台 no-op）。
 	p.inhibitor.acquire()
 	defer p.inhibitor.release()
+	started := time.Now()
 	oc, err := p.judge(ctx, j.Req)
 	if err != nil {
 		// 基础设施故障（临时目录/编译器崩溃等）不得误报学生 RE：
@@ -160,6 +169,13 @@ func (p *Pool) do(ctx context.Context, j Job) {
 			cases[i] = domain.CaseResult{CaseIndex: i, Verdict: domain.CaseSystemError}
 		}
 		oc = domain.JudgeOutcome{Cases: cases}
+	}
+	if p.metricsSink != nil {
+		verdicts := make(map[string]int, len(oc.Cases))
+		for _, c := range oc.Cases {
+			verdicts[string(c.Verdict)]++
+		}
+		p.metricsSink(verdicts, time.Since(started).Milliseconds())
 	}
 	if p.report != nil {
 		p.report(j.SubID, oc)

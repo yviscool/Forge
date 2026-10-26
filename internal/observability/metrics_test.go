@@ -69,3 +69,23 @@ func TestMetricsHandlerExportsCountersHistogramsAndInflight(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordJudgeVerdictsExposedViaMetrics(t *testing.T) {
+	RecordJudgeVerdicts(map[string]int{"AC": 3, "wa": 2}, 150)
+	RecordJudgeVerdicts(map[string]int{"AC": 1}, 50)
+
+	metrics := NewMetrics()
+	recorder := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	resp := recorder.Body.String()
+	for _, want := range []string{
+		`forge_judge_verdict_cases_total{verdict="ac"} 4`,
+		`forge_judge_verdict_cases_total{verdict="wa"} 2`,
+		"forge_judge_duration_count 2",
+		"forge_judge_duration_sum_ms 200",
+	} {
+		if !strings.Contains(resp, want) {
+			t.Fatalf("metrics missing %q\n%s", want, resp)
+		}
+	}
+}

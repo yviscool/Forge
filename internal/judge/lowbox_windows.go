@@ -107,7 +107,10 @@ func sandboxSetup(workdir string) (attr *syscall.SysProcAttr, envOverrides []str
 		return nil, nil, func() {}, nil
 	}
 	cleanup = func() { _ = windows.CloseHandle(windows.Handle(token)) }
-	attr = &syscall.SysProcAttr{Token: syscall.Token(token)}
+	attr = &syscall.SysProcAttr{
+		Token:      syscall.Token(token),
+		HideWindow: true, // 教师机上 GUI/弹窗类提交不得闪窗
+	}
 	// 容器读不到用户 %TEMP%,临时文件必须落在已授权的工作目录。
 	envOverrides = append(envOverrides,
 		"TMP="+workdir,

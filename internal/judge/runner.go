@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/yviscool/forge/internal/domain"
@@ -79,6 +80,10 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	cmd.Dir = workdir
 	cmd.Env = scrubEnv()
 	cmd.SysProcAttr = sysProcAttr()
+	// 孤儿管道死锁防线:选手退出但其子进程仍握住 stdout 时,Wait 会阻塞在
+	// 管道排空上(Unix 组杀/Windows Job 虽能收割,但都排在 Wait 之后)。
+	// WaitDelay 让 Wait 在进程退出后最多再等 5s,孤儿交给组杀/Job 清算。
+	cmd.WaitDelay = 5 * time.Second
 	// Windows 低权沙箱(LowBox 令牌 + 工作目录 ACL):可用则整体替换进程
 	// 属性并临时覆盖 TMP/TEMP 到工作目录;不可用(nil)按 Job-only 继续。
 	if attr, envOver, cleanup, err := sandboxSetup(workdir); err == nil && attr != nil {
@@ -176,7 +181,10 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 		return res, nil
 	}
 	if waitErr != nil {
-		if exitErr, ok := waitErr.(*exec.ExitError); ok {
+		if errors.Is(waitErr, exec.ErrWaitDelay) {
+			// WaitDelay 触发:进程已退出,仅孤儿进程仍持管道。结果有效,
+			// 退出码取已收割进程的(此处为 0/正常)。
+		} else if exitErr, ok := waitErr.(*exec.ExitError); ok {
 			res.ExitCode = exitErr.ExitCode()
 		} else {
 			return res, waitErr
@@ -262,13 +270,45 @@ func (w *cappedWriter) Write(p []byte) (int, error) {
 func (w *cappedWriter) String() string { return w.buf.String() }
 
 // SafeFileName 文件 IO 名净化：空用缺省，路径一律压平为 Base，杜绝逃逸。
+// Windows 语义的硬ening(判题产物最终落在教师机):
+//   - "."/".." 单独成段时 Join 会逃出工作目录;
+//   - 冒号是盘符相对路径("c:" 逃逸)与 NTFS ADS 分隔;
+//   - 尾点/尾空格会被 Win32 静默改写,改名比较与重读产生歧义;
+//   - CON/PRN/AUX/NUL/COM¹⁻⁹/LPT¹⁻⁹ 是保留设备名。
+//
+// 命中任一即落回缺省名。
 func SafeFileName(name, fallback string) string {
 	if name == "" {
 		return fallback
 	}
 	base := filepath.Base(name)
-	if base == "" || base == "." || base == string(filepath.Separator) {
+	if base == "" || base == "." || base == ".." || base == string(filepath.Separator) {
+		return fallback
+	}
+	if strings.ContainsRune(base, ':') {
+		return fallback
+	}
+	if base != strings.TrimRight(base, " .") {
+		return fallback
+	}
+	if reservedWindowsDeviceName(base) {
 		return fallback
 	}
 	return base
+}
+
+var windowsReservedDevices = map[string]bool{
+	"CON": true, "PRN": true, "AUX": true, "NUL": true,
+	"COM1": true, "COM2": true, "COM3": true, "COM4": true, "COM5": true,
+	"COM6": true, "COM7": true, "COM8": true, "COM9": true,
+	"LPT1": true, "LPT2": true, "LPT3": true, "LPT4": true, "LPT5": true,
+	"LPT6": true, "LPT7": true, "LPT8": true, "LPT9": true,
+}
+
+func reservedWindowsDeviceName(base string) bool {
+	stem := strings.ToUpper(base)
+	if i := strings.IndexByte(stem, '.'); i >= 0 {
+		stem = stem[:i]
+	}
+	return windowsReservedDevices[stem]
 }

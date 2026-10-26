@@ -90,3 +90,33 @@ func TestCgroupWallOOM(t *testing.T) {
 	_ = os.RemoveAll(filepath.Join(work, "main.exe"))
 	t.Fatal("cgroup OOM did not fire within 15s")
 }
+
+// TestCgroupWallConcurrentDistinct 并发创建必须拿到互异的子组
+// (旧命名 forge-<pid> 在多 worker 下撞名,后来的静默退回 prlimit-only)。
+func TestCgroupWallConcurrentDistinct(t *testing.T) {
+	requireCgroup(t)
+	const n = 4
+	dirs := make(chan string, n)
+	for i := 0; i < n; i++ {
+		go func() {
+			lim := tryCgroupWall(64, 1)
+			if lim == nil {
+				dirs <- "<nil>"
+				return
+			}
+			defer lim.Close()
+			dirs <- lim.dir
+		}()
+	}
+	seen := map[string]bool{}
+	for i := 0; i < n; i++ {
+		d := <-dirs
+		if d == "<nil>" {
+			t.Fatal("concurrent wall creation must not fall back")
+		}
+		if seen[d] {
+			t.Fatalf("duplicate cgroup dir %q", d)
+		}
+		seen[d] = true
+	}
+}

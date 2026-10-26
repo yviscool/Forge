@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 // cgroup v2 资源墙(探测降级):memory.max + pids.max + cgroup.kill。
@@ -26,6 +27,7 @@ var (
 	cgroupUsable    bool
 	cgroupBase      string // 本进程 cgroup 目录(子组创建点)
 	cgroupWhy       string // 不可用原因(观测用)
+	cgroupSeq       atomic.Uint64
 )
 
 func cgroupFallback(reason string) {
@@ -107,7 +109,10 @@ func tryCgroupWall(memMiB, maxProcs int) *cgroupLimiter {
 	if maxProcs <= 0 || !probeCgroup() {
 		return nil
 	}
-	dir := filepath.Join(cgroupBase, fmt.Sprintf("forge-%d", os.Getpid()))
+	// 子组名带原子序号:多 worker 并发评测时 Mkdir 撞名会让后来的静默
+	// 退回 prlimit-only(cgroup 墙在并发下只对第一个生效的缺陷)。
+	seq := cgroupSeq.Add(1)
+	dir := filepath.Join(cgroupBase, fmt.Sprintf("forge-%d-%d", os.Getpid(), seq))
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		return nil
 	}

@@ -38,6 +38,28 @@ type Metrics struct {
 	judgeEnqueueFailures atomic.Uint64
 }
 
+// 判题 verdict 计数与耗时(池 sink 写入,渲染读出;包级以便池与
+// HTTP server 各自持有实例时共享同一份计数)。
+var (
+	judgeVerdictCounters sync.Map // string(规范 verdict) -> *atomic.Uint64
+	judgeDurationCount   atomic.Uint64
+	judgeDurationSumMs   atomic.Uint64
+)
+
+// RecordJudgeVerdicts 记录一单评测的分点 verdict 计数与总耗时。
+// 并发安全;键为 CaseVerdict 原文(AC/WA/TLE/...)。
+func RecordJudgeVerdicts(verdicts map[string]int, durationMs int64) {
+	for verdict, n := range verdicts {
+		key := strings.ToLower(strings.TrimSpace(verdict))
+		v, _ := judgeVerdictCounters.LoadOrStore(key, &atomic.Uint64{})
+		v.(*atomic.Uint64).Add(uint64(n))
+	}
+	judgeDurationCount.Add(1)
+	if durationMs > 0 {
+		judgeDurationSumMs.Add(uint64(durationMs))
+	}
+}
+
 // RuntimeStats is a low-cardinality operational snapshot supplied by the
 // composition root. Callbacks must be cheap and concurrency-safe.
 type RuntimeStats struct {
@@ -215,6 +237,20 @@ func (m *Metrics) render() string {
 	body.WriteString("# HELP forge_judge_cache_misses_total Compile cache misses.\n")
 	body.WriteString("# TYPE forge_judge_cache_misses_total counter\n")
 	fmt.Fprintf(&body, "forge_judge_cache_misses_total %d\n", runtimeStats.JudgeCacheMisses)
+	judgeVerdictCounters.Range(func(key, value any) bool {
+		v := value.(*atomic.Uint64)
+		verdict := escapeLabel(key.(string))
+		body.WriteString("# HELP forge_judge_verdict_cases_total Judged cases by verdict.\n")
+		body.WriteString("# TYPE forge_judge_verdict_cases_total counter\n")
+		fmt.Fprintf(&body, "forge_judge_verdict_cases_total{verdict=%q} %d\n", verdict, v.Load())
+		return true
+	})
+	body.WriteString("# HELP forge_judge_duration_count Judge jobs completed.\n")
+	body.WriteString("# TYPE forge_judge_duration_count counter\n")
+	fmt.Fprintf(&body, "forge_judge_duration_count %d\n", judgeDurationCount.Load())
+	body.WriteString("# HELP forge_judge_duration_sum_ms Total judge job duration in ms.\n")
+	body.WriteString("# TYPE forge_judge_duration_sum_ms counter\n")
+	fmt.Fprintf(&body, "forge_judge_duration_sum_ms %d\n", judgeDurationSumMs.Load())
 	body.WriteString("# HELP forge_sse_subscribers Active server-sent event streams.\n")
 	body.WriteString("# TYPE forge_sse_subscribers gauge\n")
 	fmt.Fprintf(&body, "forge_sse_subscribers %d\n", runtimeStats.SSESubscriberCount)

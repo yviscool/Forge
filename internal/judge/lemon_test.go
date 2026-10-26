@@ -3,6 +3,7 @@ package judge
 import (
 	"context"
 	"os/exec"
+	"runtime"
 	"testing"
 	"time"
 
@@ -126,6 +127,42 @@ func TestForkbombContained(t *testing.T) {
 	assertVerdicts(t, "forkbomb", verdictsOf(got), []domain.CaseVerdict{domain.CaseRE})
 	if time.Since(start) > 8*time.Second {
 		t.Fatal("contained forkbomb must die fast, not by timeout")
+	}
+}
+
+// TestPipeHoldingChildDoesNotStall 父退子留(子进程握 stdout 睡 30s)必须
+// 在 WaitDelay 内返回,不得把判题拖到子进程睡醒(孤儿管道死锁回归)。
+func TestPipeHoldingChildDoesNotStall(t *testing.T) {
+	requireTool(t, "g++")
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	start := time.Now()
+	oc, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: loadCode(t, "pipeholder.cpp"),
+		Cases:   []CaseInput{{Input: "", Expected: ""}},
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 5000, MemoryMiB: 256},
+	})
+	got := oc.Cases
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.CompileMessage != "" {
+		t.Fatalf("pipeholder fixture must compile: %s", oc.CompileMessage)
+	}
+	switch runtime.GOOS {
+	case "windows":
+		// Job ActiveProcessLimit=1 直接拦住子进程 spawn(RE)——遏制即正确;
+		// "父退子留握管道"的状态在 Windows 单进程墙下不可达。
+		assertVerdicts(t, "pipeholder", verdictsOf(got), []domain.CaseVerdict{domain.CaseRE})
+	default:
+		// Unix:父正常退出、子握管道睡 30s——WaitDelay 必须 5s 内放行,
+		// 孤儿由组杀清算;不得把判题拖到子进程睡醒。
+		assertVerdicts(t, "pipeholder", verdictsOf(got), []domain.CaseVerdict{domain.CaseAC})
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Fatalf("orphan pipe must not stall judging (WaitDelay): %v", elapsed)
 	}
 }
 

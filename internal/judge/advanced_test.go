@@ -375,6 +375,7 @@ func TestSafeFileName(t *testing.T) {
 		{"../../etc/x", "dflt", "x"},
 		{"/abs/path", "dflt", "path"},
 		{".", "dflt", "dflt"},
+		{"..", "dflt", "dflt"},
 	} {
 		if got := SafeFileName(tc.in, tc.fb); got != tc.want {
 			t.Fatalf("SafeFileName(%q) = %q, want %q", tc.in, got, tc.want)

@@ -18,7 +18,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -66,7 +66,16 @@ jobs:
           GOOS=linux go vet ./...
           GOOS=darwin go vet ./...
       - name: test
-        run: go test ./...
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # macOS:激活动理核探测(sysctl)/ulimit 降级墙/rusage 峰值等
+            # darwin 路径;clang 编译 bits 头过慢,重 corpus 留在 linux/windows。
+            go test ./internal/domain/ ./internal/config/ ./internal/app/ ./internal/auth/ ./internal/realtime/ ./internal/adapters/store/... ./internal/transport/... ./internal/observability/ ./internal/i18n/ ./internal/pdf/ ./internal/platform/...
+            go test ./internal/judge/ -run 'TestDefaultWorkers|TestJudgeOneVerdictMapping|TestJudgeOneCompileError|TestSubtaskMapsEmpty|TestResolveIO|TestSafeFileName|TestPool|TestBuildRequest|TestCompileCache|TestFuzz|TestPerCaseLimits|TestCompareVerdict|TestNormalizeComparison|TestToolchainConfig'
+          else
+            go test ./...
+          fi
       - name: backup script tests
         if: runner.os == 'Linux'
         shell: bash
@@ -74,7 +83,7 @@ jobs:
       - name: race (fast packages)
         run: go test -race ./internal/domain/ ./internal/app/ ./internal/auth/ ./internal/realtime/ ./internal/adapters/store/...
       - name: race (judge concurrency subset; heavy corpus excluded for time)
-        run: go test -race ./internal/judge/ -run 'TestPool|TestCache|TestBuildRequest|TestSubtask|TestCompileCache|TestPerProblemRatio|TestDefaultWorkers'
+        run: go test -race ./internal/judge/ -run 'TestPool|TestCache|TestBuildRequest|TestSubtask|TestCompileCache|TestPerProblemRatio|TestDefaultWorkers|TestJudgeOneVerdict|TestInteraction|TestSpecialJudge|TestFuzz'
 
   frontend:
     runs-on: ubuntu-latest
