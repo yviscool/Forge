@@ -90,7 +90,9 @@ func RunInteraction(ctx context.Context, comp Compiler, inter InteractorSpec, so
 	solCmd.Dir = workdir
 	solCmd.Env = scrubEnv()
 	solCmd.SysProcAttr = sysProcAttr()
-	solCmd.WaitDelay = 5 * time.Second
+	// WaitDelay 只需盖过孤儿收割的调度延迟(与 runner.go 同口径):
+	// 放行时间必须远小于用例时限,否则会先撞 ctx 硬墙再被误判 TLE。
+	solCmd.WaitDelay = 500 * time.Millisecond
 	solCmd.Stdin = interR
 	solCmd.Stdout = solW
 	solErrCap := newCapped(1 << 20)
@@ -104,7 +106,7 @@ func RunInteraction(ctx context.Context, comp Compiler, inter InteractorSpec, so
 	interCmd.Dir = workdir
 	interCmd.Env = scrubEnv()
 	interCmd.SysProcAttr = sysProcAttr()
-	interCmd.WaitDelay = 5 * time.Second
+	interCmd.WaitDelay = 500 * time.Millisecond
 	interCmd.Stdin = solR
 	interCmd.Stdout = interW
 	interErrCap := newCapped(1 << 20)

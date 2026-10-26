@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 多解题正解：输出 [0,n] 内偶数。
 int main() {

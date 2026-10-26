@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 典型错：每次减最小非零数位（能结束，但步数偏多）。
 int main() {

@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 典型错：以为重复次数恒为一位数，多位数少算长度。
 int main() {

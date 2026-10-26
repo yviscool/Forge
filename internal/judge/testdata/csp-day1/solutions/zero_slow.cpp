@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 典型慢：DP 正确，但在每个 i 上叠加了随 n 增长的无用重算，
 // 常数爆炸，大数据必超时（答案正确）。

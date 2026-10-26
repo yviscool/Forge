@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 慢启动守卫：先空转约 0.2s 再正确作答，限时充足时必须 AC（防启动开销误杀）。
 // 迭代数保守取值：CI 慢机上也不得接近时限。

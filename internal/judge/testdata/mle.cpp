@@ -1,4 +1,5 @@
-#include <bits/stdc++.h>
+#include <vector>
+#include <cstring>
 using namespace std;
 int main() {
     // commit 1MB at a time: Windows 命中 Job 内存墙截杀；Linux 触发

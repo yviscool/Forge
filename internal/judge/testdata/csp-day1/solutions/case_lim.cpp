@@ -1,4 +1,4 @@
-#include <bits/stdc++.h>
+#include <iostream>
 using namespace std;
 // 分点限额探针：n==2 死循环，其余回声。
 int main() {

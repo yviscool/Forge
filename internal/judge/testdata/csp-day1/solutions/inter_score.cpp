@@ -1,4 +1,10 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <fstream>
 using namespace std;
 // 交互器(部分分协议测试):正常完成交互后向 stderr 写 testlib 打分标记
 // partially correct (50) 并 exit 0 -> 部分分(满分一半)。

@@ -1,4 +1,10 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <thread>
 using namespace std;
 // 并行偷钟探针：4 线程各烧固定迭代量（约 0.4-1.2s CPU/线程，视主频），
 // 而非固定 wall 忙等——调度受限的宿主上烧不完就撞墙钟 TLE，

@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 典型慢：每个位置都全串扫描一遍，O(n^2)，大数据必超时（答案正确）。
 int main() {

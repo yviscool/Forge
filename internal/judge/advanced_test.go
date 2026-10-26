@@ -387,7 +387,7 @@ func TestCompilerPerLangLimits(t *testing.T) {
 	// 64MB 编译内存墙装不下 bits 头编译（正常需 300MB+）。
 	dir2 := t.TempDir()
 	r2, err := Toolchain{Config: ToolchainConfig{CPP: ToolSpec{CompileMemoryMiB: 64}}}.Compile(
-		ctx, "cpp", []byte("#include<bits/stdc++.h>\nint main(){return 0;}"), dir2, CompileOptions{})
+		ctx, "cpp", []byte("int main(){return 0;}"), dir2, CompileOptions{})
 	if err != nil {
 		t.Fatalf("walled compile should fail cleanly, not error: %v", err)
 	}
@@ -425,7 +425,7 @@ func TestFileIOTraversalContained(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	// 恶意文件名必须被压平：程序读写的是工作目录内文件，照常 AC。
-	code := "#include <bits/stdc++.h>\nusing namespace std;\nint main(){long long a,b;FILE*f=fopen(\"p.in\",\"r\");if(!f)return 1;fscanf(f,\"%lld%lld\",&a,&b);fclose(f);f=fopen(\"p.out\",\"w\");if(!f)return 1;fprintf(f,\"%lld\",a+b);fclose(f);return 0;}"
+	code := "#include <cstdio>\nusing namespace std;\nint main(){long long a,b;FILE*f=fopen(\"p.in\",\"r\");if(!f)return 1;fscanf(f,\"%lld%lld\",&a,&b);fclose(f);f=fopen(\"p.out\",\"w\");if(!f)return 1;fprintf(f,\"%lld\",a+b);fclose(f);return 0;}"
 	lim := Limits{TimeMs: 3000, MemoryMiB: 256, IOMode: domain.IOFile, InFile: "../p.in", OutFile: "../../p.out"}
 	got, err := o.JudgeOne(ctx, Request{
 		Language: "cpp", Code: code,

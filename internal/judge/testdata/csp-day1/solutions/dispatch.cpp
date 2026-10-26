@@ -1,4 +1,7 @@
-#include <bits/stdc++.h>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // Lemon helloworld 式 verdict 分发器：一次编译，输入决定行为。
 // 输入 1 -> AC("AC")；2 -> WA("WA")；3 -> MLE(内存墙截杀)；

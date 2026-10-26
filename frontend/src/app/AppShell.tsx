@@ -70,7 +70,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 className={
                   !inTeacher
                     ? 'flex h-8 items-center gap-1.5 rounded-[10px] bg-white px-3.5 text-xs font-bold text-ink shadow-[0_1px_2px_rgba(19,28,43,0.08)]'
-                    : 'flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-bold text-slate-500 transition hover:text-slate-900'
+                    : 'flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-bold text-slate-600 transition hover:text-slate-900'
                 }
               >
                 <BookOpenCheck className="h-3.5 w-3.5" />
@@ -83,7 +83,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className={
                     inTeacher
                       ? 'flex h-8 items-center gap-1.5 rounded-[10px] bg-white px-3.5 text-xs font-bold text-ink shadow-[0_1px_2px_rgba(19,28,43,0.08)]'
-                      : 'flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-bold text-slate-500 transition hover:text-slate-900'
+                      : 'flex h-8 items-center gap-1.5 rounded-[10px] px-3.5 text-xs font-bold text-slate-600 transition hover:text-slate-900'
                   }
                 >
                   <LayoutDashboard className="h-3.5 w-3.5" />

@@ -1,4 +1,9 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
 using namespace std;
 // 典型慢：选择排序 O(n^2) 无早退 + 正确贪心，有序数据照样超时。
 int main() {

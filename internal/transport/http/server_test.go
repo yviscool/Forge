@@ -899,7 +899,7 @@ func TestSubmissionCodeVisibility(t *testing.T) {
 	}
 }
 
-const pipelineCode = `#include <bits/stdc++.h>
+const pipelineCode = `#include <iostream>
 using namespace std;
 int main(){long long a,b;if(!(cin>>a>>b))return 0;cout<<a+b;return 0;}
 `

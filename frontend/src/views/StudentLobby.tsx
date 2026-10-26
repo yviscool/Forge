@@ -234,7 +234,7 @@ export function StudentLobby() {
               className={
                 filter === item.key
                   ? 'h-8 rounded-lg bg-white px-3.5 text-xs font-bold text-ink shadow-[0_1px_2px_rgba(19,28,43,0.08)]'
-                  : 'h-8 rounded-lg px-3.5 text-xs font-bold text-slate-500 transition hover:text-slate-900'
+                  : 'h-8 rounded-lg px-3.5 text-xs font-bold text-slate-600 transition hover:text-slate-900'
               }
             >
               {item.label}

@@ -28,8 +28,9 @@ func runConfined(ctx context.Context, argv []string, dir string, interpreted boo
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.SysProcAttr = sysProcAttr()
 	// 与 runner 同债:checker 退出后若留握管道的孙进程,Wait 会阻塞到
-	// 它自然退出;WaitDelay 5s 放行,孤儿交组杀/Job 清算。
-	cmd.WaitDelay = 5 * time.Second
+	// 它自然退出;WaitDelay 短放行(500ms,与 runner.go 同口径),孤儿交
+	// 组杀/Job 清算。
+	cmd.WaitDelay = 500 * time.Millisecond
 	limiter, err := newJobLimiter(helperWallMiB, 1)
 	if err != nil {
 		return err

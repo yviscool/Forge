@@ -1,4 +1,3 @@
-#include <bits/stdc++.h>
 using namespace std;
 int main() {
     volatile long long x = 0;

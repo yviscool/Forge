@@ -1,4 +1,10 @@
-#include <bits/stdc++.h>
+#include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <vector>
+#include <fstream>
 using namespace std;
 // 交互器：把输入文件内容发给选手，读回一行校验 a+b。
 int main(int argc, char **argv) {

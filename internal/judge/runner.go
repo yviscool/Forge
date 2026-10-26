@@ -82,8 +82,10 @@ func (LocalRunner) Run(ctx context.Context, argv []string, input string, lim Lim
 	cmd.SysProcAttr = sysProcAttr()
 	// 孤儿管道死锁防线:选手退出但其子进程仍握住 stdout 时,Wait 会阻塞在
 	// 管道排空上(Unix 组杀/Windows Job 虽能收割,但都排在 Wait 之后)。
-	// WaitDelay 让 Wait 在进程退出后最多再等 5s,孤儿交给组杀/Job 清算。
-	cmd.WaitDelay = 5 * time.Second
+	// WaitDelay 只需盖过孤儿收割的调度延迟:放行时间必须远小于常见用例
+	// 时限,否则空等会污染 wall 计时、把毫秒级退出的正解顶成 TLE(曾以 5s
+	// 放行在 CI 上把 pipeholder 顶过 5s 软限)。
+	cmd.WaitDelay = 500 * time.Millisecond
 	// Windows 低权沙箱(LowBox 令牌 + 工作目录 ACL):可用则整体替换进程
 	// 属性并临时覆盖 TMP/TEMP 到工作目录;不可用(nil)按 Job-only 继续。
 	if attr, envOver, cleanup, err := sandboxSetup(workdir); err == nil && attr != nil {
