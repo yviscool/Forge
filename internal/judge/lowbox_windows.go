@@ -282,3 +282,26 @@ func ensureWinSandboxProbed(d time.Duration) {
 	case <-time.After(d):
 	}
 }
+
+// ---- 运行时目录 ACL 生命周期(授权在 acl_windows.go,回滚在此) ----
+
+// RevokeRuntimeAcls 优雅停机时摘除运行时目录的包 SID ACE(对照上游
+// windowssandbox 的 rollback 语义):授权不越过服务生命周期。
+// 只处理本进程授予过的目录;重复调用无害。非 Windows no-op(见 sandbox_other.go)。
+func RevokeRuntimeAcls() {
+	if !runtimeDirAclEnabled() {
+		return
+	}
+	sid, err := lowBoxSID()
+	if err != nil {
+		return
+	}
+	runtimeAclGranted.Range(func(key, _ any) bool {
+		dir, _ := key.(string)
+		if dir != "" {
+			_ = revokeAcl(dir, sid)
+		}
+		runtimeAclGranted.Delete(key)
+		return true
+	})
+}

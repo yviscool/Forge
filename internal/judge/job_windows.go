@@ -69,9 +69,9 @@ func confineArgv(argv []string, _ Limits, _ string) []string { return argv }
 // processPeakBytes Windows 无需 rusage 回退：Job Object 已给峰值。
 func processPeakBytes(_ *os.ProcessState) uint64 { return 0 }
 
-// sysProcAttr Windows 无进程组语义：杀树由 Job Object 的
-// KILL_ON_CLOSE / TerminateJobObject 覆盖。
-func sysProcAttr() *syscall.SysProcAttr { return nil }
+// sysProcAttr Windows 通用进程属性:隐藏控制台窗(教师机上 GUI/弹窗类
+// 提交不得闪窗,沙箱内外一致);杀树由 Job Object 覆盖。
+func sysProcAttr() *syscall.SysProcAttr { return &syscall.SysProcAttr{HideWindow: true} }
 
 // killTree Windows 无进程组信号；组杀统一走 jobLimiter.Terminate。
 func killTree(int) {}
@@ -122,3 +122,9 @@ func (l *jobLimiter) PeakBytes() uint64 {
 func (l *jobLimiter) Close() {
 	windows.CloseHandle(l.job)
 }
+
+// BwrapStatus Windows 无 bwrap 路径(观测矩阵用)。
+func BwrapStatus() string { return "off:not linux" }
+
+// CgroupStatus Windows 无 cgroup 路径(观测矩阵用)。
+func CgroupStatus() string { return "off:not linux" }

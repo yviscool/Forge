@@ -15,6 +15,7 @@
 | 进程数墙 | Job ActiveProcessLimit | cgroup `pids.max` / prlimit `--nproc=256` | — |
 | 杀树 | Job KILL_ON_CLOSE + TerminateJobObject | 进程组(Setpgid)+ cgroup.kill + 组杀看门狗 | 进程组 + 组杀看门狗 |
 | 峰值上报 | Job QueryInformationJobObject | cgroup `memory.peak` → wait4 rusage 回填 | wait4 rusage |
+| 孤儿管道 | WaitDelay 5s(子进程握 stdout/stderr 不得拖死 Wait) | 同左 | 同左 |
 | 解释型运行时 | Job 内存墙照常(工具链可配 `disableMemoryLimitCheck`) | 跳过 RLIMIT_AS(cgroup memory.max 仍生效,RSS 口径) | 跳过 ulimit -v |
 
 ## 沙箱(文件系统/网络隔离)
@@ -25,8 +26,8 @@
 | 文件系统 | 工作目录 ACL 内可读写;目录外拒绝(跟随链接目标校验,符号链接攻击天然失效) | 命名空间内:/usr 只读、/tmp 私有、工作目录绑定 | 工作目录即边界(无强制) |
 | 网络 | 无 capability → 套接字拒绝 | `--unshare-all` 断网 | 可达 |
 | 降级 | 探测(容器内自证 + 越界读必须失败)失败 → Job-only | 探测(建命名空间 + CPU 计量穿透)失败 → prlimit-only | — |
-| 开关 | `FORGE_WIN_SANDBOX=auto/off` | 自动探测,无开关 | — |
-| 运行时目录 | 编译器 bin / Python prefix 对包 SID 只读(前缀经 `-I -S` 发现) | /usr 只读绑定 | — |
+| 开关 | `FORGE_WIN_SANDBOX=auto/off`;`FORGE_WIN_SANDBOX_KEEP_ACL` 控制停机是否保留运行时目录授权(缺省回滚) | 自动探测,无开关 | — |
+| 运行时目录 | 编译器 bin / Python prefix 对包 SID 只读(前缀经 `-I -S` 发现);缺省停机回滚 | /usr 只读绑定 | — |
 
 ## 判定口径(三平台一致)
 
@@ -36,26 +37,31 @@
 - 比较:`line_by_line` / `ignore_space`(token 相同行分布不同 → PE,
   多尾部 token → OLE)/ `real_number`(绝对+相对误差)/ 三种特判协议 /
   `external_tool`(外部 diff)。
-- 特判与交互器运行于独立资源墙(`runConfined`:最小环境 + 内存墙 + 组杀),
-  超时 10s,故障落 CheckerError 不误报学生 RE;交互器可经 stderr
-  testlib 标记(`ok` / `partially correct (N)` / `points X`)给部分分。
+- 特判与交互器运行于独立资源墙(`runConfined`:最小环境 + 内存墙 + 组杀 +
+  WaitDelay),超时 10s,故障落 CheckerError 不误报学生 RE;交互器可经
+  stderr testlib 标记(`ok` / `partially correct (N)` / `points X`)给部分分。
 - 基础设施故障(目录创建失败、评测器自身崩溃)落 `SystemError`,
   与学生程序故障(RE)分离,支持一键重判。
+- 文件 IO 名净化(`SafeFileName`):压平 Base + 拒绝 `.`/`..`/盘符冒号/
+  ADS/尾点尾空格/Windows 保留设备名(fuzz 实证加固)。
 
-## 诊断
+## 诊断与观测
 
 - `forge doctor`:工具链解析 / 资源墙 / 沙箱探测 / 编译缓存可写性,
   一键矩阵输出;`/readyz` 的 judge 检查与 doctor 共用探针集。
 - `/metrics`:`forge_judge_workers`、`forge_judge_jobs_*`、
   `forge_judge_cache_{hits,misses}_total`、`forge_judge_verdict_cases_total`、
-  `forge_judge_duration_{count,sum_ms}`。
+  `forge_judge_duration_{count,sum_ms,bucket}`(P50/P95 可见)、
+  `forge_judge_sandbox_status{kind,state}`(info gauge)。
 
 ## 已证边界(测试锚点)
 
 - 双平台(windows/ubuntu)每次推送:corpus 全矩阵、MLE 双路径、
-  fork 炸弹遏制、TLE 双口径、三特判、交互、文件 IO、编译缓存、
-  子任务依赖、pool 并发(-race 子集)。
-- macOS:纯函数 + 物理核探测(sysctl)+ 轻量判题(heavy corpus 因
-  clang 编译 bits 头过慢留在 linux/windows 跑)。
+  fork 炸弹遏制、TLE 双口径、三特判、交互(含孙进程握 stderr)、
+  文件 IO、编译缓存、子任务依赖、pool 并发(-race 子集)。
+- macOS:纯函数 + 物理核探测(sysctl)+ 轻量判题(纯 iostream 语料
+  AC/WA/TLE 全链;重 corpus 因 clang 编译 bits 头过慢留在
+  linux/windows)。
 - fuzz:`parseTestlibResult` / `parseLemonScore` / `tokenLineSeq`(domain)/
-  `SafeFileName` 常驻种子语料。
+  `SafeFileName` 常驻种子语料;已实抓并修复 `..` 逃父目录与
+  盘符/ADS 逃逸两案。

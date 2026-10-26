@@ -44,7 +44,21 @@ var (
 	judgeVerdictCounters sync.Map // string(规范 verdict) -> *atomic.Uint64
 	judgeDurationCount   atomic.Uint64
 	judgeDurationSumMs   atomic.Uint64
+	judgeDurationBuckets = newJudgeDurationBuckets()
+	judgeWallStatuses    sync.Map // kind(lowbox/bwrap/cgroup) -> string 状态
 )
+
+// judgeDurationBounds 直方图上界(毫秒):P50/P95 尾部可见。
+var judgeDurationBounds = []int64{50, 100, 250, 500, 1000, 2500, 5000, 10000}
+
+func newJudgeDurationBuckets() []atomic.Uint64 {
+	return make([]atomic.Uint64, len(judgeDurationBounds)+1) // 末桶 +Inf
+}
+
+// SetJudgeWallStatus 记录一平台资源墙/沙箱的探测状态(启动期调用)。
+func SetJudgeWallStatus(kind, state string) {
+	judgeWallStatuses.Store(kind, state)
+}
 
 // RecordJudgeVerdicts 记录一单评测的分点 verdict 计数与总耗时。
 // 并发安全;键为 CaseVerdict 原文(AC/WA/TLE/...)。
@@ -58,6 +72,13 @@ func RecordJudgeVerdicts(verdicts map[string]int, durationMs int64) {
 	if durationMs > 0 {
 		judgeDurationSumMs.Add(uint64(durationMs))
 	}
+	for i, bound := range judgeDurationBounds {
+		if durationMs <= bound {
+			judgeDurationBuckets[i].Add(1)
+			return
+		}
+	}
+	judgeDurationBuckets[len(judgeDurationBounds)].Add(1)
 }
 
 // RuntimeStats is a low-cardinality operational snapshot supplied by the
@@ -251,6 +272,23 @@ func (m *Metrics) render() string {
 	body.WriteString("# HELP forge_judge_duration_sum_ms Total judge job duration in ms.\n")
 	body.WriteString("# TYPE forge_judge_duration_sum_ms counter\n")
 	fmt.Fprintf(&body, "forge_judge_duration_sum_ms %d\n", judgeDurationSumMs.Load())
+	cumulative := uint64(0)
+	for i, bound := range judgeDurationBounds {
+		cumulative += judgeDurationBuckets[i].Load()
+		body.WriteString("# HELP forge_judge_duration_bucket Judge job duration by upper bound (cumulative).\n")
+		body.WriteString("# TYPE forge_judge_duration_bucket counter\n")
+		fmt.Fprintf(&body, "forge_judge_duration_bucket{le=%q} %d\n", strconv.FormatInt(bound, 10), cumulative)
+	}
+	body.WriteString("# HELP forge_judge_duration_bucket Judge job duration by upper bound (cumulative).\n")
+	body.WriteString("# TYPE forge_judge_duration_bucket counter\n")
+	fmt.Fprintf(&body, "forge_judge_duration_bucket{le=%q} %d\n", "+Inf", judgeDurationCount.Load())
+	judgeWallStatuses.Range(func(kind, state any) bool {
+		body.WriteString("# HELP forge_judge_sandbox_status Judge wall/sandbox probe state per platform facility.\n")
+		body.WriteString("# TYPE forge_judge_sandbox_status gauge\n")
+		fmt.Fprintf(&body, "forge_judge_sandbox_status{kind=%q,state=%q} 1\n",
+			escapeLabel(kind.(string)), escapeLabel(state.(string)))
+		return true
+	})
 	body.WriteString("# HELP forge_sse_subscribers Active server-sent event streams.\n")
 	body.WriteString("# TYPE forge_sse_subscribers gauge\n")
 	fmt.Fprintf(&body, "forge_sse_subscribers %d\n", runtimeStats.SSESubscriberCount)

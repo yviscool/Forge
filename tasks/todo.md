@@ -230,3 +230,27 @@ go-windows / e2e(3 浏览器 axe)/ contract / security。
       forge_judge_duration_{count,sum_ms};池 SetMetricsSink → main 注入
       observability.RecordJudgeVerdicts(包级原子计数,池/HTTP 实例共享)
 - [x] docs/judge.md:三平台语义矩阵(资源墙/沙箱/判定口径/诊断/已证边界)
+
+# 阶段三第四轮:review 修正 + readiness/metrics/回滚/darwin(2026-10-27 完成)
+
+## 第一批 review 修正
+- [x] interact.go/runConfined 补 WaitDelay=5s(与 runner 对齐);新增
+      inter_sol_spawn fixture(交互正解 spawn 握 stderr 的子进程)+ 回归
+      (WaitDelay 8s 内放行,旧实现拖满 30s)
+- [x] Windows sysProcAttr 恒 HideWindow(沙箱内外一致,教师机不闪窗)
+- [x] cgroup probe 清扫崩溃残留子组(forge-* 且 pid 已消亡)
+
+## 第二批
+- [x] /metrics 增资源墙/沙箱状态 info gauge(forge_judge_sandbox_status
+      {kind=lowbox/job/bwrap/cgroup,state}),启动探测就绪后异步上报;
+      BwrapStatus/CgroupStatus 跨平台观测存根
+- [x] 判题时长真直方图:forge_judge_duration_bucket(le 累计,
+      50/100/250/500/1000/2500/5000/10000ms/+Inf),P50/P95 尾部可见
+- [x] LowBox 运行时目录 ACL 回滚:授权记录在册,优雅停机 RevokeRuntimeAcls
+      摘除(REVOKE_ACCESS,对照上游 rollback 语义);缺省回滚,
+      FORGE_WIN_SANDBOX_KEEP_ACL=1 保留
+- [x] darwin 轻量语料:纯 iostream 的 AC/WA/TLE 三 fixture(macOS libc++
+      无 bits 头),TestDarwinClangCorpus 激活 clang+ulimit+rusage 全链;
+      CI macos -run 列表接入
+- [x] docs/judge.md 增补:孤儿管道 WaitDelay 行、回滚开关、直方图、
+      sandbox_status、darwin 语料锚点、SafeFileName fuzz 加固记录

@@ -102,12 +102,67 @@ func grantRuntimeDirAcl(dir string, sid *windows.SID) error {
 	return grantAcl(dir, sid, 0x1200A9, true)
 }
 
+// revokeAcl 摘除 path 上针对 sid 的 ACE(REVOKE_ACCESS,停机回滚)。
+func revokeAcl(path string, sid *windows.SID) error {
+	utf16Path, err := windows.UTF16PtrFromString(path)
+	if err != nil {
+		return err
+	}
+	var oldDacl *windows.ACL
+	var sd uintptr
+	if r1, _, _ := getNamedSecurityInfoRaw.Call(
+		uintptr(unsafe.Pointer(utf16Path)),
+		uintptr(windows.SE_FILE_OBJECT),
+		uintptr(windows.DACL_SECURITY_INFORMATION),
+		0, 0,
+		uintptr(unsafe.Pointer(&oldDacl)),
+		0,
+		uintptr(unsafe.Pointer(&sd)),
+	); r1 != 0 {
+		return fmt.Errorf("GetNamedSecurityInfoW: error %d", r1)
+	}
+	defer func() {
+		if sd != 0 {
+			windows.LocalFree(windows.Handle(sd))
+		}
+	}()
+	ea := windows.EXPLICIT_ACCESS{
+		AccessMode: windows.REVOKE_ACCESS,
+		Trustee: windows.TRUSTEE{
+			TrusteeForm:  windows.TRUSTEE_IS_SID,
+			TrusteeType:  windows.TRUSTEE_IS_UNKNOWN,
+			TrusteeValue: windows.TrusteeValueFromSID(sid),
+		},
+	}
+	var newDacl *windows.ACL
+	if r1, _, _ := setEntriesInAclW.Call(
+		1,
+		uintptr(unsafe.Pointer(&ea)),
+		uintptr(unsafe.Pointer(oldDacl)),
+		uintptr(unsafe.Pointer(&newDacl)),
+	); r1 != 0 {
+		return fmt.Errorf("SetEntriesInAclW: error %d", r1)
+	}
+	defer func() {
+		if newDacl != nil {
+			newDaclPtr := uintptr(unsafe.Pointer(newDacl))
+			windows.LocalFree(windows.Handle(newDaclPtr))
+		}
+	}()
+	if err := windows.SetNamedSecurityInfo(path, windows.SE_FILE_OBJECT,
+		windows.DACL_SECURITY_INFORMATION, nil, nil, newDacl, nil); err != nil {
+		return fmt.Errorf("SetNamedSecurityInfo: %w", err)
+	}
+	return nil
+}
+
 // runtimeDirAclEnabled 运行时目录授权只在沙箱模式下需要。
 func runtimeDirAclEnabled() bool { return isWindowsSandboxEnabled() }
 
 var (
-	runtimeAclDone sync.Map     // command -> struct{}(已授权)
-	runtimeAclErr  atomic.Value // string(最后一次授权失败原因,观测用)
+	runtimeAclDone    sync.Map     // command -> struct{}(已授权)
+	runtimeAclGranted sync.Map     // dir -> struct{}(本进程授予过,停机回滚用)
+	runtimeAclErr     atomic.Value // string(最后一次授权失败原因,观测用)
 )
 
 // prepareRuntimeDir 编译时同步授予运行时目录(编译器 bin / Python prefix)
@@ -150,5 +205,6 @@ func prepareRuntimeDir(lang, command string) {
 			runtimeAclErr.Store(dir + ": " + err.Error())
 			return
 		}
+		runtimeAclGranted.Store(dir, struct{}{})
 	}
 }

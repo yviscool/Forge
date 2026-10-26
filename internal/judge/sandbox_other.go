@@ -23,3 +23,6 @@ func runtimeDirAclEnabled() bool { return false }
 
 // prepareRuntimeDir 非 Windows no-op。
 func prepareRuntimeDir(string, string) {}
+
+// RevokeRuntimeAcls 非 Windows no-op(无运行时目录 ACL)。
+func RevokeRuntimeAcls() {}

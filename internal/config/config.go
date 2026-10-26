@@ -32,6 +32,10 @@ type Config struct {
 	// auto = LowBox 令牌 + 工作目录 ACL(探测失败自动退回 Job-only),
 	// off = 仅 Job 资源墙。
 	WinSandbox string
+	// WinSandboxKeepAcl 停机时是否保留运行时目录的包 SID 授权
+	// (FORGE_WIN_SANDBOX_KEEP_ACL;缺省 false = 优雅停机时回滚,
+	// 授权不越过服务生命周期)。
+	WinSandboxKeepAcl bool
 	// AdminPassword 种子管理员密码（FORGE_ADMIN_PASSWORD；缺省随机生成）。
 	AdminPassword string
 	// AdminPasswordGenerated indicates a one-time generated bootstrap password.
@@ -113,6 +117,10 @@ func Load() Config {
 	if winSandbox == "" {
 		winSandbox = "auto"
 	}
+	keepAcl, err := envBool("FORGE_WIN_SANDBOX_KEEP_ACL")
+	if err != nil {
+		parseErrs = append(parseErrs, err)
+	}
 	minFreeDiskMiB := int64(512)
 	if raw := strings.TrimSpace(os.Getenv("FORGE_MIN_FREE_DISK_MIB")); raw != "" {
 		n, parseErr := strconv.ParseInt(raw, 10, 64)
@@ -135,6 +143,7 @@ func Load() Config {
 		JudgeWorkers:           workers,
 		MinFreeDiskMiB:         minFreeDiskMiB,
 		WinSandbox:             winSandbox,
+		WinSandboxKeepAcl:      keepAcl,
 		TrustProxy:             trustProxy,
 		loadErr:                errors.Join(parseErrs...),
 	}

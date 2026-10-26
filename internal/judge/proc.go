@@ -2,9 +2,11 @@ package judge
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os/exec"
 	"sync"
+	"time"
 )
 
 // helperWallMiB 特判/交互器等受控辅助进程的内存墙（教师下发源码仍按不可信
@@ -25,6 +27,9 @@ func runConfined(ctx context.Context, argv []string, dir string, interpreted boo
 	cmd.Env = scrubEnv()
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.SysProcAttr = sysProcAttr()
+	// 与 runner 同债:checker 退出后若留握管道的孙进程,Wait 会阻塞到
+	// 它自然退出;WaitDelay 5s 放行,孤儿交组杀/Job 清算。
+	cmd.WaitDelay = 5 * time.Second
 	limiter, err := newJobLimiter(helperWallMiB, 1)
 	if err != nil {
 		return err
@@ -40,7 +45,16 @@ func runConfined(ctx context.Context, argv []string, dir string, interpreted boo
 		_ = cmd.Wait()
 		return err
 	}
-	return cmd.Wait()
+	return normalizeWaitErr(cmd.Wait())
+}
+
+// normalizeWaitErr WaitDelay 触发时进程已正常收割,仅孤儿仍握管道——
+// 结果有效,按正常结束处理。
+func normalizeWaitErr(err error) error {
+	if err != nil && errors.Is(err, exec.ErrWaitDelay) {
+		return nil
+	}
+	return err
 }
 
 // watchGroupKill ctx 取消时对进程组补刀：Go 默认只杀直接子进程，prlimit /

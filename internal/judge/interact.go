@@ -90,6 +90,7 @@ func RunInteraction(ctx context.Context, comp Compiler, inter InteractorSpec, so
 	solCmd.Dir = workdir
 	solCmd.Env = scrubEnv()
 	solCmd.SysProcAttr = sysProcAttr()
+	solCmd.WaitDelay = 5 * time.Second
 	solCmd.Stdin = interR
 	solCmd.Stdout = solW
 	solErrCap := newCapped(1 << 20)
@@ -103,6 +104,7 @@ func RunInteraction(ctx context.Context, comp Compiler, inter InteractorSpec, so
 	interCmd.Dir = workdir
 	interCmd.Env = scrubEnv()
 	interCmd.SysProcAttr = sysProcAttr()
+	interCmd.WaitDelay = 5 * time.Second
 	interCmd.Stdin = solR
 	interCmd.Stdout = interW
 	interErrCap := newCapped(1 << 20)
@@ -146,8 +148,9 @@ func RunInteraction(ctx context.Context, comp Compiler, inter InteractorSpec, so
 		return res, err
 	}
 
-	solWaitErr := solCmd.Wait()
-	interErr := interCmd.Wait()
+	// WaitDelay 触发时进程已退出、仅孤儿子进程仍握管道——按正常收割处理。
+	solWaitErr := normalizeWaitErr(solCmd.Wait())
+	interErr := normalizeWaitErr(interCmd.Wait())
 	res.TimeMs = int(time.Since(start) / time.Millisecond)
 	if ps := solCmd.ProcessState; ps != nil {
 		res.CpuMs = int((ps.UserTime() + ps.SystemTime()) / time.Millisecond)

@@ -17,3 +17,8 @@ func resourceWallRows() []DoctorRow {
 
 // waitForProbes Windows:等待 LowBox 探测。
 func waitForProbes(d time.Duration) { ensureWinSandboxProbed(d) }
+
+// wallStatuses Windows 的资源墙状态集。
+func wallStatuses() map[string]string {
+	return map[string]string{"lowbox": WinSandboxStatus(), "job": "always"}
+}

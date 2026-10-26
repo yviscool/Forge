@@ -153,6 +153,13 @@ func main() {
 	_ = judge.ConfigureWinSandbox(cfg.WinSandbox) // 非法模式由 Validate 拒绝;doctor 需要探测就绪
 
 	if cfg.AutoJudge {
+		// 探测就绪后把三平台资源墙/沙箱状态送进 /metrics(info gauge)。
+		go func() {
+			judge.WaitForProbes(60 * time.Second)
+			for kind, state := range judge.WallStatuses() {
+				observability.SetJudgeWallStatus(kind, state)
+			}
+		}()
 		log.Info("windows judge sandbox", "status", judge.WinSandboxStatus())
 	}
 
@@ -166,6 +173,10 @@ func main() {
 		if err := judge.ConfigureWinSandbox(cfg.WinSandbox); err != nil {
 			log.Error("invalid FORGE_WIN_SANDBOX", "err", err)
 			os.Exit(1)
+		}
+		if !cfg.WinSandboxKeepAcl {
+			// 缺省回滚:运行时目录的包 SID 授权不越过服务生命周期。
+			defer judge.RevokeRuntimeAcls()
 		}
 		log.Warn("UNSAFE local judge enabled: submitted code will run on this host",
 			"protection", "process/memory walls; windows sandbox: "+judge.WinSandboxStatus(),

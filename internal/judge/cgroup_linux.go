@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 )
 
 // cgroup v2 资源墙(探测降级):memory.max + pids.max + cgroup.kill。
@@ -79,6 +80,7 @@ func probeCgroup() bool {
 			return
 		}
 		defer os.RemoveAll(probe)
+		sweepOrphanCgroups(baseDir)
 		if err := os.WriteFile(filepath.Join(probe, "memory.max"), []byte("max"), 0o644); err != nil {
 			cgroupFallback("write memory.max: " + err.Error())
 			return
@@ -176,4 +178,33 @@ func (c *cgroupLimiter) Terminate() {
 func (c *cgroupLimiter) Close() {
 	c.Terminate()
 	_ = os.RemoveAll(c.dir)
+}
+
+// sweepOrphanCgroups 清理崩溃残留的评测子组(forge-<pid>-<seq>,其 pid 已
+// 消亡):worker 崩溃/断电时 Close 不执行,空组会在 user slice 下累积。
+// 只动 forge-* 前缀且 pid 已死的组,尽力而为,失败静默。
+func sweepOrphanCgroups(baseDir string) {
+	entries, err := os.ReadDir(baseDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "forge-") || !e.IsDir() {
+			continue
+		}
+		parts := strings.Split(name, "-")
+		if len(parts) < 3 {
+			continue
+		}
+		pid, err := strconv.Atoi(parts[1])
+		if err != nil || pid <= 0 {
+			continue
+		}
+		// pid 已消亡(ESRCH)才清理;存活(含被其他进程复用)则跳过。
+		if err := syscall.Kill(pid, 0); err == nil {
+			continue
+		}
+		_ = os.RemoveAll(filepath.Join(baseDir, name))
+	}
 }

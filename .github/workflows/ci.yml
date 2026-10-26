@@ -72,7 +72,7 @@ jobs:
             # macOS:激活动理核探测(sysctl)/ulimit 降级墙/rusage 峰值等
             # darwin 路径;clang 编译 bits 头过慢,重 corpus 留在 linux/windows。
             go test ./internal/domain/ ./internal/config/ ./internal/app/ ./internal/auth/ ./internal/realtime/ ./internal/adapters/store/... ./internal/transport/... ./internal/observability/ ./internal/i18n/ ./internal/pdf/ ./internal/platform/...
-            go test ./internal/judge/ -run 'TestDefaultWorkers|TestJudgeOneVerdictMapping|TestJudgeOneCompileError|TestSubtaskMapsEmpty|TestResolveIO|TestSafeFileName|TestPool|TestBuildRequest|TestCompileCache|TestFuzz|TestPerCaseLimits|TestCompareVerdict|TestNormalizeComparison|TestToolchainConfig'
+            go test ./internal/judge/ -run 'TestDefaultWorkers|TestJudgeOneVerdictMapping|TestJudgeOneCompileError|TestSubtaskMapsEmpty|TestResolveIO|TestSafeFileName|TestPool|TestBuildRequest|TestCompileCache|TestFuzz|TestPerCaseLimits|TestCompareVerdict|TestNormalizeComparison|TestToolchainConfig|TestDarwinClangCorpus'
           else
             go test ./...
           fi

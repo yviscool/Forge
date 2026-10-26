@@ -13,3 +13,8 @@ func resourceWallRows() []DoctorRow {
 
 // waitForProbes 其他平台无异步探针。
 func waitForProbes(time.Duration) {}
+
+// wallStatuses 其他平台的资源墙状态集。
+func wallStatuses() map[string]string {
+	return map[string]string{"ulimit": "always"}
+}

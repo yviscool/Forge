@@ -201,6 +201,35 @@ func TestInteraction(t *testing.T) {
 	}
 }
 
+// TestInteractionGrandchildHoldsStderr 交互正解 spawn 握 stderr 的子进程
+// 后立即退出:WaitDelay 必须 5s 内放行(AC),不得拖到子进程 30s 睡醒
+// (孤儿管道死锁回归;Windows 下 spawn 被 Job 单进程墙拦住,退化为普通正解)。
+func TestInteractionGrandchildHoldsStderr(t *testing.T) {
+	requireTool(t, "g++")
+	o := realOrchestrator()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	start := time.Now()
+	inter := InteractorSpec{Language: "cpp", Code: loadCode(t, "inter_add.cpp")}
+	oc, err := o.JudgeOne(ctx, Request{
+		Language: "cpp", Code: loadCode(t, "inter_sol_spawn.cpp"),
+		Cases:    []CaseInput{{Input: "3 4", Expected: ""}},
+		TaskType: domain.TaskInteraction, Interactor: &inter,
+		Compare: domain.CompareIgnoreSpace,
+		Limits:  Limits{TimeMs: 3000, MemoryMiB: 256},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if oc.Cases[0].Verdict != domain.CaseAC {
+		t.Fatalf("grandchild stderr must not stall: %+v msg=%q compile=%q",
+			oc.Cases[0], oc.Cases[0].Message, oc.CompileMessage)
+	}
+	if elapsed := time.Since(start); elapsed > 20*time.Second {
+		t.Fatalf("orphan stderr must not stall interaction (WaitDelay): %v", elapsed)
+	}
+}
+
 func TestToolchainConfig(t *testing.T) {
 	def := DefaultToolchainConfig()
 	if def.CPP.Command != "g++" || def.CPP.Std == "" {

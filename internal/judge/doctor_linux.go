@@ -23,3 +23,8 @@ func resourceWallRows() []DoctorRow {
 
 // waitForProbes Linux:等待 bwrap 探测。
 func waitForProbes(d time.Duration) { waitForBwrapProbe(d) }
+
+// wallStatuses Linux 的资源墙状态集。
+func wallStatuses() map[string]string {
+	return map[string]string{"bwrap": BwrapStatus(), "cgroup": CgroupStatus()}
+}

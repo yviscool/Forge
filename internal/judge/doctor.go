@@ -61,6 +61,12 @@ func WaitForProbes(d time.Duration) {
 	waitForProbes(d)
 }
 
+// WallStatuses 各平台资源墙/沙箱探测状态(/metrics info gauge 用):
+// windows: lowbox/job;linux: bwrap/cgroup;其他: ulimit。
+func WallStatuses() map[string]string {
+	return wallStatuses()
+}
+
 // statusWord 把状态串归一为 ok/off/warn 展示词。
 func statusWord(status string) string {
 	switch {
