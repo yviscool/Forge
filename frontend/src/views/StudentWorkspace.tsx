@@ -467,6 +467,8 @@ export function StudentWorkspace() {
     setDraft,
     desktopMode,
     setDesktopMode,
+    desktopExited,
+    setDesktopExited,
     setActiveAlert,
     serverTimeOffset,
     setContestUnlocked,
@@ -600,14 +602,15 @@ export function StudentWorkspace() {
   )
 
   // NOI 比赛即 NOI Linux 仿真作答：比赛加载完成后自动进入仿真桌面；
-  // 选手点「退出桌面」后本次会话不再强制拉回（noiDesktopEntered 熔断）。
+  // 学生手动退出过的比赛本次会话不再拉回（刷新页面则考场口径重新进入）。
   const noiDesktopEntered = useRef(false)
+  const noiDesktopExited = desktopExited[cid]
   useEffect(() => {
-    if (noiDesktopEntered.current) return
+    if (noiDesktopEntered.current || noiDesktopExited) return
     if (contest?.mode !== 'noi' || !activeProblem) return
     noiDesktopEntered.current = true
     setDesktopMode(true)
-  }, [contest?.mode, activeProblem, setDesktopMode])
+  }, [contest?.mode, activeProblem, setDesktopMode, noiDesktopExited])
 
   useEffect(() => {
     if (!activeProblem || activeProblem.taskType === 'choice') return
@@ -1228,7 +1231,10 @@ export function StudentWorkspace() {
             setActiveProblem={(problem) => setActivePid(problem.id)}
             code={code}
             setCode={setCode}
-            onExitDesktop={() => setDesktopMode(false)}
+            onExitDesktop={() => {
+              setDesktopMode(false)
+              if (cid) setDesktopExited(cid, true)
+            }}
             onSubmit={() => {
               void submit()
             }}

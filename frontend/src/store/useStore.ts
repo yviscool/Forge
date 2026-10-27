@@ -48,6 +48,10 @@ interface AppState {
   // Ubuntu 18.04 考场桌面仿真模式
   desktopMode: boolean
   setDesktopMode: (val: boolean) => void
+  // NOI 比赛自动进入仿真桌面：学生手动退出过的比赛本次会话不再拉回。
+  // 仅内存记忆——刷新页面回到考场即重新进入仿真（考场口径优先）。
+  desktopExited: Record<string, boolean>
+  setDesktopExited: (cid: string, exited: boolean) => void
 
   // 考场 Zip 密码解锁状态：contestId -> unlocked
   unlockedContests: Record<string, boolean>
@@ -235,6 +239,10 @@ export const useStore = create<AppState>((set) => ({
     setStorageItem('forge_desktop_mode', desktopMode ? 'true' : 'false')
     set({ desktopMode })
   },
+
+  desktopExited: {},
+  setDesktopExited: (cid, exited) =>
+    set((state) => ({ desktopExited: { ...state.desktopExited, [cid]: exited } })),
 
   unlockedContests: (() => {
     try {

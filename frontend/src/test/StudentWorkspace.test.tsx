@@ -104,6 +104,7 @@ describe('StudentWorkspace answer-only workflow', () => {
       authStatus: 'authenticated',
       drafts: {},
       desktopMode: false,
+      desktopExited: {},
       unlockedContests: {},
     })
   })
@@ -220,6 +221,9 @@ describe('StudentWorkspace answer-only workflow', () => {
       apiRoutes.get('/contests/contest-1/ranking', rankingSpy),
       apiRoutes.get('/contests/contest-1/messages', () => HttpResponse.json([]))
     )
+    // NOI 默认自动进入仿真桌面；本用例验证的是网页外壳的脱敏行为，
+    // 以「学生已手动退出过桌面」的会话状态进入。
+    useStore.setState({ desktopExited: { 'contest-1': true } })
     renderWorkspace()
 
     // NOI 横幅提示赛中不公布结果。
@@ -261,11 +265,33 @@ describe('StudentWorkspace answer-only workflow', () => {
       apiRoutes.get('/contests/contest-1/ranking', () => HttpResponse.json([])),
       apiRoutes.get('/contests/contest-1/messages', () => HttpResponse.json([]))
     )
+    useStore.setState({ desktopExited: { 'contest-1': true } })
     renderWorkspace()
 
     // 考场皮肤：统计卡整体隐藏（display:none），只留倒计时/题目/提交/通告。
     expect(await screen.findByText(/NOI 全真模拟进行中/)).toBeInTheDocument()
     const statGrid = screen.getByText('参赛者').closest('div.rounded-xl')?.parentElement
     expect(statGrid).toHaveClass('hidden')
+  })
+
+  it('auto-enters the NOI Linux desktop sim once per visit', async () => {
+    const noiContest: Contest = { ...contest, mode: 'noi' }
+    server.use(
+      apiRoutes.get('/time', () =>
+        HttpResponse.json({ serverTime: new Date().toISOString() })
+      ),
+      apiRoutes.get('/contests/contest-1', () => HttpResponse.json(noiContest)),
+      apiRoutes.get('/contests/contest-1/problems', () =>
+        HttpResponse.json([answerProblem])
+      ),
+      apiRoutes.get('/contests/contest-1/submissions', () => HttpResponse.json([])),
+      apiRoutes.get('/contests/contest-1/ranking', () => HttpResponse.json([])),
+      apiRoutes.get('/contests/contest-1/messages', () => HttpResponse.json([]))
+    )
+    renderWorkspace()
+
+    // NOI 作答模式 = 仿真桌面：比赛就绪后自动进入，无需学生手动切换。
+    // 进入后整页只剩仿真桌面（懒加载占位），断言会话状态即可。
+    await waitFor(() => expect(useStore.getState().desktopMode).toBe(true))
   })
 })
