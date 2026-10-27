@@ -21,6 +21,8 @@ export type CompareMode =
   | 'testlib_special_judge'
 
 export type ContestMode = 'online' | 'noi' | 'gesp'
+/** 作答模式：仅 mode=online（文件收卷）有意义；学生端按配置自动路由，不可手选。 */
+export type AnswerMode = 'file' | 'henan'
 
 export interface Contest {
   id: string
@@ -30,6 +32,8 @@ export interface Contest {
   rankingMode?: RankingMode
   /** 比赛组织方式：online 在线提交 / noi NOI 全真模拟 / gesp GESP 机考。 */
   mode?: ContestMode
+  /** 作答模式（仅 mode=online 文件收卷有意义）：file 普通 / henan 河南版。 */
+  answerMode?: AnswerMode
   /** 准考证赛季（如 "2026"）：同一赛季同一组别的所有比赛共用一套号。 */
   season?: string
   /** 本场认证的组别：收题包按（赛季, 组别）反查准考证目录。 */
@@ -527,11 +531,20 @@ export const api = {
     rankingMode: RankingMode = 'oi',
     allowedLanguages: string[] = [],
     mode: ContestMode = 'online',
-    ticketScope: { season?: string; ticketGroup?: 'J' | 'S' } = {}
+    ticketScope: { season?: string; ticketGroup?: 'J' | 'S' } = {},
+    answerMode: AnswerMode = 'file'
   ) =>
     request<Contest>('/contests', {
       method: 'POST',
-      body: JSON.stringify({ name, description, rankingMode, allowedLanguages, mode, ...ticketScope }),
+      body: JSON.stringify({
+        name,
+        description,
+        rankingMode,
+        allowedLanguages,
+        mode,
+        ...ticketScope,
+        ...(mode === 'online' ? { answerMode } : {}),
+      }),
     }),
   startContest: (cid: string) =>
     request<Contest>(`/contests/${encoded(cid)}/start`, { method: 'POST' }),
@@ -541,6 +554,8 @@ export const api = {
     cid: string,
     settings: {
       rankingMode?: RankingMode
+      mode?: ContestMode
+      answerMode?: AnswerMode
       allowedLanguages?: string[]
       season?: string
       ticketGroup?: 'J' | 'S'

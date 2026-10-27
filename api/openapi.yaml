@@ -249,6 +249,13 @@ paths:
                   enum: [online, noi, gesp]
                   default: online
                   description: online in-contest feedback / noi full-simulation (results after finish) / gesp objective exam.
+                answerMode:
+                  type: string
+                  enum: [file, henan]
+                  description: >-
+                    Answer flow for online (file collection) contests only:
+                    file = standard file collection (Lemon style), henan =
+                    Henan-style strict collection. Ignored for noi/gesp.
                 allowedLanguages:
                   type: array
                   items:
@@ -374,6 +381,13 @@ paths:
                 mode:
                   type: string
                   enum: [online, noi, gesp]
+                answerMode:
+                  type: string
+                  enum: [file, henan]
+                  description: >-
+                    Answer flow for online (file collection) contests only:
+                    file = standard file collection, henan = Henan-style strict
+                    collection. Rejected for noi/gesp contests.
                 allowedLanguages:
                   type: array
                   items:
@@ -2087,6 +2101,13 @@ components:
         mode:
           type: string
           enum: [online, noi, gesp]
+        answerMode:
+          type: string
+          enum: [file, henan]
+          description: >-
+            Answer flow for online (file collection) contests only: file =
+            standard file collection (Lemon style), henan = Henan-style strict
+            collection. Students are routed automatically; no manual switching.
         season:
           type: string
           description: Ticket season shared by every contest of the same exam period.

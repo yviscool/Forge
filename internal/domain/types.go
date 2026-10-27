@@ -83,6 +83,10 @@ type Contest struct {
 	// Mode 比赛组织方式（domain/contest_mode.go）：online 在线提交（默认）、
 	// noi NOI 全真模拟（赛中屏蔽反馈、以最后一次提交计分）、gesp GESP 机考。
 	Mode string `json:"mode,omitempty"`
+	// AnswerMode 作答模式，仅 Mode == online（文件收卷）时有意义：
+	// file 普通文件收卷（默认）/ henan 河南版收卷。学生端据此自动路由，
+	// 不提供手动选择（考场口径由教师统一锁定）。
+	AnswerMode string `json:"answerMode,omitempty"`
 	// Season 赛季标识（如 "2026"）：准考证号按赛季发放，同一赛季内所有
 	// 模拟赛/正式赛共用同一套号。空值表示未归档，收题时回落到当前年份。
 	Season string `json:"season,omitempty"`

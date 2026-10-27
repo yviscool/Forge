@@ -1045,6 +1045,34 @@ func (s *Service) SetContestMode(cid, mode string) (domain.Contest, error) {
 		return domain.Contest{}, errors.New("contest settings are frozen once the contest starts")
 	}
 	c.Mode = domain.NormalizeMode(mode)
+	if c.Mode != domain.ModeOnline {
+		// 作答模式只对文件收卷比赛有意义；切走时清掉，避免残留矛盾配置。
+		c.AnswerMode = ""
+	}
+	if err := s.store.UpdateContest(c); err != nil {
+		return domain.Contest{}, err
+	}
+	s.emit("contest.updated", cid, c)
+	return c, nil
+}
+
+// SetContestAnswerMode 配置文件收卷比赛的作答模式（file 普通 / henan 河南版）。
+// 仅 online（文件收卷）比赛可配；学生端按此自动路由作答页面，不提供手动切换。
+func (s *Service) SetContestAnswerMode(cid, answerMode string) (domain.Contest, error) {
+	if !domain.ValidAnswerMode(answerMode) {
+		return domain.Contest{}, fmt.Errorf("unknown answer mode %q", answerMode)
+	}
+	c, err := s.store.GetContest(cid)
+	if err != nil {
+		return domain.Contest{}, err
+	}
+	if !c.CanModifySettings() {
+		return domain.Contest{}, errors.New("contest settings are frozen once the contest starts")
+	}
+	if domain.NormalizeMode(c.Mode) != domain.ModeOnline {
+		return domain.Contest{}, errors.New("answer mode only applies to online (file collection) contests")
+	}
+	c.AnswerMode = domain.NormalizeAnswerMode(answerMode)
 	if err := s.store.UpdateContest(c); err != nil {
 		return domain.Contest{}, err
 	}

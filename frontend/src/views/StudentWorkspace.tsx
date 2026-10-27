@@ -599,6 +599,16 @@ export function StudentWorkspace() {
     [contest?.allowedLanguages]
   )
 
+  // NOI 比赛即 NOI Linux 仿真作答：比赛加载完成后自动进入仿真桌面；
+  // 选手点「退出桌面」后本次会话不再强制拉回（noiDesktopEntered 熔断）。
+  const noiDesktopEntered = useRef(false)
+  useEffect(() => {
+    if (noiDesktopEntered.current) return
+    if (contest?.mode !== 'noi' || !activeProblem) return
+    noiDesktopEntered.current = true
+    setDesktopMode(true)
+  }, [contest?.mode, activeProblem, setDesktopMode])
+
   useEffect(() => {
     if (!activeProblem || activeProblem.taskType === 'choice') return
     if (languageOptions.length && !languageOptions.some((option) => option.value === language)) {

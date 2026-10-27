@@ -338,6 +338,7 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 				Description      string   `json:"description"`
 				RankingMode      string   `json:"rankingMode"`
 				Mode             string   `json:"mode"`
+				AnswerMode       string   `json:"answerMode"`
 				AllowedLanguages []string `json:"allowedLanguages"`
 				Season           string   `json:"season"`
 				TicketGroup      string   `json:"ticketGroup"`
@@ -350,6 +351,12 @@ func (h *Server) dispatch(w http.ResponseWriter, r *http.Request) {
 			if err != nil {
 				h.err(w, r, 400, err)
 				return
+			}
+			if v.AnswerMode != "" {
+				if c, err = h.svc.SetContestAnswerMode(c.ID, v.AnswerMode); err != nil {
+					h.err(w, r, 400, err)
+					return
+				}
 			}
 			if len(v.AllowedLanguages) > 0 {
 				if c, err = h.svc.SetContestLanguages(c.ID, v.AllowedLanguages); err != nil {
@@ -1155,6 +1162,7 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		var v struct {
 			RankingMode      *string   `json:"rankingMode"`
 			Mode             *string   `json:"mode"`
+			AnswerMode       *string   `json:"answerMode"`
 			AllowedLanguages *[]string `json:"allowedLanguages"`
 			Season           *string   `json:"season"`
 			TicketGroup      *string   `json:"ticketGroup"`
@@ -1176,6 +1184,12 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		if v.Mode != nil {
 			if c, err = h.svc.SetContestMode(cid, *v.Mode); err != nil {
+				h.err(w, r, 400, err)
+				return
+			}
+		}
+		if v.AnswerMode != nil {
+			if c, err = h.svc.SetContestAnswerMode(cid, *v.AnswerMode); err != nil {
 				h.err(w, r, 400, err)
 				return
 			}

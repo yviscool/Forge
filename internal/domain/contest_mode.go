@@ -47,6 +47,37 @@ func StudentResultsVisible(mode string, status Status) bool {
 	return true
 }
 
+// 作答模式（Contest.AnswerMode），仅在 Mode == online（文件收卷）下有意义：
+//
+//	file — 普通文件收卷（默认）：按「题面英文名/源文件」规则收卷（Lemon 风格）；
+//	henan — 河南版收卷：仅 C++、严格文件名、最终确认后冻结（兼容河南本地收卷系统）。
+//
+// noi 模式固定为 NOI Linux 仿真桌面作答、gesp 固定为客观题机考，不使用本字段。
+const (
+	AnswerFile  = "file"
+	AnswerHenan = "henan"
+)
+
+// NormalizeAnswerMode 归一化作答模式；空值视为 file（存量比赛零迁移）。
+func NormalizeAnswerMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case AnswerHenan:
+		return AnswerHenan
+	default:
+		return AnswerFile
+	}
+}
+
+// ValidAnswerMode 报告取值是否为已知作答模式（空值合法，代表 file）。
+func ValidAnswerMode(mode string) bool {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "", AnswerFile, AnswerHenan:
+		return true
+	default:
+		return false
+	}
+}
+
 // NOI 形态下学生侧展示用的替代判定：不携带任何判分信息。
 const VerdictSubmittedMasked = "submitted"
 

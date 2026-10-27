@@ -7,13 +7,11 @@ import {
   CalendarClock,
   CheckCircle2,
   Clock3,
-  Landmark,
   PlayCircle,
   Search,
   ShieldCheck,
   Sparkles,
   Trophy,
-  Upload,
 } from 'lucide-react'
 import { api, type Contest, type ContestStatus } from '../api/client'
 import { Button } from '../components/ui/button'
@@ -56,18 +54,24 @@ function formatDate(value?: string): string {
 function ContestCard({
   contest,
   onEnter,
-  onEnterFileSubmit,
-  onEnterHenan,
 }: {
   contest: Contest
-  onEnter: () => void
-  onEnterFileSubmit: () => void
-  onEnterHenan: () => void
+  onEnter: (cid: string) => void
 }) {
   const meta = STATUS_META[contest.status]
   const StatusIcon = meta.icon
   const problemCount = contest.problemIds?.length ?? 0
   const participantCount = contest.participantUserIds?.length ?? 0
+  // 作答模式由比赛配置锁定：教师配置什么，学生进什么，不提供手动切换。
+  // online=文件收卷（file 普通 / henan 河南版）；noi=NOI Linux 仿真；gesp=客观题机考。
+  const modeLabel =
+    contest.mode === 'noi'
+      ? 'NOI Linux 仿真'
+      : contest.mode === 'gesp'
+        ? '客观题机考'
+        : contest.answerMode === 'henan'
+          ? '文件收卷 · 河南版'
+          : '文件收卷'
 
   return (
     <Card
@@ -107,49 +111,30 @@ function ContestCard({
             <Trophy className="h-3.5 w-3.5 text-amber-600" />
             {participantCount ? `${participantCount} 位选手` : '等待编组'}
           </span>
-          {contest.bindIpEnabled && (
-            <span className="flex items-center gap-1.5 text-rose-700">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              机位绑定
-            </span>
-          )}
+          <span
+            className="flex items-center gap-1.5"
+            title={contest.bindIpEnabled ? '机位绑定已启用' : modeLabel}
+          >
+            {contest.bindIpEnabled ? (
+              <>
+                <ShieldCheck className="h-3.5 w-3.5 text-rose-700" />
+                机位绑定
+              </>
+            ) : (
+              modeLabel
+            )}
+          </span>
         </div>
 
-        <div className="grid grid-cols-1 gap-2">
-          <Button
-            data-testid="enter-contest"
-            onClick={onEnter}
-            variant={contest.status === 'running' ? 'accent' : 'outline'}
-            className="w-full justify-between"
-          >
-            {contest.status === 'running' ? '进入考场' : '查看比赛'}
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-          {/* 文件提交模式（Lemon）：轻量网页提交流（在线编辑 / 上传文件 / 整包上传）。
-              后端接入前由 mock 数据驱动演示。 */}
-          <Button
-            data-testid="enter-filesubmit"
-            onClick={onEnterFileSubmit}
-            variant="ghost"
-            size="sm"
-            className="w-full justify-between"
-          >
-            文件提交模式
-            <Upload className="h-3.5 w-3.5" />
-          </Button>
-          {/* 文件提交模式（河南版）：兼容河南本地收卷系统规则
-              （仅 C++、严格文件名、最终确认冻结）。 */}
-          <Button
-            data-testid="enter-henan"
-            onClick={onEnterHenan}
-            variant="ghost"
-            size="sm"
-            className="w-full justify-between"
-          >
-            文件提交模式 · 河南版
-            <Landmark className="h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <Button
+          data-testid="enter-contest"
+          onClick={() => onEnter(contest.id)}
+          variant={contest.status === 'running' ? 'accent' : 'outline'}
+          className="w-full justify-between"
+        >
+          {contest.status === 'running' ? '进入考场' : '查看比赛'}
+          <ArrowRight className="h-4 w-4" />
+        </Button>
       </CardContent>
     </Card>
   )
@@ -276,9 +261,15 @@ export function StudentLobby() {
             <ContestCard
               key={contest.id}
               contest={contest}
-              onEnter={() => navigate(`/contest/${contest.id}`)}
-              onEnterFileSubmit={() => navigate(`/contest/${contest.id}/files`)}
-              onEnterHenan={() => navigate(`/contest/${contest.id}/henan`)}
+              onEnter={(cid) => {
+                // 作答模式随比赛配置自动路由：online=文件收卷（普通/河南版），
+                // noi=NOI Linux 仿真作答，gesp=客观题机考。学生不手动选模式。
+                if (contest.mode === 'online') {
+                  navigate(`/contest/${cid}/${contest.answerMode === 'henan' ? 'henan' : 'files'}`)
+                  return
+                }
+                navigate(`/contest/${cid}`)
+              }}
             />
           ))}
         </div>

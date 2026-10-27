@@ -2,6 +2,7 @@ import React, { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import {
   api,
+  type AnswerMode,
   type ContestMode,
   type CompareMode,
   type ChoiceQuestion,
@@ -228,6 +229,7 @@ export function TeacherConsole() {
     name: string
     description: string
     mode: ContestMode
+    answerMode: AnswerMode
     rankingMode: RankingMode
     season: string
     ticketGroup: '' | 'J' | 'S'
@@ -236,6 +238,7 @@ export function TeacherConsole() {
     description: '',
     rankingMode: 'oi',
     mode: 'online',
+    answerMode: 'file',
     // 准考证按赛季发号：新建比赛默认挂到当前赛季。
     season: String(new Date().getFullYear()),
     ticketGroup: '',
@@ -816,13 +819,15 @@ export function TeacherConsole() {
         {
           season: newContestForm.season.trim(),
           ticketGroup: newContestForm.ticketGroup || undefined,
-        }
+        },
+        newContestForm.answerMode
       )
       setNewContestForm({
         name: '',
         description: '',
         rankingMode: 'oi',
         mode: 'online',
+        answerMode: 'file',
         season: String(new Date().getFullYear()),
         ticketGroup: '',
       })
@@ -1602,14 +1607,34 @@ export function TeacherConsole() {
                 setNewContestForm({
                   ...newContestForm,
                   mode: event.target.value as ContestMode,
+                  // 切走文件收卷时清掉收卷方式，避免残留矛盾配置。
+                  answerMode:
+                    event.target.value === 'online' ? newContestForm.answerMode : 'file',
                 })
               }
             >
-              <option value="online">在线提交 · 边赛边评实时反馈</option>
-              <option value="noi">NOI 全真模拟 · 赛中屏蔽反馈，赛后统一公布</option>
+              <option value="online">文件收卷 · 选手在仿真桌面/本机作答，按规则统一收卷</option>
+              <option value="noi">NOI Linux 仿真 · 全真桌面作答，赛中屏蔽反馈，赛后统一公布</option>
               <option value="gesp">GESP 机考 · 客观题交卷即判</option>
             </Select>
           </label>
+          {newContestForm.mode === 'online' && (
+            <label className="block space-y-1.5">
+              <span className="text-xs font-bold text-slate-700">收卷方式</span>
+              <Select
+                value={newContestForm.answerMode}
+                onChange={(event) =>
+                  setNewContestForm({
+                    ...newContestForm,
+                    answerMode: event.target.value as AnswerMode,
+                  })
+                }
+              >
+                <option value="file">普通文件收卷 · Lemon 风格（题面英文名/源文件）</option>
+                <option value="henan">河南版收卷 · 仅 C++、严格文件名、最终确认后冻结</option>
+              </Select>
+            </label>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1.5">
               <span className="text-xs font-bold text-slate-700">准考证赛季</span>
@@ -2006,6 +2031,32 @@ export function TeacherConsole() {
                     <option value="acm">ACM · 题数与罚时</option>
                   </Select>
                 </div>
+                {currentContest?.mode !== 'noi' && currentContest?.mode !== 'gesp' && (
+                  <div>
+                    <span className="text-slate-400 text-xs block mb-1">收卷方式:</span>
+                    <Select
+                      aria-label="收卷方式"
+                      value={currentContest?.answerMode || 'file'}
+                      disabled={!paperEditable}
+                      title={paperEditable ? undefined : '比赛启动后收卷方式已冻结'}
+                      onChange={async (event) => {
+                        try {
+                          await api.updateContestSettings(cid, {
+                            answerMode: event.target.value as AnswerMode,
+                          })
+                          await refetchContests()
+                          toast.success('收卷方式已更新', '学生进入考场将按此自动路由')
+                        } catch (cause) {
+                          toast.error('更新收卷方式失败', errorText(cause))
+                        }
+                      }}
+                      className="h-9 text-xs"
+                    >
+                      <option value="file">普通文件收卷 · Lemon 风格</option>
+                      <option value="henan">河南版收卷 · 严格文件名/确认冻结</option>
+                    </Select>
+                  </div>
+                )}
                 <div>
                   <span className="text-slate-400 text-xs block mb-1">试题数量:</span>
                   <p className="font-bold text-slate-800">{problems.length} 道题目</p>
