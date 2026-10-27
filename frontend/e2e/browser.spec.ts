@@ -49,6 +49,9 @@ async function createContestWithChoiceProblem(
         name: contestName,
         description: 'Browser acceptance fixture',
         rankingMode: 'oi',
+        // 机考形态：学生端按比赛配置自动路由到网页工作台
+        // （mode=online 现在是文件收卷，会路由到 /files 收卷流）。
+        mode: 'gesp',
         allowedLanguages: ['cpp', 'python', 'go'],
       },
     })
