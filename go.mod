@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	github.com/getlantern/systray v1.2.2
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
-	github.com/wailsapp/wails/v3 v3.0.0-beta.24
+	github.com/wailsapp/wails/v3 v3.0.0
 	golang.org/x/crypto v0.57.0
 	golang.org/x/sys v0.48.0
 	modernc.org/sqlite v1.60.1

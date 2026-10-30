@@ -988,6 +988,12 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		return
 	}
 
+	// /contests/{cid}/problems/import-package（导入主流题包：Polygon/Hydro/QDUOJ/FPS）
+	if len(rest) == 3 && rest[1] == "problems" && rest[2] == "import-package" && r.Method == "POST" {
+		h.importProblemPackageRoute(w, r, cid)
+		return
+	}
+
 	// /contests/{cid}/problems
 	if len(rest) == 2 && rest[1] == "problems" {
 		switch r.Method {
@@ -1045,6 +1051,11 @@ func (h *Server) contestRoutes(w http.ResponseWriter, r *http.Request, rest []st
 		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(html)
+		return
+	}
+	// /contests/{cid}/export-package（导出符合 NOI/CSP 标准规范的离线试题包）
+	if len(rest) == 2 && rest[1] == "export-package" && r.Method == "GET" {
+		h.exportNOIPackageRoute(w, r, cid)
 		return
 	}
 	if len(rest) == 2 && rest[1] == "pdf" && r.Method == "GET" {

@@ -266,6 +266,12 @@ type Problem struct {
 	// 题目级工具链覆盖（对标 LemonLime 每题每编译器可选配置；空值继承全局
 	// FORGE_TOOLCHAINS 配置）。CompileStd 仅对 C/C++ 生效（如 "c++17"）。
 	CompileStd string `json:"compileStd,omitempty"`
+	// CompileOpt 编译优化等级（如 "O0", "O2", "O3"；空值继承缺省 O2）。
+	CompileOpt string `json:"compileOpt,omitempty"`
+	// CompileWarn 告警等级（"default", "wall", "extra", "strict"）。
+	CompileWarn string `json:"compileWarn,omitempty"`
+	// CompileFlags 附加安全编译参数（如 "-fno-ms-extensions", "-DLOCAL_JUDGE"）。
+	CompileFlags []string `json:"compileFlags,omitempty"`
 	// TimeLimitRatio / MemoryLimitRatio 题目级运行限额倍率（与工具链倍率
 	// 叠加相乘；0 = 不覆盖）。DisableMemoryLimitCheck 题目级关闭硬内存墙。
 	TimeLimitRatio          float64 `json:"timeLimitRatio,omitempty"`

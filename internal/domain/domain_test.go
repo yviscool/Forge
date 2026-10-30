@@ -21,6 +21,30 @@ func TestValidateProblem(t *testing.T) {
 	}); err == nil {
 		t.Fatal("unsupported checker language must fail closed")
 	}
+	// 题目级高级编译参数校验测试
+	validOpt := Problem{
+		ContestID: "c", Code: "A", Title: "T", Statement: "s", Input: "i",
+		Output: "o", Constraints: "k", CompileStd: "c++17", CompileOpt: "O3",
+		CompileWarn: "extra", CompileFlags: []string{"-DLOCAL_JUDGE", "-fno-ms-extensions"},
+	}
+	if err := ValidateProblem(validOpt); err != nil {
+		t.Fatalf("valid compile options rejected: %v", err)
+	}
+	invalidOpt := validOpt
+	invalidOpt.CompileOpt = "O999"
+	if err := ValidateProblem(invalidOpt); err == nil {
+		t.Fatal("invalid compileOpt should be rejected")
+	}
+	invalidWarn := validOpt
+	invalidWarn.CompileWarn = "unknown"
+	if err := ValidateProblem(invalidWarn); err == nil {
+		t.Fatal("invalid compileWarn should be rejected")
+	}
+	invalidFlags := validOpt
+	invalidFlags.CompileFlags = []string{"-DTEST;rm -rf /"}
+	if err := ValidateProblem(invalidFlags); err == nil {
+		t.Fatal("malicious compileFlags should be rejected")
+	}
 }
 
 func TestValidateSubtaskDependencies(t *testing.T) {

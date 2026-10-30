@@ -153,6 +153,17 @@ func ValidateProblem(p Problem) error {
 	if p.CompileStd != "" && !validCompileStd(p.CompileStd) {
 		return errors.New("compileStd must be a plain token like c++17 or c11")
 	}
+	if p.CompileOpt != "" && !validCompileOpt(p.CompileOpt) {
+		return errors.New("compileOpt must be one of O0, O1, O2, O3, Ofast")
+	}
+	if p.CompileWarn != "" && !validCompileWarn(p.CompileWarn) {
+		return errors.New("compileWarn must be one of default, wall, extra, strict")
+	}
+	if len(p.CompileFlags) > 0 {
+		if err := validCompileFlags(p.CompileFlags); err != nil {
+			return err
+		}
+	}
 	if p.TimeLimitRatio < 0 || p.TimeLimitRatio > 100 {
 		return errors.New("time limit ratio must be between 0 and 100")
 	}
@@ -283,6 +294,51 @@ func validCompileStd(std string) bool {
 		}
 	}
 	return true
+}
+
+func validCompileOpt(opt string) bool {
+	switch opt {
+	case "O0", "O1", "O2", "O3", "Ofast":
+		return true
+	default:
+		return false
+	}
+}
+
+func validCompileWarn(warn string) bool {
+	switch warn {
+	case "default", "wall", "extra", "strict":
+		return true
+	default:
+		return false
+	}
+}
+
+func validCompileFlags(flags []string) error {
+	if len(flags) > 16 {
+		return errors.New("compileFlags accepts at most 16 arguments")
+	}
+	for _, f := range flags {
+		f = strings.TrimSpace(f)
+		if len(f) == 0 || len(f) > 64 {
+			return errors.New("compile flag length must be between 1 and 64")
+		}
+		if !strings.HasPrefix(f, "-") {
+			return fmt.Errorf("compile flag %q must start with -", f)
+		}
+		if strings.ContainsAny(f, ";|&$`\"'\\/ \t\r\n") {
+			return fmt.Errorf("compile flag %q contains disallowed characters", f)
+		}
+		if !strings.HasPrefix(f, "-D") &&
+			!strings.HasPrefix(f, "-f") &&
+			!strings.HasPrefix(f, "-m") &&
+			!strings.HasPrefix(f, "-W") &&
+			!strings.HasPrefix(f, "-std=") &&
+			!strings.HasPrefix(f, "-O") {
+			return fmt.Errorf("compile flag %q prefix not allowed", f)
+		}
+	}
+	return nil
 }
 
 func validateTextLength(field, value string, limit int) error {

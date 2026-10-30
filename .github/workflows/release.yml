@@ -117,11 +117,71 @@ jobs:
             tar -C dist/stage -czf "${base}.tar.gz" .
             go version -m "dist/stage/forge${suffix}" > "${base}.sbom.txt"
             sha256sum "${base}.tar.gz" "${base}.sbom.txt" >> dist/release/SHA256SUMS
+
+            # For Linux amd64, package a self-contained desktop AppDir bundle
+            if [ "$goos" = "linux" ] && [ "$goarch" = "amd64" ]; then
+              local appdir="dist/forge.AppDir"
+              rm -rf "$appdir"
+              mkdir -p "$appdir/usr/bin"
+              cp "dist/stage/forge" "$appdir/usr/bin/forge"
+              cat << 'EOF' > "$appdir/AppRun"
+#!/bin/sh
+HERE="$(dirname "$(readlink -f "${0}")")"
+exec "$HERE/usr/bin/forge" "$@"
+EOF
+              chmod +x "$appdir/AppRun"
+              cat << 'EOF' > "$appdir/forge.desktop"
+[Desktop Entry]
+Name=Forge
+Comment=High-Performance OI/ICPC Contest & Training System
+Exec=forge
+Icon=forge
+Type=Application
+Categories=Development;Education;
+Terminal=false
+EOF
+              tar -C "dist" -czf "dist/release/forge_${version}_linux_amd64_appdir.tar.gz" forge.AppDir
+              sha256sum "dist/release/forge_${version}_linux_amd64_appdir.tar.gz" >> dist/release/SHA256SUMS
+            fi
+
+            # For macOS, package native macOS application bundle (.app)
+            if [ "$goos" = "darwin" ]; then
+              local appbundle="dist/Forge.app"
+              rm -rf "$appbundle"
+              mkdir -p "$appbundle/Contents/MacOS" "$appbundle/Contents/Resources"
+              cp "dist/stage/forge" "$appbundle/Contents/MacOS/Forge"
+              chmod +x "$appbundle/Contents/MacOS/Forge"
+              cat << EOF > "$appbundle/Contents/Info.plist"
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key>
+  <string>Forge</string>
+  <key>CFBundleIdentifier</key>
+  <string>io.forge.desktop</string>
+  <key>CFBundleName</key>
+  <string>Forge</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>${version}</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>10.15</string>
+  <key>NSHighResolutionCapable</key>
+  <true/>
+</dict>
+</plist>
+EOF
+              tar -C "dist" -czf "dist/release/forge_${version}_darwin_${goarch}_app.tar.gz" Forge.app
+              sha256sum "dist/release/forge_${version}_darwin_${goarch}_app.tar.gz" >> dist/release/SHA256SUMS
+            fi
           }
 
           build_target windows amd64
           build_target linux amd64
           build_target linux arm64
+          build_target darwin amd64
           build_target darwin arm64
           printf 'source_commit=%s\nrelease=%s\n' "$GITHUB_SHA" "$version" \
             > dist/release/RELEASE-METADATA.txt

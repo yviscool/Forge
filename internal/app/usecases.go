@@ -560,6 +560,27 @@ func (s *Service) UpdateProblem(p domain.Problem) (domain.Problem, error) {
 	if p.OutFile != "" {
 		cur.OutFile = p.OutFile
 	}
+	if p.CompileStd != "" {
+		cur.CompileStd = p.CompileStd
+	}
+	if p.CompileOpt != "" {
+		cur.CompileOpt = p.CompileOpt
+	}
+	if p.CompileWarn != "" {
+		cur.CompileWarn = p.CompileWarn
+	}
+	if p.CompileFlags != nil {
+		cur.CompileFlags = p.CompileFlags
+	}
+	if p.TimeLimitRatio > 0 {
+		cur.TimeLimitRatio = p.TimeLimitRatio
+	}
+	if p.MemoryLimitRatio > 0 {
+		cur.MemoryLimitRatio = p.MemoryLimitRatio
+	}
+	if p.DisableMemoryLimitCheck != nil {
+		cur.DisableMemoryLimitCheck = p.DisableMemoryLimitCheck
+	}
 	if p.CheckerCode != "" {
 		cur.CheckerCode = p.CheckerCode
 		cur.CheckerLang = p.CheckerLang

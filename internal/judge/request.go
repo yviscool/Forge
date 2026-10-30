@@ -40,6 +40,9 @@ func BuildRequest(x domain.Submission, p domain.Problem) (Request, bool) {
 		CompileTimeoutSec: p.CompileTimeoutSec,
 		// 题目级工具链覆盖（对标 LemonLime 每题每编译器配置）。
 		CompileStd:              p.CompileStd,
+		CompileOpt:              p.CompileOpt,
+		CompileWarn:             p.CompileWarn,
+		CompileFlags:            p.CompileFlags,
 		TimeLimitRatio:          p.TimeLimitRatio,
 		MemoryLimitRatio:        p.MemoryLimitRatio,
 		DisableMemoryLimitCheck: p.DisableMemoryLimitCheck,

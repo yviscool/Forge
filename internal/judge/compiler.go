@@ -30,6 +30,12 @@ type CompileResult struct {
 type CompileOptions struct {
 	// Std 覆盖 C/C++ -std（如 "c++17"）；空保持工具链配置。
 	Std string
+	// Opt 覆盖优化等级（如 "O0", "O2", "O3"）；空保持缺省 "O2"。
+	Opt string
+	// Warn 告警级别（"default", "wall", "extra", "strict"）。
+	Warn string
+	// Flags 附加安全编译参数。
+	Flags []string
 }
 
 // Compiler 语言工具链抽象（可 fake 单测 verdict 映射）。
@@ -140,12 +146,31 @@ func (t Toolchain) Compile(ctx context.Context, lang string, src []byte, workdir
 		if err := os.WriteFile(srcPath, src, 0644); err != nil {
 			return CompileResult{}, err
 		}
-		// 缺省即 CCF 复赛口径：-O2 -std=c++14（可在工具链配置覆盖）。
-		args := append([]string{"-O2"}, sp.Args...)
+		// 缺省即 CCF 复赛口径：-O2 -std=c++14（可在工具链配置或题目级覆盖）。
+		opt := "-O2"
+		if opts.Opt != "" {
+			opt = "-" + opts.Opt
+		}
+		var extraArgs []string
+		switch opts.Warn {
+		case "wall":
+			extraArgs = append(extraArgs, "-Wall")
+		case "extra":
+			extraArgs = append(extraArgs, "-Wall", "-Wextra")
+		case "strict":
+			extraArgs = append(extraArgs, "-Wall", "-Wextra", "-Werror")
+		}
+		if len(opts.Flags) > 0 {
+			extraArgs = append(extraArgs, opts.Flags...)
+		}
+		args := append([]string{opt}, sp.Args...)
+		args = append(args, extraArgs...)
 		if lang != "c" && sp.Std != "" {
 			args = append(args, "-std="+sp.Std)
 		}
 		args = append(args, "-o", exePath, srcPath)
+		// 缓存 key 记录生效的完整编译参数组合
+		sp.Args = append(append([]string{opt}, sp.Args...), extraArgs...)
 		return t.cachedCompile(ctx, lang, src, sp, workdir, exePath,
 			func(out *bytes.Buffer) error {
 				return t.runCompiler(ctx, append([]string{cc}, args...), "", sp.CompileMemoryMiB, out)

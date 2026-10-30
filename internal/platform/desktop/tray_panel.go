@@ -5,7 +5,7 @@ package desktop
 //
 // 关键约束（别再退回 <a target="_blank">）：
 // WebView2 对任何 target=_blank / window.open 都会走 NewWindowRequested，
-// 而 Wails v3 beta.24 不接管它，于是系统默认浏览器（Edge）会弹出一个
+// 而 Wails v3 默认不接管它，于是系统默认浏览器（Edge）会弹出一个
 // 带地址栏、带 Edge 图标的「假控制台」。桌面外壳内（?native=1）所有
 // 「去」动作必须走 POST /api/v1/ui/command，由 Go 侧打开原生窗口。
 // 只有非外壳形态（浏览器里直接开 /tray）才允许 window.open 开新标签。

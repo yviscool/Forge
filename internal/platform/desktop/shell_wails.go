@@ -31,7 +31,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		icon = nil
 	}
 
-	// 外壳诊断日志（beta.24 窗口时序问题的现场记录）。
+	// 外壳诊断日志（Wails 窗口时序问题的现场记录）。
 	debugLog := func(format string, args ...any) {
 		f, ferr := os.OpenFile(filepath.Join(".", "data", "shell-debug.log"),
 			os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -74,7 +74,7 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	// 页面加载策略（本轮实测结论，别再改回资产代理）：
 	// 所有窗口直接加载真实服务地址 http://127.0.0.1:8080 —— 与局域网学生
 	// 访问的是同一个进程、同一个源。三个必须的后果：
-	//   1) POST 请求体完整。走 Wails 资产服务器（同源代理）时 beta.24 会丢
+	//   1) POST 请求体完整。走 Wails 资产服务器（同源代理）时会丢
 	//      body：dt 兑换会话与教师登录都返回 400 invalid json，主窗永远停在
 	//      登录页、也永远登不进去；
 	//   2) 主窗与托盘面板同源 → 面板能读到主窗用 ?dt= 换来的会话 cookie
@@ -100,12 +100,16 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	if mainURL == "" {
 		mainURL = abs("/teacher")
 	}
-	// 主窗口：教师台。不设 Hidden：创建期即显示（beta.24 事件驱动的显示
-	// 时机不稳定，见下方兜底）。
+	// 主窗口：教师台。不设 Hidden：创建期即显示（事件驱动的显示
+	// 时机不稳定，见下方兜底）。支持 Win11 云母（Mica）材质与自适应深色/浅色主题。
 	mainWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "main", Title: "Forge 教师台",
 		URL:   mainURL,
 		Width: 1280, Height: 820, MinWidth: 960, MinHeight: 640,
+		Windows: application.WindowsWindow{
+			BackdropType: application.Mica,
+			Theme:        application.SystemDefault,
+		},
 	})
 	// 关闭 = 隐藏到托盘；退出走托盘菜单或 /shutdown API（magpie lightweight.go 同款）。
 	mainWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
@@ -134,7 +138,11 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 		Hidden: true, Frameless: true, AlwaysOnTop: true,
 		DisableResize: true, HideOnEscape: true, HideOnFocusLost: true,
 		BackgroundType: application.BackgroundTypeTranslucent,
-		Windows:        application.WindowsWindow{HiddenOnTaskbar: true},
+		Windows: application.WindowsWindow{
+			HiddenOnTaskbar: true,
+			BackdropType:    application.Acrylic,
+			Theme:           application.SystemDefault,
+		},
 	})
 	panel.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[panel]", time.Now().Format("15:04:05.000"))
@@ -146,6 +154,10 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	joinWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "join", Title: "Forge · 学生扫码加入",
 		URL: abs("/join"), Width: 440, Height: 700, Hidden: true,
+		Windows: application.WindowsWindow{
+			BackdropType: application.Mica,
+			Theme:        application.SystemDefault,
+		},
 	})
 	joinWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[join]", time.Now().Format("15:04:05.000"))
@@ -155,6 +167,10 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	bigWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "bigscreen", Title: "Forge · 监考大屏",
 		URL: abs("/teacher?tab=monitor"), Width: 1280, Height: 800, Hidden: true,
+		Windows: application.WindowsWindow{
+			BackdropType: application.Mica,
+			Theme:        application.SystemDefault,
+		},
 	})
 	bigWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[bigscreen]", time.Now().Format("15:04:05.000"))
@@ -164,6 +180,10 @@ func RunShell(urls TrayURLs, hooks ShellHooks, log *slog.Logger) {
 	studentWin := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Name: "student", Title: "Forge · 学生大厅（预览）",
 		URL: abs("/app"), Width: 1100, Height: 760, Hidden: true,
+		Windows: application.WindowsWindow{
+			BackdropType: application.Mica,
+			Theme:        application.SystemDefault,
+		},
 	})
 	studentWin.RegisterHook(events.Common.WindowClosing, func(e *application.WindowEvent) {
 		debugLog("[%s] WindowClosing[student]", time.Now().Format("15:04:05.000"))

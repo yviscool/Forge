@@ -103,6 +103,10 @@ export interface Problem {
   realEps?: number
   outputLimitKib?: number
   compileTimeoutSec?: number
+  compileStd?: string
+  compileOpt?: string
+  compileWarn?: string
+  compileFlags?: string[]
   checkerLang?: string
   checkerCode?: string
   interactorLang?: string
@@ -711,6 +715,22 @@ export const api = {
     ),
   fetchTestFile: (cid: string, pid: string, name: string) =>
     requestBlob(`/contests/${encoded(cid)}/problems/${encoded(pid)}/files/${encoded(name)}`),
+  /** 导入主流题包（Polygon / Hydro / QDUOJ / FPS HUSTOJ ZIP 包） */
+  importProblemPackage: (cid: string, file: Blob) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return request<Problem>(
+      `/contests/${encoded(cid)}/problems/import-package`,
+      { method: 'POST', body: formData },
+      false
+    )
+  },
+  /** 导出符合 NOI/CSP 规范的离线试题与测试数据包 */
+  exportNOIPackage: (cid: string) =>
+    triggerProtectedDownload(
+      `/contests/${encoded(cid)}/export-package`,
+      `contest-${cid}-noi.zip`
+    ),
   /** 收题包清单（?format=json）：下载 zip 前先看缺号/白卷告警。 */
   collectManifest: (cid: string) =>
     request<CollectPackage>(`/contests/${encoded(cid)}/collect?format=json`),

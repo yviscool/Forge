@@ -441,3 +441,30 @@ func TestFileIOTraversalContained(t *testing.T) {
 		t.Fatalf("contained traversal must still judge: %+v", got.Cases[0])
 	}
 }
+
+func TestCompileOptionsAdvanced(t *testing.T) {
+	cache, err := NewCompileCache(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	tc := Toolchain{Cache: cache}
+	src := []byte("#include <iostream>\nint main() { return 0; }\n")
+	sp1 := tc.spec("cpp")
+	sp1.Args = append(append([]string{"-O2"}, sp1.Args...), "-Wall")
+	k1 := cache.key("cpp", src, sp1)
+
+	sp2 := tc.spec("cpp")
+	sp2.Args = append(append([]string{"-O3"}, sp2.Args...), "-Wall", "-Wextra")
+	k2 := cache.key("cpp", src, sp2)
+
+	if k1 == k2 {
+		t.Fatal("cache key must differ for different optimization and warning options")
+	}
+
+	sp3 := sp1
+	sp3.Std = "c++17"
+	k3 := cache.key("cpp", src, sp3)
+	if k1 == k3 {
+		t.Fatal("cache key must differ for different -std standards")
+	}
+}

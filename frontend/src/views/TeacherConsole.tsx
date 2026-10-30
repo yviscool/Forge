@@ -296,6 +296,8 @@ export function TeacherConsole() {
   const [subtaskBusy, setSubtaskBusy] = useState(false)
   const [subtaskError, setSubtaskError] = useState('')
   const testFileInputRef = React.useRef<HTMLInputElement>(null)
+  const packageInputRef = React.useRef<HTMLInputElement>(null)
+  const [packageBusy, setPackageBusy] = useState(false)
   const [judgeDrafts, setJudgeDrafts] = useState<Record<string, { verdict: string; score: number }>>({})
   const [judgeBusy, setJudgeBusy] = useState('')
   const [expandedSubmissionId, setExpandedSubmissionId] = useState('')
@@ -1009,6 +1011,43 @@ export function TeacherConsole() {
       }
     } catch (e: unknown) {
       setProblemValidationMsg({ ok: false, msg: errorText(e) })
+    }
+  }
+
+  const handleImportPackage = async (file?: File) => {
+    if (!file) return
+    if (!file.name.toLowerCase().endsWith('.zip')) {
+      toast.error('仅支持 .zip 格式题包', '请上传 Polygon、Hydro、QDUOJ 或 HUSTOJ 标准 ZIP 题包。')
+      return
+    }
+    setPackageBusy(true)
+    try {
+      const p = await api.importProblemPackage(cid, file)
+      await refetchProblems()
+      toast.success(
+        '题包导入成功',
+        `试题「${p.code}. ${p.title}」已成功解析入库，共加载 ${p.testCases?.length ?? 0} 组测试用例。`
+      )
+    } catch (cause) {
+      toast.error('题包导入失败', errorText(cause))
+    } finally {
+      setPackageBusy(false)
+    }
+  }
+
+  const handleExportNOIPackage = async () => {
+    if (problems.length === 0) {
+      toast.warning('暂无试题可供导出')
+      return
+    }
+    setPackageBusy(true)
+    try {
+      await api.exportNOIPackage(cid)
+      toast.success('NOI 离线题包已导出', '已包含各题目题面、problem.conf 测评配置与 data 目录。')
+    } catch (cause) {
+      toast.error('导出题包失败', errorText(cause))
+    } finally {
+      setPackageBusy(false)
     }
   }
 
@@ -2583,6 +2622,38 @@ export function TeacherConsole() {
               </p>
             </div>
             <div className="flex items-center gap-2">
+              <input
+                ref={packageInputRef}
+                type="file"
+                accept=".zip,application/zip"
+                className="hidden"
+                aria-label="选择题包 ZIP"
+                onChange={(e) => {
+                  const file = e.target.files?.[0]
+                  if (file) void handleImportPackage(file)
+                  e.target.value = ''
+                }}
+              />
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={packageBusy || problems.length === 0}
+                onClick={() => void handleExportNOIPackage()}
+                title="导出符合 NOI/CSP 标准的离线试题与测试数据包"
+                className="gap-1.5 text-xs"
+              >
+                <Download className="w-3.5 h-3.5" /> 导出 NOI 离线包
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!paperEditable || packageBusy}
+                title={paperEditable ? '兼容导入 Polygon / Hydro / QDUOJ / HUSTOJ 标准 ZIP 题包' : '比赛启动后试卷已冻结'}
+                onClick={() => packageInputRef.current?.click()}
+                className="gap-1.5 text-xs"
+              >
+                <Upload className="w-3.5 h-3.5" /> 导入题包
+              </Button>
               <Button
                 size="sm"
                 disabled={!paperEditable}
@@ -3223,6 +3294,67 @@ export function TeacherConsole() {
                             }
                             className="h-8 text-xs"
                           />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            C++ 标准
+                          </label>
+                          <select
+                            value={editingProblem.compileStd || ''}
+                            onChange={(e) =>
+                              setEditingProblem({
+                                ...editingProblem,
+                                compileStd: e.target.value || undefined,
+                              })
+                            }
+                            className="h-8 w-full rounded border border-slate-200 bg-white px-2 text-xs text-slate-800"
+                          >
+                            <option value="">默认 (c++14)</option>
+                            <option value="c++11">C++11</option>
+                            <option value="c++14">C++14 (CCF标准)</option>
+                            <option value="c++17">C++17 (NOI标准)</option>
+                            <option value="c++20">C++20</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            优化级别
+                          </label>
+                          <select
+                            value={editingProblem.compileOpt || ''}
+                            onChange={(e) =>
+                              setEditingProblem({
+                                ...editingProblem,
+                                compileOpt: e.target.value || undefined,
+                              })
+                            }
+                            className="h-8 w-full rounded border border-slate-200 bg-white px-2 text-xs text-slate-800"
+                          >
+                            <option value="">默认 (-O2)</option>
+                            <option value="O0">-O0 (不优化)</option>
+                            <option value="O2">-O2 (标准优化)</option>
+                            <option value="O3">-O3 (激进优化/省选)</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                            编译告警
+                          </label>
+                          <select
+                            value={editingProblem.compileWarn || ''}
+                            onChange={(e) =>
+                              setEditingProblem({
+                                ...editingProblem,
+                                compileWarn: e.target.value || undefined,
+                              })
+                            }
+                            className="h-8 w-full rounded border border-slate-200 bg-white px-2 text-xs text-slate-800"
+                          >
+                            <option value="">默认</option>
+                            <option value="wall">-Wall (基础告警)</option>
+                            <option value="extra">-Wall -Wextra (严格)</option>
+                            <option value="strict">-Wall -Wextra -Werror (严格判错)</option>
+                          </select>
                         </div>
                       </div>
                     )}

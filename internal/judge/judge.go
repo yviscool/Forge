@@ -69,6 +69,9 @@ type Request struct {
 	Diff *DiffSpec
 	// 题目级工具链覆盖（对标 LemonLime 每题编译配置；与工具链倍率叠加）。
 	CompileStd              string
+	CompileOpt              string
+	CompileWarn             string
+	CompileFlags            []string
 	TimeLimitRatio          float64
 	MemoryLimitRatio        float64
 	DisableMemoryLimitCheck *bool
@@ -196,7 +199,12 @@ func (o *Orchestrator) JudgeOne(ctx context.Context, req Request) (domain.JudgeO
 		cctx, cancel = context.WithTimeout(ctx, time.Duration(req.CompileTimeoutSec)*time.Second)
 		defer cancel()
 	}
-	compile, err := o.Compiler.Compile(cctx, req.Language, []byte(req.Code), workdir, CompileOptions{Std: req.CompileStd})
+	compile, err := o.Compiler.Compile(cctx, req.Language, []byte(req.Code), workdir, CompileOptions{
+		Std:   req.CompileStd,
+		Opt:   req.CompileOpt,
+		Warn:  req.CompileWarn,
+		Flags: req.CompileFlags,
+	})
 	if err != nil {
 		return domain.JudgeOutcome{}, err
 	}
